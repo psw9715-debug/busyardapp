@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js';
+import { extractSequence } from './plate.js?v=202609020200';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -190,6 +190,8 @@ export function beep(kind) {
     error:   [[300, 0.16]],
     back:    [[660, 0.06], [520, 0.08]],
     done:    [[880, 0.08], [1170, 0.14]],
+    // 찾던 차량 — 다른 소리와 확실히 구분되게 세 번 튄다
+    alert:   [[1320, 0.09], [990, 0.07], [1320, 0.09], [990, 0.07], [1320, 0.14]],
   }[kind] || [[880, 0.06]];
 
   let t = c.currentTime;

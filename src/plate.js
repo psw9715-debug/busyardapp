@@ -24,30 +24,46 @@ const COMMANDS = [
 const isDigitChar = (ch) => ch >= '0' && ch <= '9';
 const isNumChar = (ch) => isDigitChar(ch) || ch in DIGIT || ch in UNIT;
 
-/** "천사십이" 같은 한자어 수사를 정수 배열로. 천 단위가 다시 나오면 새 숫자로 끊는다. */
+/**
+ * "천사십이" 같은 한자어 수사를 정수 배열로.
+ *
+ * 여러 대를 잇달아 부르면 사파리가 "삼백오십오칠백십칠" 처럼 붙여서 준다.
+ * 특히 "천"을 빼고 부르는 습관("천삼백오십오" 대신 "삼백오십오")이면
+ * 끊어줄 표시가 없어서, 수사의 규칙 자체로 경계를 찾아야 한다.
+ *
+ *  - 단위는 천 → 백 → 십 순으로 작아져야 한다. 같거나 커지면 새 번호다.
+ *  - 단위 없이 숫자 말이 잇달아 나와도 새 번호다 ("...오십오" + "칠백...").
+ */
 function parseSinoRun(run) {
   const out = [];
   let total = 0;
   let cur = 0;
+  let hasCur = false;
+  let lastUnit = 0;
   let seen = false;
+
+  const flush = () => {
+    if (seen) out.push(total + cur);
+    total = 0; cur = 0; hasCur = false; lastUnit = 0; seen = false;
+  };
 
   for (const ch of run) {
     if (isDigitChar(ch)) {
       cur = cur * 10 + Number(ch);
+      hasCur = true;
       seen = true;
     } else if (ch in DIGIT) {
+      if (hasCur) flush();          // 숫자 말이 연달아 = 다음 번호 시작
       cur = DIGIT[ch];
+      hasCur = true;
       seen = true;
     } else if (ch in UNIT) {
       const unit = UNIT[ch];
-      // 이미 천 단위를 채운 뒤 또 천이 나오면 다음 차량번호가 시작된 것
-      if (unit === 1000 && total >= 1000) {
-        out.push(total + cur);
-        total = 0;
-        cur = 0;
-      }
-      total += (cur || 1) * unit;
+      if (lastUnit && unit >= lastUnit) flush();   // 단위가 되돌아감 = 다음 번호
+      total += (hasCur ? cur : 1) * unit;
       cur = 0;
+      hasCur = false;
+      lastUnit = unit;
       seen = true;
     }
   }

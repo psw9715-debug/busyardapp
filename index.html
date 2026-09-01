@@ -10,7 +10,7 @@
 <title>차고지 순회</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="src/app.css">
+<link rel="stylesheet" href="src/app.css?v=202609020200">
 </head>
 <body>
 
@@ -23,8 +23,10 @@
       <span class="round" id="roundName">1회차</span>
     </div>
     <div class="bar-right">
-      <button class="icon-btn" id="btnDiag" aria-label="음성 진단">진단</button>
+      <button class="icon-btn" id="btnFind" aria-label="차량번호 찾기">찾기</button>
+      <button class="icon-btn" id="btnTargets" aria-label="찾을 차량 목록">대상<span class="badge" id="targetBadge" hidden></span></button>
       <button class="icon-btn" id="btnPrint" aria-label="인쇄">인쇄</button>
+      <button class="icon-btn" id="btnDiag" aria-label="음성 진단">진단</button>
     </div>
   </header>
   <div class="progress"><div class="progress-fill" id="progressFill"></div></div>
@@ -99,6 +101,55 @@
   </div>
 </div>
 
+<!-- 차량번호 찾기 -->
+<div class="sheet-bg" id="findSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <span>차량번호 찾기</span>
+      <button class="sheet-close" id="findClose">닫기</button>
+    </div>
+    <div class="pad-display" id="findDisplay">
+      <span class="fixed">1</span><span class="slot" data-i="0">_</span><span class="slot" data-i="1">_</span><span class="slot" data-i="2">_</span>
+    </div>
+    <div class="pad-hint">뒤 세 자리를 누르면 바로 찾습니다.</div>
+    <div class="find-results" id="findResults"></div>
+    <div class="pad-keys" id="findKeys">
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <button data-k="clear" class="alt">비움</button>
+      <button data-k="0">0</button>
+      <button data-k="del" class="alt">지움</button>
+    </div>
+  </div>
+</div>
+
+<!-- 찾을 차량 (CCTV·키 회수 대상) -->
+<div class="sheet-bg" id="targetSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <span>찾을 차량 <span class="sheet-sub" id="targetCount"></span></span>
+      <button class="sheet-close" id="targetClose">닫기</button>
+    </div>
+    <p class="target-help">
+      CCTV·키를 가져와야 하는 차량을 미리 넣어두면, 순회 중 그 번호가 입력될 때
+      알려주고 배치도에 빨갛게 표시합니다. 최대 10대.
+    </p>
+    <ul class="target-list" id="targetList"></ul>
+    <div class="pad-display" id="targetDisplay">
+      <span class="fixed">1</span><span class="slot" data-i="0">_</span><span class="slot" data-i="1">_</span><span class="slot" data-i="2">_</span>
+    </div>
+    <div class="pad-keys" id="targetKeys">
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <button data-k="clear" class="alt">비움</button>
+      <button data-k="0">0</button>
+      <button data-k="del" class="alt">지움</button>
+    </div>
+  </div>
+</div>
+
 <!-- 인쇄 전 확인 -->
 <div class="sheet-bg" id="printSheet" hidden>
   <div class="sheet">
@@ -156,6 +207,6 @@
 <!-- 인쇄 전용 레이아웃 -->
 <div id="printArea"></div>
 
-<script type="module" src="src/app.js"></script>
+<script type="module" src="src/app.js?v=202609020200"></script>
 </body>
 </html>

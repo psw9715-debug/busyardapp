@@ -1,8 +1,8 @@
-import { YARD } from './yard-data.js';
-import { BUILD } from './build.js';
-import { toKoreanSino } from './plate.js';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js';
-import { loadSession, setEntry, countFilled, workDate, clearSession } from './store.js';
+import { YARD } from './yard-data.js?v=202609020200';
+import { BUILD } from './build.js?v=202609020200';
+import { toKoreanSino } from './plate.js?v=202609020200';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609020200';
+import { loadSession, setEntry, countFilled, workDate, clearSession } from './store.js?v=202609020200';
 
 // ---------------------------------------------------------------- 상태
 
@@ -60,13 +60,14 @@ function paintSpot(n) {
   const e = session.entries[n];
   const plateEl = el.querySelector('.plate');
 
-  el.classList.remove('filled', 'vacant', 'corrected', 'current');
+  el.classList.remove('filled', 'vacant', 'corrected', 'current', 'target');
   if (e && e.status === 'vacant') {
     el.classList.add('vacant');
     plateEl.textContent = '공차';
   } else if (e) {
     el.classList.add('filled');
     if (e.confidence === 'corrected' || e.confidence === 'assumed') el.classList.add('corrected');
+    if (isTarget(e.plate)) el.classList.add('target');
     plateEl.textContent = e.plate;
   } else {
     plateEl.textContent = '';
@@ -131,6 +132,14 @@ function commit(spot, entry, { announce = true } = {}) {
   } else {
     note('');
     beep('ok');
+  }
+
+  renderTargetBadge();
+
+  // 찾던 차량이면 다른 안내보다 먼저, 확실하게 알린다
+  if (entry.status === 'filled' && isTarget(entry.plate)) {
+    announceTarget(entry.plate, spot);
+    return;
   }
 
   if (isLast && countFilled(session) >= TOTAL) {
@@ -336,6 +345,78 @@ function openSpotSheet(spot) {
   $('spotSheet').hidden = false;
 }
 
+// ---------------------------------------------------------------- 찾을 차량
+
+const MAX_TARGETS = 10;
+
+function loadTargets() {
+  try {
+    const v = JSON.parse(localStorage.getItem('busyard:targets') || '[]');
+    return Array.isArray(v) ? v.slice(0, MAX_TARGETS) : [];
+  } catch (_) { return []; }
+}
+let targets = loadTargets();
+
+function saveTargets() {
+  localStorage.setItem('busyard:targets', JSON.stringify(targets));
+  renderTargetBadge();
+}
+
+function isTarget(plate) {
+  return Boolean(plate) && targets.includes(plate);
+}
+
+function renderTargetBadge() {
+  const badge = $('targetBadge');
+  const found = targets.filter((t) =>
+    Object.values(session.entries).some((e) => e.plate === t)).length;
+  badge.hidden = targets.length === 0;
+  badge.textContent = targets.length ? `${found}/${targets.length}` : '';
+  badge.classList.toggle('all', targets.length > 0 && found === targets.length);
+}
+
+/** 찾던 차를 만났을 때 — 소리와 음성으로 알리고 화면에 남긴다 */
+function announceTarget(plate, spot) {
+  beep('alert');
+  const ms = speak(`${toKoreanSino(plate)}, ${spot}번 자리`, { rate: 1.2 });
+  if (voice) voice.muteFor(ms + 300);
+  note(`★ 찾던 차량 ${plate} — ${spot}번 자리`, 'warn');
+}
+
+function renderTargetList() {
+  const ul = $('targetList');
+  $('targetCount').textContent = `${targets.length}/${MAX_TARGETS}`;
+  if (!targets.length) {
+    ul.innerHTML = '<li class="target-empty">아직 없습니다</li>';
+    return;
+  }
+  ul.innerHTML = targets.map((t) => {
+    const spot = Object.keys(session.entries).find((n) => session.entries[n].plate === t);
+    const where = spot ? `<span class="target-at">${spot}번 자리</span>` : '<span class="target-wait">아직</span>';
+    return `<li><b>${t}</b>${where}<button data-plate="${t}" aria-label="빼기">✕</button></li>`;
+  }).join('');
+}
+
+// ---------------------------------------------------------------- 찾기
+
+/** 뒤 세 자리로 시작하는 차량이 있는 자리들 */
+function findSpots(digits) {
+  const out = [];
+  for (const [n, e] of Object.entries(session.entries)) {
+    if (e.status !== 'filled' || !e.plate) continue;
+    if (e.plate.slice(1).startsWith(digits)) out.push({ spot: Number(n), plate: e.plate });
+  }
+  return out.sort((a, b) => a.spot - b.spot);
+}
+
+function highlightSpot(n) {
+  cellEls.forEach((el) => el.classList.remove('found'));
+  const el = cellEls.get(n);
+  if (!el) return;
+  el.classList.add('found');
+  el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+}
+
 // ---------------------------------------------------------------- 진단
 
 function openDiag() {
@@ -454,11 +535,12 @@ function doPrint() {
 
 function init() {
   $('yardName').textContent = YARD.name.replace(/\s*\(.*\)/, '');
-  $('roundName').textContent = `${session.round}회차 · ${session.date}`;
+  $('roundName').textContent = `${session.round}회차`;
 
   buildMap($('map'), 'live');
   repaintAll();
   renderHud();
+  renderTargetBadge();
   if (countFilled(session) > 0) note(`이어서 ${cursor}번부터 입력합니다`);
 
   $('btnMic').addEventListener('click', toggleMic);
@@ -467,6 +549,94 @@ function init() {
   $('btnPad').addEventListener('click', () => openPad(cursor));
   $('btnPrint').addEventListener('click', askPrint);
   $('btnDiag').addEventListener('click', openDiag);
+
+  // ---- 차량번호 찾기 ----
+  let findDigits = '';
+  const renderFind = () => {
+    document.querySelectorAll('#findDisplay .slot').forEach((el, i) => {
+      el.textContent = findDigits[i] || '_';
+      el.classList.toggle('set', Boolean(findDigits[i]));
+    });
+    const box = $('findResults');
+    if (!findDigits) {
+      box.innerHTML = '<div class="find-none">숫자를 누르면 찾습니다</div>';
+      return;
+    }
+    const hits = findSpots(findDigits);
+    box.innerHTML = hits.length
+      ? hits.map((h) => `<button class="find-hit" data-spot="${h.spot}"><b>${h.plate}</b><span>${h.spot}번 자리</span></button>`).join('')
+      : '<div class="find-none">입력된 차량 중에 없습니다</div>';
+  };
+  $('btnFind').addEventListener('click', () => {
+    primeAudio();
+    if (voice && voice.isOn()) voice.stop();
+    findDigits = ''; renderFind();
+    $('findSheet').hidden = false;
+  });
+  $('findClose').addEventListener('click', () => { $('findSheet').hidden = true; });
+  $('findKeys').addEventListener('click', (ev) => {
+    const k = ev.target.dataset.k;
+    if (!k) return;
+    if (k === 'clear') findDigits = '';
+    else if (k === 'del') findDigits = findDigits.slice(0, -1);
+    else if (findDigits.length < 3) findDigits += k;
+    renderFind();
+  });
+  $('findResults').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('.find-hit');
+    if (!btn) return;
+    const n = Number(btn.dataset.spot);
+    $('findSheet').hidden = true;
+    highlightSpot(n);
+    note(`${n}번 자리 — ${session.entries[n].plate}`);
+  });
+
+  // ---- 찾을 차량 ----
+  let targetDigits = '';
+  const renderTargetPad = () => {
+    document.querySelectorAll('#targetDisplay .slot').forEach((el, i) => {
+      el.textContent = targetDigits[i] || '_';
+      el.classList.toggle('set', Boolean(targetDigits[i]));
+    });
+  };
+  $('btnTargets').addEventListener('click', () => {
+    primeAudio();
+    targetDigits = ''; renderTargetPad(); renderTargetList();
+    $('targetSheet').hidden = false;
+  });
+  $('targetClose').addEventListener('click', () => { $('targetSheet').hidden = true; });
+  $('targetKeys').addEventListener('click', (ev) => {
+    const k = ev.target.dataset.k;
+    if (!k) return;
+    if (k === 'clear') { targetDigits = ''; renderTargetPad(); return; }
+    if (k === 'del') { targetDigits = targetDigits.slice(0, -1); renderTargetPad(); return; }
+    if (targetDigits.length >= 3) return;
+    targetDigits += k;
+    renderTargetPad();
+    if (targetDigits.length === 3) {
+      const plate = '1' + targetDigits;
+      if (targets.length >= MAX_TARGETS) {
+        note(`찾을 차량은 ${MAX_TARGETS}대까지입니다`, 'warn');
+        beep('error');
+      } else if (targets.includes(plate)) {
+        beep('warn');
+      } else {
+        targets.push(plate);
+        saveTargets();
+        repaintAll();
+        beep('ok');
+      }
+      targetDigits = ''; renderTargetPad(); renderTargetList();
+    }
+  });
+  $('targetList').addEventListener('click', (ev) => {
+    const plate = ev.target.dataset.plate;
+    if (!plate) return;
+    targets = targets.filter((t) => t !== plate);
+    saveTargets();
+    renderTargetList();
+    repaintAll();
+  });
 
   $('printClose').addEventListener('click', () => { $('printSheet').hidden = true; });
   $('printGo').addEventListener('click', doPrint);
@@ -481,7 +651,8 @@ function init() {
   });
 
   $('padClose').addEventListener('click', closePad);
-  document.querySelectorAll('.pad-keys button').forEach((b) =>
+  // 찾기·대상 시트도 같은 .pad-keys 를 쓰므로 반드시 이 시트 안으로 한정한다
+  document.querySelectorAll('#padSheet .pad-keys button').forEach((b) =>
     b.addEventListener('click', () => padKey(b.dataset.k)));
 
   $('spotClose').addEventListener('click', () => { $('spotSheet').hidden = true; });

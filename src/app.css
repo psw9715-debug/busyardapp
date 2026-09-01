@@ -39,16 +39,28 @@ html, body {
   padding: 10px 14px 8px;
   flex: none;
 }
-.bar-left { display: flex; align-items: baseline; gap: 8px; }
-.yard { font-size: 15px; font-weight: 700; }
-.round { font-size: 12px; color: var(--ink-dim); }
-.bar-right { display: flex; gap: 8px; }
+.bar-left {
+  display: flex; align-items: baseline; gap: 6px;
+  min-width: 0; overflow: hidden;
+}
+.yard { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.round { font-size: 11px; color: var(--ink-dim); white-space: nowrap; }
+.bar-right { display: flex; gap: 5px; flex: none; }
 .icon-btn {
+  position: relative;
   background: var(--panel-2); color: var(--ink-dim);
   border: 1px solid var(--line); border-radius: 8px;
-  font-size: 12px; padding: 6px 12px; font-family: inherit;
+  font-size: 11px; padding: 7px 8px; font-family: inherit;
+  white-space: nowrap; line-height: 1;
 }
 .icon-btn:active { background: var(--line); }
+.badge {
+  display: inline-block; margin-left: 4px;
+  font-size: 10px; font-weight: 700; color: var(--red);
+  font-variant-numeric: tabular-nums;
+}
+.badge.all { color: var(--green); }
+.badge[hidden] { display: none; }
 
 .progress { height: 3px; background: var(--panel-2); flex: none; }
 .progress-fill {
@@ -131,6 +143,17 @@ html, body {
 .cell.spot.vacant .plate   { color: var(--ink-dim); font-weight: 500; }
 .cell.spot.corrected       { border-color: var(--amber); }
 .cell.spot.corrected .plate{ color: var(--amber); }
+
+/* 찾아야 하는 차량 — 배치도에서 한눈에 띄어야 한다 */
+.cell.spot.target          { background: #4a1f18; border-color: var(--red); }
+.cell.spot.target .plate   { color: #ff9d7a; }
+.cell.spot.target .no      { color: var(--red); }
+
+/* 찾기로 짚은 자리 */
+.cell.spot.found {
+  outline: 2px solid #7fd0ff; outline-offset: -2px;
+  animation: pulse 1s ease-in-out 3;
+}
 
 .cell.spot.current {
   background: var(--amber); border-color: var(--amber);
@@ -243,6 +266,49 @@ html, body {
 .sheet-actions button:active { background: var(--line); }
 .sheet-actions button.danger { color: var(--red); }
 
+/* ---------- 찾기 ---------- */
+.sheet-sub { font-size: 12px; font-weight: 500; color: var(--ink-dim); margin-left: 4px; }
+.find-results {
+  min-height: 56px; max-height: 132px; overflow-y: auto;
+  display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px;
+}
+.find-none {
+  text-align: center; font-size: 13px; color: var(--ink-dim); padding: 16px 0;
+}
+.find-hit {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-radius: 9px; font-family: inherit;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ink);
+}
+.find-hit:active { background: var(--amber); color: var(--amber-ink); }
+.find-hit b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.find-hit span { font-size: 13px; color: var(--ink-dim); }
+.find-hit:active span { color: var(--amber-ink); }
+
+/* ---------- 찾을 차량 ---------- */
+.target-help {
+  font-size: 12.5px; color: var(--ink-dim); line-height: 1.6; margin: 0 2px 12px;
+}
+.target-list { list-style: none; padding: 0; margin: 0 0 12px; }
+.target-list li {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 12px; border-radius: 8px; margin-bottom: 6px;
+  background: var(--panel-2); border: 1px solid var(--line);
+}
+.target-list li b {
+  font-size: 17px; font-variant-numeric: tabular-nums; color: #ff9d7a;
+}
+.target-at { font-size: 12px; color: var(--green); }
+.target-wait { font-size: 12px; color: var(--ink-dim); }
+.target-list li button {
+  margin-left: auto; background: none; border: none;
+  color: var(--ink-dim); font-size: 16px; font-family: inherit; padding: 2px 8px;
+}
+.target-empty {
+  justify-content: center; color: var(--ink-dim); font-size: 13px;
+  background: none !important; border: none !important;
+}
+
 /* ---------- 인쇄 확인 ---------- */
 .print-count {
   text-align: center; font-size: 15px; font-weight: 700;
@@ -336,25 +402,33 @@ html, body {
 #printArea { display: none; }
 
 @media print {
-  @page { size: A4 portrait; margin: 8mm; }
+  /* 반드시 A4 한 장에 들어가야 한다. 사파리가 자체 여백을 더 잡거나
+     머리말/꼬리말을 켜 두는 경우까지 감안해 세로를 넉넉히 남긴다. */
+  @page { size: A4 portrait; margin: 6mm; }
   html, body { overflow: visible; height: auto; background: #fff; color: #000; }
   #app, .sheet-bg { display: none !important; }
-  #printArea { display: block; }
+  #printArea {
+    display: block;
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  #printArea > * { break-inside: avoid; page-break-inside: avoid; }
 
   /* 인수인계용 출력물이라 원본 엑셀 그대로 나와야 한다.
      구역 색과 테두리 굵기는 yard-data.js 에 담아 인라인으로 입힌다. */
   .p-title {
-    font-size: 18pt; font-weight: 700; text-align: center;
-    border: .15pt solid #000; padding: 1mm 0; margin-bottom: 0;
+    font-size: 15pt; font-weight: 700; text-align: center;
+    border: .15pt solid #000; padding: .8mm 0; margin-bottom: 0;
   }
   .p-meta {
-    font-size: 8pt; color: #444; text-align: right;
-    margin: 1mm 0 1.5mm;
+    font-size: 7pt; color: #444; text-align: right;
+    margin: .8mm 0 1.2mm;
   }
+  /* 제목·머리글 약 12mm + 20행 × 11.4mm = 240mm.
+     A4 세로 297mm 에서 사파리가 여백을 넉넉히 잡아도 한 장에 들어간다. */
   .p-map {
     display: grid;
     grid-template-columns: 2.1fr repeat(14, 1fr);
-    grid-auto-rows: 12.4mm;
+    grid-auto-rows: 11.4mm;
     gap: 0;
   }
   /* 화면용 다크 배경이 새어나가지 않도록 인쇄 색을 전부 다시 지정한다 */
@@ -364,7 +438,7 @@ html, body {
     border-radius: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    font-size: 7pt; line-height: 1.15; overflow: hidden;
+    font-size: 6pt; line-height: 1.15; overflow: hidden;
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
   .p-map .cell.void { border: none !important; background: transparent !important; }
@@ -373,11 +447,11 @@ html, body {
      번호 없는 빈 칸에 차량번호만 찍힌다. */
   .p-map .cell .no { display: none; }
   .p-map .cell .plate {
-    font-size: 10.8pt; font-weight: 700; color: #000;
+    font-size: 9.2pt; font-weight: 700; color: #000;
     letter-spacing: -.01em; white-space: nowrap;
   }
-  .p-map .cell.label { font-size: 8pt; font-weight: 700; color: #000; }
+  .p-map .cell.label { font-size: 7pt; font-weight: 700; color: #000; }
   .p-map .cell.label.tall { writing-mode: vertical-rl; letter-spacing: .1em; }
   /* 바닥 고정번호는 표지일 뿐이라 작은 회색 글씨 */
-  .p-map .cell.paint { font-size: 8pt; font-weight: 600; color: #808080; }
+  .p-map .cell.paint { font-size: 6.8pt; font-weight: 600; color: #808080; }
 }
