@@ -170,6 +170,29 @@ log('<h2>▶ 말이 멎으면 확정을 기다리지 않고 넘어간다 (속도
   eq(tokens, ['1724'], '중지해도 이미 넣은 것이 다시 들어가지 않음');
 }
 
+log('<h2>▶ 다 부른 번호는 대기시간과 무관하게 바로 넘어간다</h2>');
+{
+  const { v, tokens } = harness(2000);   // 대기시간을 아주 길게 잡아도
+  v.start();
+  const sr = window.__sr;
+  sr.say('천칠백이십사');                // 다 부른 번호
+  await sleep(220);
+  eq(tokens, ['1724'], '긴 대기시간을 기다리지 않고 넘어감');
+  v.stop();
+}
+{
+  const { v, tokens } = harness(2000);
+  v.start();
+  const sr = window.__sr;
+  sr.say('천칠백');                      // 아직 이어질 수 있는 번호
+  await sleep(220);
+  eq(tokens, [], '덜 부른 번호는 성급히 넣지 않음');
+  sr.say('천칠백이십사');                // 이어서 말함
+  await sleep(220);
+  eq(tokens, ['1724'], '완성되고 나서야 한 번만 들어감');
+  v.stop();
+}
+
 log('<h2>▶ 누적 전사에서 새로 늘어난 것만 처리</h2>');
 {
   const { v, tokens } = harness();

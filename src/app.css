@@ -345,7 +345,7 @@ html, body {
      구역 색과 테두리 굵기는 yard-data.js 에 담아 인라인으로 입힌다. */
   .p-title {
     font-size: 18pt; font-weight: 700; text-align: center;
-    border: .4pt solid #000; padding: 1mm 0; margin-bottom: 0;
+    border: .15pt solid #000; padding: 1mm 0; margin-bottom: 0;
   }
   .p-meta {
     font-size: 8pt; color: #444; text-align: right;
@@ -360,7 +360,7 @@ html, body {
   /* 화면용 다크 배경이 새어나가지 않도록 인쇄 색을 전부 다시 지정한다 */
   .p-map .cell {
     background: #fff; color: #000;
-    border: .4pt solid #000;          /* 전부 같은 얇은 선 */
+    border: .15pt solid #000;         /* 전부 같은, 최대한 얇은 선 */
     border-radius: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;

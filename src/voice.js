@@ -9,6 +9,9 @@ import { extractSequence } from './plate.js';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
+// 다 부른 번호는 이만큼만 기다렸다 넘긴다 (더 이어질 수 없으므로)
+const FAST_MS = 120;
+
 export const isSupported = () => Boolean(SR);
 
 export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
@@ -75,11 +78,20 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
 
       if (pending) {
         if (Date.now() >= muteUntil) onInterim && onInterim(settled + pending, false);
+
         // 사파리는 말이 끝나고도 한참 뒤에야 확정을 준다. 그때까지 기다리면
         // 자리마다 눈에 띄게 굼뜨다. 말이 멎으면 그 자리에서 확정으로 본다.
+        //
+        // 다 부른 번호("천칠백이십사")는 더 이어질 수 없으니 거의 바로 넘긴다.
+        // 아직 이어질 수 있는 것("천칠백")만 제 시간을 기다린다.
+        const tokens = extractSequence(settled + pending);
+        const last = tokens[tokens.length - 1];
+        const done = tokens.length > consumed && last
+          && (last.type !== 'plate' || last.complete);
+
         settleTimer = setTimeout(() => {
           commitFinal(settled + pending);
-        }, settleMs);
+        }, done ? Math.min(settleMs, FAST_MS) : settleMs);
       }
     };
 
@@ -103,7 +115,7 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
       consumed = 0; settled = ''; pending = '';
       if (wanted) {
         clearTimeout(restartTimer);
-        restartTimer = setTimeout(safeStart, 120);
+        restartTimer = setTimeout(safeStart, 60);
       } else {
         status('idle');
       }
@@ -212,10 +224,10 @@ const DIGIT_WORD = ['공', '일', '이', '삼', '사', '오', '육', '칠', '팔
 
 /**
  * 키패드에서 누른 숫자를 바로 읽어준다.
- * 손가락 속도를 따라가야 하므로 앞의 발음을 끊고 아주 빠르게 낸다.
+ * 너무 빠르면 "칠"이 뭉개져 들리지 않아서 1.5배속까지만 올린다.
  */
 export function speakDigit(d) {
   const word = DIGIT_WORD[Number(d)];
   if (word === undefined) return;
-  speak(word, { rate: 2.2 });
+  speak(word, { rate: 1.5 });
 }

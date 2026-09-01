@@ -111,6 +111,18 @@ eq(toKoreanSino('1100'), '천백', '1100 — 일백이 아님');
 eq(toKoreanSino('1010'), '천십', '1010 — 일십이 아님');
 eq(toKoreanSino('1999'), '천구백구십구', '1999');
 
+log('<h2>▶ 다 부른 번호인지 판별 (빨리 넘기기용)</h2>');
+const done = (t) => extractSequence(t).map(x => x.type === 'plate' ? x.complete : x.type);
+eq(done('천'), [false], '"천" — 아직 이어질 수 있음');
+eq(done('천칠백'), [false], '"천칠백" — 아직 이어질 수 있음');
+eq(done('천칠백이십'), [false], '"천칠백이십" — 아직 이어질 수 있음');
+eq(done('천칠백이십사'), [true], '"천칠백이십사" — 다 부름');
+eq(done('천사십이'), [true], '"천사십이" — 다 부름');
+eq(done('1724'), [true], '숫자 네 자리 — 다 부름');
+eq(done('172'), [false], '숫자 세 자리 — 아직');
+eq(done('일칠이사'), [true], '자릿수로 네 개 — 다 부름');
+eq(done('천사십이 천칠백'), [true, false], '앞은 끝났고 뒤는 진행 중');
+
 log('<h2>▶ 왕복 검사 — 1000~1999 전 구간</h2>');
 {
   const broken = [];

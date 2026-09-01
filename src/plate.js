@@ -159,15 +159,22 @@ export function extractSequence(text) {
       const run = s.slice(i, j);
       const hasUnit = [...run].some((ch) => ch in UNIT);
 
+      // complete: 더 이어질 수 없는, 다 부른 번호인가.
+      // "천칠백" 은 아직 "천칠백이십사" 가 될 수 있지만 "천칠백이십사" 는 끝이다.
+      // 모든 번호가 네 자리라는 규칙 덕에 이 판단이 확실하다.
       if (hasUnit) {
-        for (const n of parseSinoRun(run)) {
+        const nums = parseSinoRun(run);
+        const endsWithUnit = run[run.length - 1] in UNIT;
+        nums.forEach((n, i) => {
           const p = normalizePlate(String(n));
-          if (p) tokens.push({ type: 'plate', ...p, raw: run });
-        }
+          if (!p) return;
+          const last = i === nums.length - 1;
+          tokens.push({ type: 'plate', ...p, raw: run, complete: !(last && endsWithUnit) });
+        });
       } else {
         for (const chunk of chunkDigits(parseDigitRun(run))) {
           const p = normalizePlate(chunk);
-          if (p) tokens.push({ type: 'plate', ...p, raw: run });
+          if (p) tokens.push({ type: 'plate', ...p, raw: run, complete: chunk.length === 4 });
         }
       }
       i = j;

@@ -172,13 +172,16 @@ let keyTtsOn = localStorage.getItem('busyard:keytts') !== '0';
 
 // 말이 멎고 얼마 만에 확정할지. 짧을수록 다음 자리로 빨리 넘어가지만,
 // 번호를 중간에 끊어 말하면 두 개로 쪼개질 수 있다.
+// 다 부른 번호("천칠백이십사")는 이 값과 무관하게 거의 바로 넘어간다.
 const SETTLE = [
+  { ms: 200, label: '아주 빠름' },
   { ms: 300, label: '빠름' },
   { ms: 450, label: '보통' },
   { ms: 700, label: '느림' },
 ];
-let settleIdx = Number(localStorage.getItem('busyard:settle') ?? 1);
-if (!SETTLE[settleIdx]) settleIdx = 1;
+const savedSettle = Number(localStorage.getItem('busyard:settlems'));
+let settleIdx = SETTLE.findIndex((s) => s.ms === savedSettle);
+if (settleIdx < 0) settleIdx = 1;   // 기본 빠름
 
 function readBackPlate(plate) {
   if (!padTtsOn || !plate) return;
@@ -269,12 +272,12 @@ document.addEventListener('visibilitychange', () => {
 
 let padSpot = null;
 let padDigits = '';
-let padPausedVoice = false;
 
 function openPad(spot) {
   primeAudio();
   // 키패드를 쓰는 동안 마이크가 켜져 있으면 숫자 읽는 소리까지 받아 적는다.
-  if (voice && voice.isOn()) { voice.stop(); padPausedVoice = true; }
+  // 닫아도 다시 켜지 않는다 — 음성으로 돌아갈 때 직접 누르면 된다.
+  if (voice && voice.isOn()) { voice.stop(); releaseWakeLock(); }
 
   padSpot = spot; padDigits = '';
   $('padTitle').textContent = `${spot}번 자리`;
@@ -284,10 +287,6 @@ function openPad(spot) {
 
 function closePad() {
   $('padSheet').hidden = true;
-  if (padPausedVoice) {
-    padPausedVoice = false;
-    ensureVoice().start();      // 키패드 쓰기 전에 켜져 있었으면 되돌린다
-  }
 }
 function renderPad() {
   document.querySelectorAll('#padDisplay .slot').forEach((el, i) => {
@@ -443,9 +442,10 @@ function doPrint() {
     `<div class="p-map" id="pMap"></div>`;
   const pMap = $('pMap');
   buildMap(pMap, 'print');
+  // 공차는 찍지 않는다. 종이에서는 빈 칸이 곧 공차이고, 글자가 있으면 지저분하다.
   pMap.querySelectorAll('.cell.spot').forEach((el) => {
     const e = session.entries[Number(el.dataset.spot)];
-    if (e) el.querySelector('.plate').textContent = e.status === 'vacant' ? '공차' : e.plate;
+    if (e && e.status === 'filled') el.querySelector('.plate').textContent = e.plate;
   });
   window.print();
 }
@@ -555,7 +555,7 @@ function init() {
       if (keyTtsOn) speakDigit('7');
     } else if (name.includes('넘어가는 속도')) {
       settleIdx = (settleIdx + 1) % SETTLE.length;
-      localStorage.setItem('busyard:settle', String(settleIdx));
+      localStorage.setItem('busyard:settlems', String(SETTLE[settleIdx].ms));
       if (voice) voice.setSettle(SETTLE[settleIdx].ms);
       openDiag();
     }
