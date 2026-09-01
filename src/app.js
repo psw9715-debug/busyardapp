@@ -1,8 +1,8 @@
-import { YARD } from './yard-data.js?v=202609020200';
-import { BUILD } from './build.js?v=202609020200';
-import { toKoreanSino } from './plate.js?v=202609020200';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609020200';
-import { loadSession, setEntry, countFilled, workDate, clearSession } from './store.js?v=202609020200';
+import { YARD } from './yard-data.js?v=202609020228';
+import { BUILD } from './build.js?v=202609020228';
+import { toKoreanSino } from './plate.js?v=202609020228';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609020228';
+import { loadSession, setEntry, countFilled, workDate, clearSession } from './store.js?v=202609020228';
 
 // ---------------------------------------------------------------- 상태
 

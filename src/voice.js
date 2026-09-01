@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202609020200';
+import { extractSequence } from './plate.js?v=202609020228';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -37,7 +37,7 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
    */
   function commitFinal(finalText) {
     const tokens = extractSequence(finalText);
-    if (tokens.length <= consumed) return;
+    if (tokens.length <= consumed) return false;
 
     const fresh = tokens.slice(consumed);
     // 차단 구간이라도 소비 처리는 해야 한다. 그러지 않으면 차단이 풀리는 순간
@@ -46,6 +46,22 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
     if (Date.now() >= muteUntil) {
       for (const t of fresh) onToken && onToken(t);
     }
+    return true;
+  }
+
+  /**
+   * 한 대를 넣고 나면 인식을 끊었다 다시 켠다.
+   *
+   * 사파리는 한 세션에서 들은 말을 계속 이어붙여 주는데, 그 위에서 "이번에
+   * 새로 늘어난 부분"을 골라내는 방식은 말이 길어질수록 어긋나기 쉽다.
+   * 자리마다 새 세션으로 시작하면 늘 빈 종이에서 출발하므로 훨씬 확실하다.
+   * (사용자가 손으로 껐다 켜면 잘 되던 것과 같은 상태를 만든다.)
+   *
+   * 확정 직후는 이미 말이 멎은 뒤라, 끊는다고 말을 자를 일은 없다.
+   */
+  function recycle() {
+    if (!wanted || !running || !rec) return;
+    try { rec.abort(); } catch (_) { /* onend 가 알아서 다시 켠다 */ }
   }
 
   function build() {
@@ -61,6 +77,10 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
     };
 
     r.onresult = (e) => {
+      // 끊은 뒤에 뒤늦게 도착한 결과는 버린다. 안 그러면 방금 넣은 번호가
+      // 새 세션의 빈 상태에서 한 번 더 들어간다.
+      if (!running) return;
+
       // 사파리는 세션 시작부터의 전사를 누적해서 준다.
       // 확정된 부분과 아직 말하는 중인 부분을 나눠서 받는다.
       let finalText = '';
@@ -90,7 +110,7 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
           && (last.type !== 'plate' || last.complete);
 
         settleTimer = setTimeout(() => {
-          commitFinal(settled + pending);
+          if (commitFinal(settled + pending)) recycle();
         }, done ? Math.min(settleMs, FAST_MS) : settleMs);
       }
     };
@@ -226,10 +246,11 @@ const DIGIT_WORD = ['공', '일', '이', '삼', '사', '오', '육', '칠', '팔
 
 /**
  * 키패드에서 누른 숫자를 바로 읽어준다.
- * 너무 빠르면 "칠"이 뭉개져 들리지 않아서 1.5배속까지만 올린다.
+ * 한 글자짜리라 빠르게 내면 뭉개져 무슨 소리인지 알 수 없다.
+ * 잘못 누른 것을 알아채는 게 목적이므로 또렷한 쪽을 택한다.
  */
 export function speakDigit(d) {
   const word = DIGIT_WORD[Number(d)];
   if (word === undefined) return;
-  speak(word, { rate: 1.5 });
+  speak(word, { rate: 1.0 });
 }

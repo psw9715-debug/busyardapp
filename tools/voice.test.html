@@ -69,6 +69,18 @@ function eq(a_, e_, label) {
 }
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+/** 조건이 성립할 때까지 기다린다.
+ *  브라우저가 백그라운드 탭의 타이머를 1초 단위로 늦추기 때문에
+ *  고정 시간으로 기다리면 환경에 따라 들쭉날쭉해진다. */
+async function waitFor(cond, limit = 4000) {
+  const until = Date.now() + limit;
+  while (Date.now() < until) {
+    if (cond()) return true;
+    await sleep(30);
+  }
+  return false;
+}
+
 function harness(settleMs = 100000) {   // 기본은 스스로 확정하지 않게 아주 길게
   const tokens = [];
   const states = [];
@@ -142,7 +154,7 @@ log('<h2>▶ 말이 멎으면 확정을 기다리지 않고 넘어간다 (속도
   eq(tokens, [], '멎은 직후에는 아직 아님');
   await sleep(200);
   eq(tokens, ['1724'], '사파리 확정을 기다리지 않고 넘어감');
-  sr.finalize('천칠백이십사');   // 뒤늦게 확정이 와도
+  sr.finalize('천칠백이십사');   // 끊긴 뒤 뒤늦게 확정이 와도
   eq(tokens, ['1724'], '같은 값이 두 번 들어가지 않음');
   v.stop();
 }
@@ -151,11 +163,11 @@ log('<h2>▶ 말이 멎으면 확정을 기다리지 않고 넘어간다 (속도
   v.start();
   const sr = window.__sr;
   sr.say('천칠백이십사');
-  await sleep(200);
+  await waitFor(() => tokens.length === 1);
   eq(tokens, ['1724'], '첫 번째 자리');
-  sr.finalize('천칠백이십사');
-  sr.say('천오백육');            // 이어서 다음 차
-  await sleep(200);
+  await waitFor(() => sr._started);          // 새 세션이 열릴 때까지
+  sr.say('천오백육');                         // 이어서 다음 차
+  await waitFor(() => tokens.length === 2);
   eq(tokens, ['1724', '1506'], '이어지는 자리도 스스로 확정');
   v.stop();
 }
@@ -190,6 +202,40 @@ log('<h2>▶ 다 부른 번호는 대기시간과 무관하게 바로 넘어간�
   sr.say('천칠백이십사');                // 이어서 말함
   await sleep(220);
   eq(tokens, ['1724'], '완성되고 나서야 한 번만 들어감');
+  v.stop();
+}
+
+log('<h2>▶ 한 대 넣을 때마다 인식을 새로 시작한다 (현장 버그)</h2>');
+{
+  // "칠백십칠" 하고 다음 자리에서 "칠백이십칠" 하면 아무것도 안 들어가던 문제.
+  // 자리마다 새 세션에서 시작하면 늘 빈 종이라 어긋날 일이 없다.
+  const { v, tokens } = harness(120);
+  v.start();
+  const sr = window.__sr;
+  sr.say('칠백십칠');
+  await waitFor(() => tokens.length === 1);
+  eq(tokens, ['1717'], '첫 대 입력');
+
+  await waitFor(() => sr._started);
+  eq(sr._started, true, '곧바로 새 세션이 열린다');
+  eq(sr.finals.length === 0 && sr.interim === null, true, '앞서 들은 말은 남아 있지 않다');
+  sr.say('칠백이십칠');
+  await waitFor(() => tokens.length === 2);
+  eq(tokens, ['1717', '1727'], '다음 대도 바로 들어간다');
+  v.stop();
+}
+{
+  const { v, tokens } = harness(120);
+  v.start();
+  const sr = window.__sr;
+  let n = 0;
+  for (const say of ['삼백오십오', '칠백십칠', '천사십이', '구백구십구']) {
+    await waitFor(() => sr._started);
+    sr.say(say);
+    n += 1;
+    await waitFor(() => tokens.length === n);
+  }
+  eq(tokens, ['1355', '1717', '1042', '1999'], '네 대 연속으로 끊김 없이');
   v.stop();
 }
 
