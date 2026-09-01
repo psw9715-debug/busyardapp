@@ -1,0 +1,575 @@
+<title>차고지 순회 앱 설계서</title>
+<meta charset="UTF-8">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+KR:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --bg:#f3efe4;
+  --paper:#fffdf8;
+  --ink:#242018;
+  --ink-dim:#6b6455;
+  --rule:#ddd5c2;
+  --accent:#c77d16;
+  --accent-ink:#ffffff;
+  --ok:#3f7d5c;
+  --warn:#b4451f;
+  --spot-bg:#efe9d8;
+  --spot-border:#d8cfb6;
+  --void-bg:transparent;
+  --skip-bg:#e9e2d0;
+  --label-bg:#e3dcc7;
+  --code-bg:#eae4d3;
+  --shadow: 0 1px 2px rgba(40,32,10,.06), 0 8px 24px rgba(40,32,10,.06);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --bg:#15140f;
+    --paper:#1c1b15;
+    --ink:#ece6d6;
+    --ink-dim:#a39a83;
+    --rule:#39362a;
+    --accent:#e6a23c;
+    --accent-ink:#1c1408;
+    --ok:#69b993;
+    --warn:#e2794f;
+    --spot-bg:#242116;
+    --spot-border:#3c3826;
+    --void-bg:transparent;
+    --skip-bg:#242116;
+    --label-bg:#2a2619;
+    --code-bg:#25221a;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  }
+}
+:root[data-theme="dark"]{
+  --bg:#15140f;
+  --paper:#1c1b15;
+  --ink:#ece6d6;
+  --ink-dim:#a39a83;
+  --rule:#39362a;
+  --accent:#e6a23c;
+  --accent-ink:#1c1408;
+  --ok:#69b993;
+  --warn:#e2794f;
+  --spot-bg:#242116;
+  --spot-border:#3c3826;
+  --void-bg:transparent;
+  --skip-bg:#242116;
+  --label-bg:#2a2619;
+  --code-bg:#25221a;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg); color:var(--ink);
+  font-family:"Noto Sans KR", "Malgun Gothic", sans-serif;
+  line-height:1.7; -webkit-font-smoothing:antialiased;
+}
+::selection{ background:var(--accent); color:var(--accent-ink); }
+
+.wrap{ max-width:840px; margin:0 auto; padding:64px 24px 120px; }
+
+header.hero{
+  padding-bottom:36px; margin-bottom:40px; border-bottom:1px solid var(--rule);
+}
+.eyebrow{
+  font-family:"IBM Plex Mono", monospace; font-size:12.5px; letter-spacing:.12em;
+  text-transform:uppercase; color:var(--accent); font-weight:600; margin-bottom:14px;
+}
+h1{
+  font-family:"Noto Serif KR", serif; font-weight:700;
+  font-size:clamp(28px,4.2vw,42px); line-height:1.25; margin:0 0 12px; text-wrap:balance;
+}
+.sub{ color:var(--ink-dim); font-size:16px; max-width:62ch; }
+.metarow{
+  display:flex; flex-wrap:wrap; gap:10px 22px; margin-top:22px;
+  font-family:"IBM Plex Mono", monospace; font-size:12.5px; color:var(--ink-dim);
+}
+.metarow b{ color:var(--ink); font-weight:600; }
+
+section{ margin:56px 0; }
+h2{
+  font-family:"Noto Serif KR", serif; font-weight:700; font-size:23px;
+  display:flex; align-items:baseline; gap:12px; margin:0 0 6px;
+}
+h2 .num{ font-family:"IBM Plex Mono", monospace; color:var(--accent); font-size:15px; font-weight:600; }
+h2 + .lede{ color:var(--ink-dim); font-size:14.5px; margin:0 0 22px; max-width:64ch; }
+h3{ font-size:16.5px; font-weight:700; margin:28px 0 10px; }
+p{ margin:0 0 14px; max-width:66ch; }
+ul,ol{ margin:0 0 16px; padding-left:22px; }
+li{ margin-bottom:6px; max-width:64ch; }
+code{ font-family:"IBM Plex Mono",monospace; background:var(--code-bg); padding:1.5px 6px; border-radius:4px; font-size:.9em; }
+strong{ font-weight:700; }
+a{ color:var(--accent); }
+
+.card{
+  background:var(--paper); border:1px solid var(--rule); border-radius:10px;
+  padding:22px 24px; box-shadow:var(--shadow);
+}
+.grid2{ display:grid; grid-template-columns:1fr 1fr; gap:16px; }
+@media (max-width:640px){ .grid2{ grid-template-columns:1fr; } }
+
+.decision{
+  display:grid; grid-template-columns:120px 1fr; gap:4px 16px;
+  padding:14px 0; border-bottom:1px solid var(--rule);
+  font-size:14.5px;
+}
+.decision:last-child{ border-bottom:none; }
+.decision .k{ font-family:"IBM Plex Mono",monospace; font-size:12px; color:var(--ink-dim); letter-spacing:.03em; padding-top:2px; }
+.decision .v b{ color:var(--ink); }
+.decision .v{ color:var(--ink-dim); }
+
+.tag{
+  display:inline-block; font-family:"IBM Plex Mono",monospace; font-size:11px;
+  letter-spacing:.04em; padding:2px 8px; border-radius:20px; font-weight:600;
+  border:1px solid currentColor;
+}
+.tag.ok{ color:var(--ok); }
+.tag.warn{ color:var(--warn); }
+.tag.info{ color:var(--accent); }
+
+table{ width:100%; border-collapse:collapse; font-size:14px; }
+th,td{ text-align:left; padding:9px 10px; border-bottom:1px solid var(--rule); vertical-align:top; }
+th{ font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.05em; text-transform:uppercase; color:var(--ink-dim); font-weight:600; }
+.tablewrap{ overflow-x:auto; }
+
+.risk{
+  border-left:3px solid var(--warn); background:var(--code-bg); border-radius:0 8px 8px 0;
+  padding:14px 18px; margin:16px 0;
+}
+.risk .lbl{ font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.06em; color:var(--warn); font-weight:700; text-transform:uppercase; margin-bottom:6px; }
+
+.flow{ display:flex; flex-direction:column; gap:0; margin:18px 0; }
+.step{ display:flex; gap:16px; padding:14px 0; border-bottom:1px solid var(--rule); }
+.step:last-child{ border-bottom:none; }
+.step .idx{
+  font-family:"IBM Plex Mono",monospace; color:var(--accent); font-weight:700; font-size:13px;
+  min-width:22px;
+}
+.step .body b{ display:block; margin-bottom:2px; }
+.step .body span{ color:var(--ink-dim); font-size:14px; }
+
+/* ---- yard map mockup ---- */
+.phone{
+  background:#100f0b; border-radius:26px; padding:14px; box-shadow:var(--shadow);
+  max-width:340px; margin:0 auto;
+}
+.screen{
+  background:#0b0b08; border-radius:16px; padding:14px 12px 16px; color:#efe8d6;
+  font-family:"Noto Sans KR",sans-serif;
+}
+.screen .statusbar{
+  display:flex; justify-content:space-between; align-items:center;
+  font-family:"IBM Plex Mono",monospace; font-size:10.5px; color:#8f8770; margin-bottom:10px;
+}
+.screen .prog{
+  font-family:"IBM Plex Mono",monospace; font-size:11.5px; color:#e6a23c;
+  text-align:center; margin-bottom:10px; letter-spacing:.03em;
+}
+.yardgrid{
+  display:grid;
+  grid-template-columns:repeat(15,1fr);
+  grid-auto-rows:16px;
+  gap:1.5px;
+  background:#1c1a12;
+  border-radius:8px;
+  padding:4px;
+}
+.yardgrid .c{
+  background:var(--void-bg);
+  display:flex; align-items:center; justify-content:center;
+  border-radius:2px;
+  font-family:"IBM Plex Mono",monospace;
+}
+.yardgrid .c.spot{ background:#2a2716; border:0.5px solid #423d27; }
+.yardgrid .c.spot .n{ font-size:6.5px; color:#c9c0a2; }
+.yardgrid .c.spot.filled{ background:#3a4a2f; }
+.yardgrid .c.spot.filled .n{ color:#a9d18e; font-size:5px; }
+.yardgrid .c.spot.current{ background:#e6a23c; }
+.yardgrid .c.spot.current .n{ color:#1c1408; font-weight:700; }
+.yardgrid .c.label{ background:#211f16; color:#65604c; font-size:5px; writing-mode:vertical-rl; }
+.yardgrid .c.skip{ opacity:.25; }
+.yardgrid .c.skip .n{ font-size:5px; color:#65604c; }
+.yardgrid .c.void{}
+
+.voicebar{
+  margin-top:12px; display:flex; align-items:center; gap:8px;
+  background:#1c1a12; border-radius:10px; padding:10px 12px;
+}
+.voicebar .dot{ width:9px; height:9px; border-radius:50%; background:#e6a23c; flex:none; }
+.voicebar .txt{ font-size:12px; color:#c9c0a2; }
+.voicebar .txt b{ color:#efe8d6; }
+
+.caption{ text-align:center; font-size:12px; color:var(--ink-dim); margin-top:12px; font-family:"IBM Plex Mono",monospace; }
+
+.checklist{ list-style:none; padding:0; margin:0; }
+.checklist li{
+  display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--rule); font-size:14.5px;
+}
+.checklist li:last-child{ border-bottom:none; }
+.checklist .box{
+  flex:none; width:16px; height:16px; margin-top:2px; border-radius:4px;
+  border:1.5px solid var(--ink-dim);
+}
+
+.footer{
+  margin-top:80px; padding-top:24px; border-top:1px solid var(--rule);
+  font-size:12.5px; color:var(--ink-dim); font-family:"IBM Plex Mono",monospace;
+}
+
+@media (prefers-reduced-motion:no-preference){
+  .yardgrid .c.spot.current{ animation:pulse 1.8s ease-in-out infinite; }
+}
+@keyframes pulse{ 0%,100%{opacity:1} 50%{opacity:.55} }
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">SOFTWARE DESIGN &middot; V1</div>
+    <h1>차고지 순회 음성입력 앱 설계서</h1>
+    <p class="sub">6차고지(신차고지) 109자리 순회 배차 기록을 볼펜 대신 음성으로. iPhone 13 mini + AirPods, 홈화면 설치형 웹앱(PWA) 기준.</p>
+    <div class="metarow">
+      <span>대상 차고지 <b>6차고지 · 신차고지 (109자리)</b></span>
+      <span>사용 기기 <b>iPhone 13 mini</b></span>
+      <span>근무시간 <b>21:30 – 익일 06:30</b></span>
+      <span>배포 <b>GitHub Pages → 홈화면 추가</b></span>
+    </div>
+  </header>
+
+  <section id="decisions">
+    <h2><span class="num">0</span> 확정된 결정 사항</h2>
+    <p class="lede">인수인계 문서 이후 대화로 확정된 사항. 이후 섹션은 전부 이 결정을 전제로 설계됨.</p>
+    <div class="card">
+      <div class="decision"><div class="k">플랫폼</div><div class="v"><b>iOS 네이티브 → PWA로 전환.</b> 보유 기기(아이폰 미니13 · 아이패드프로 1세대)로는 Xcode 실행 불가, 맥 없음. 무료 애플 ID라 사이드로드도 7일 만료라서 애초에 네이티브가 불리했음.</div></div>
+      <div class="decision"><div class="k">배포</div><div class="v"><b>GitHub Pages.</b> 기존 GitHub 계정 사용. HTTPS 주소 필수(사파리 마이크 권한 조건) — 로컬 파일 열기 방식은 불가.</div></div>
+      <div class="decision"><div class="k">인쇄 트리거</div><div class="v"><b>수동 버튼.</b> GPS 지오펜싱·WiFi SSID 감지 전부 불필요해짐 — 유료 개발자 계정 이슈, 백그라운드 감지 불안정성 리스크 소멸.</div></div>
+      <div class="decision"><div class="k">차량번호 규칙</div><div class="v"><b>4자리 중 첫째 자리는 항상 &ldquo;1&rdquo; 고정</b> (1000번대만 존재). 인식 보정에 직접 활용.</div></div>
+      <div class="decision"><div class="k">번호 없는 13칸</div><div class="v">L열 하단, 로컬 번호 1–13. <b>현장 참고용 고정 번호일 뿐 순회 대상 아님</b> → 순회 시퀀스(1–109)에서 완전히 제외, 배치도엔 흐리게 표시만.</div></div>
+      <div class="decision"><div class="k">사용 자세</div><div class="v">에어팟 낀 날은 음성 위주, 화면은 <b>보조 확인용</b>(안 보이는 날 대비 항상 크게). 순수 음성 전용으로 못박지 않고 화면·음성 둘 다 항상 동작.</div></div>
+    </div>
+  </section>
+
+  <section id="stack">
+    <h2><span class="num">1</span> 기술 스택 &amp; 배포</h2>
+    <div class="grid2">
+      <div class="card">
+        <h3>왜 PWA인가</h3>
+        <p>Xcode는 macOS 전용이라 보유 기기(아이폰/아이패드)만으로는 네이티브 빌드 자체가 불가능. 아이패드 Swift Playgrounds는 그 기기에만 설치되고 아이폰으로 옮길 수 없음. 반면 PWA는 <b>사파리로 한 번 열고 홈화면에 추가</b>하면 끝 — 만료 없음, 맥 불필요, 아이콘·전체화면·오프라인까지 네이티브와 체감상 거의 동일.</p>
+      </div>
+      <div class="card">
+        <h3>구성</h3>
+        <ul>
+          <li>순수 HTML/CSS/JS (프레임워크 없이 — 코드량 자체가 적어 빌드 도구가 오히려 손해)</li>
+          <li><code>manifest.json</code> + Service Worker → 홈화면 아이콘, 오프라인 캐싱</li>
+          <li>데이터 저장: <code>localStorage</code> / IndexedDB — 껐다 켜도 순회 데이터 유지</li>
+          <li>GitHub Pages 정적 호스팅, 수정 시 <code>git push</code>로 즉시 반영</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+  <section id="data">
+    <h2><span class="num">2</span> 데이터 모델 — 신차고지 109자리</h2>
+    <p class="lede"><code>차고지 프린트.xlsx</code>의 <code>신차고지-순서</code> 시트와 <code>spot_map.json</code>을 대조 검증 완료 — 109/109 완전 일치, 누락·오타 0건.</p>
+
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>필드</th><th>설명</th></tr></thead>
+        <tbody>
+          <tr><td><code>spot</code></td><td>순회 순번 1–109. 이 순서가 실제 도보 동선.</td></tr>
+          <tr><td><code>cell</code></td><td>엑셀 원본 좌표 (예: <code>N3</code>). 화면 그리드 위치로 환산하는 기준.</td></tr>
+          <tr><td><code>plate</code></td><td>입력된 차량번호 뒤 3자리 (앞자리 &ldquo;1&rdquo;은 고정 가정, 화면엔 4자리 완전 표시).</td></tr>
+          <tr><td><code>status</code></td><td><code>empty</code> · <code>filled</code> · <code>vacant</code>(공차)</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>그리드 좌표 변환</h3>
+    <p>원본 병합 셀은 세로 3행(예: <code>N3:N5</code>)이 자리 하나. <code>cell</code>의 알파벳 열은 <b>14열 그리드</b>(A,B,C,D,E,F,G,H,I,J,K,L,M,N)로, 숫자 행은 <code>(행-3)/3+1</code> 공식으로 <b>20행 그리드</b>로 환산해 CSS Grid에 그대로 배치. 정비고·교통사업처·화단·CCTV·KEY·수소차고지·굴절버스 충전소·B2/B4/B5 라벨은 동일 그리드 위에 비입력 블록으로 함께 배치해야 실제 종이와 같은 모양이 나옴 (아래 3번 참고).</p>
+  </section>
+
+  <section id="screens">
+    <h2><span class="num">3</span> 화면 설계</h2>
+    <p class="lede">엑셀 병합 구조를 그대로 CSS Grid로 재현한 배치도 미리보기. 실제로는 핀치줌 가능한 전체 화면.</p>
+
+    <div class="phone">
+      <div class="screen">
+        <div class="statusbar"><span>6차고지 · 신차고지</span><span>1회차</span></div>
+        <div class="prog">▶ 24번째 자리 대기 중 &nbsp;(23/109 완료)</div>
+        <div class="yardgrid" id="yardgrid">
+<div class="c spot" style="grid-column:1/span 1;grid-row:1/span 1"><span class="n">82</span></div>
+<div class="c label" style="grid-column:2/span 1;grid-row:1/span 11">수소차고지</div>
+<div class="c spot" style="grid-column:3/span 1;grid-row:1/span 1"><span class="n">39</span></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:1/span 1"><span class="n">41</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:1/span 1"><span class="n">43</span></div>
+<div class="c spot" style="grid-column:6/span 1;grid-row:1/span 1"><span class="n">44</span></div>
+<div class="c spot" style="grid-column:7/span 1;grid-row:1/span 1"><span class="n">45</span></div>
+<div class="c label" style="grid-column:8/span 2;grid-row:1/span 1">정비고</div>
+<div class="c label" style="grid-column:10/span 2;grid-row:1/span 1">교통사업처</div>
+<div class="c spot" style="grid-column:13/span 1;grid-row:1/span 1"><span class="n">109</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:1/span 1"><span class="n">1</span></div>
+<div class="c label" style="grid-column:15/span 1;grid-row:1/span 7">B5</div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:2/span 1"><span class="n">81</span></div>
+<div class="c spot" style="grid-column:3/span 1;grid-row:2/span 1"><span class="n">40</span></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:2/span 1"><span class="n">42</span></div>
+<div class="c label" style="grid-column:5/span 1;grid-row:2/span 1">화단</div>
+<div class="c spot" style="grid-column:6/span 1;grid-row:2/span 1"><span class="n">46</span></div>
+<div class="c label" style="grid-column:7/span 1;grid-row:2/span 19">B2B4</div>
+<div class="c spot" style="grid-column:8/span 1;grid-row:2/span 1"><span class="n">83</span></div>
+<div class="c spot" style="grid-column:9/span 1;grid-row:2/span 1"><span class="n">84</span></div>
+<div class="c spot" style="grid-column:13/span 1;grid-row:2/span 1"><span class="n">108</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:2/span 1"><span class="n">2</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:3/span 1"><span class="n">80</span></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:3/span 1"></div>
+<div class="c void" style="grid-column:4/span 1;grid-row:3/span 1"></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:3/span 1"><span class="n">38</span></div>
+<div class="c spot" style="grid-column:6/span 1;grid-row:3/span 1"><span class="n">47</span></div>
+<div class="c spot" style="grid-column:8/span 1;grid-row:3/span 1"><span class="n">85</span></div>
+<div class="c spot" style="grid-column:9/span 1;grid-row:3/span 1"><span class="n">86</span></div>
+<div class="c spot" style="grid-column:13/span 1;grid-row:3/span 1"><span class="n">107</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:3/span 1"><span class="n">3</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:4/span 1"><span class="n">79</span></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:4/span 1"></div>
+<div class="c void" style="grid-column:4/span 1;grid-row:4/span 1"></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:4/span 1"><span class="n">37</span></div>
+<div class="c spot" style="grid-column:6/span 1;grid-row:4/span 1"><span class="n">48</span></div>
+<div class="c spot" style="grid-column:8/span 1;grid-row:4/span 1"><span class="n">87</span></div>
+<div class="c spot" style="grid-column:9/span 1;grid-row:4/span 1"><span class="n">88</span></div>
+<div class="c spot" style="grid-column:13/span 1;grid-row:4/span 1"><span class="n">106</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:4/span 1"><span class="n">4</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:5/span 1"><span class="n">78</span></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:5/span 1"></div>
+<div class="c void" style="grid-column:4/span 1;grid-row:5/span 1"></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:5/span 1"><span class="n">36</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:5/span 1"></div>
+<div class="c spot" style="grid-column:8/span 1;grid-row:5/span 1"><span class="n">89</span></div>
+<div class="c spot" style="grid-column:9/span 1;grid-row:5/span 1"><span class="n">90</span></div>
+<div class="c spot" style="grid-column:13/span 1;grid-row:5/span 1"><span class="n">105</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:5/span 1"><span class="n">5</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:6/span 1"><span class="n">77</span></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:6/span 1"></div>
+<div class="c void" style="grid-column:4/span 1;grid-row:6/span 1"></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:6/span 1"><span class="n">35</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:6/span 1"></div>
+<div class="c spot" style="grid-column:8/span 1;grid-row:6/span 1"><span class="n">91</span></div>
+<div class="c spot" style="grid-column:9/span 1;grid-row:6/span 1"><span class="n">92</span></div>
+<div class="c spot" style="grid-column:13/span 1;grid-row:6/span 1"><span class="n">104</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:6/span 1"><span class="n">6</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:7/span 1"><span class="n">76</span></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:7/span 1"></div>
+<div class="c void" style="grid-column:4/span 1;grid-row:7/span 1"></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:7/span 1"><span class="n">34</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:7/span 1"></div>
+<div class="c spot" style="grid-column:8/span 1;grid-row:7/span 1"><span class="n">93</span></div>
+<div class="c spot" style="grid-column:9/span 1;grid-row:7/span 1"><span class="n">94</span></div>
+<div class="c spot" style="grid-column:13/span 1;grid-row:7/span 1"><span class="n">103</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:7/span 1"><span class="n">7</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:8/span 1"><span class="n">75</span></div>
+<div class="c spot" style="grid-column:3/span 1;grid-row:8/span 1"><span class="n">62</span></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:8/span 1"><span class="n">61</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:8/span 1"><span class="n">33</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:8/span 1"></div>
+<div class="c spot" style="grid-column:8/span 1;grid-row:8/span 1"><span class="n">95</span></div>
+<div class="c spot" style="grid-column:9/span 1;grid-row:8/span 1"><span class="n">96</span></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:8/span 1"><span class="n dim">13</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:8/span 1"><span class="n">8</span></div>
+<div class="c label" style="grid-column:15/span 1;grid-row:8/span 13">굴절버스 충전소</div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:9/span 1"><span class="n">74</span></div>
+<div class="c spot" style="grid-column:3/span 1;grid-row:9/span 1"><span class="n">63</span></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:9/span 1"><span class="n">60</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:9/span 1"><span class="n">32</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:9/span 1"></div>
+<div class="c spot" style="grid-column:8/span 1;grid-row:9/span 1"><span class="n">97</span></div>
+<div class="c spot" style="grid-column:9/span 1;grid-row:9/span 1"><span class="n">98</span></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:9/span 1"><span class="n dim">12</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:9/span 1"><span class="n">9</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:10/span 1"><span class="n">73</span></div>
+<div class="c spot" style="grid-column:3/span 1;grid-row:10/span 1"><span class="n">64</span></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:10/span 1"><span class="n">59</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:10/span 1"><span class="n">31</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:10/span 1"></div>
+<div class="c spot" style="grid-column:8/span 1;grid-row:10/span 1"><span class="n">99</span></div>
+<div class="c spot" style="grid-column:9/span 1;grid-row:10/span 1"><span class="n">100</span></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:10/span 1"><span class="n dim">11</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:10/span 1"><span class="n">10</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:11/span 1"><span class="n">72</span></div>
+<div class="c spot" style="grid-column:3/span 1;grid-row:11/span 1"><span class="n">65</span></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:11/span 1"><span class="n">58</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:11/span 1"><span class="n">30</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:11/span 1"></div>
+<div class="c spot" style="grid-column:8/span 1;grid-row:11/span 1"><span class="n">101</span></div>
+<div class="c spot" style="grid-column:9/span 1;grid-row:11/span 1"><span class="n">102</span></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:11/span 1"><span class="n dim">10</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:11/span 1"><span class="n">11</span></div>
+<div class="c label" style="grid-column:1/span 1;grid-row:12/span 1">화단</div>
+<div class="c void" style="grid-column:2/span 1;grid-row:12/span 1"></div>
+<div class="c spot" style="grid-column:3/span 1;grid-row:12/span 1"><span class="n">66</span></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:12/span 1"><span class="n">57</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:12/span 1"><span class="n">29</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:12/span 1"></div>
+<div class="c label" style="grid-column:8/span 2;grid-row:12/span 1">CCTV</div>
+<div class="c label" style="grid-column:10/span 2;grid-row:12/span 1">KEY</div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:12/span 1"><span class="n dim">9</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:12/span 1"><span class="n">12</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:13/span 1"><span class="n">71</span></div>
+<div class="c void" style="grid-column:2/span 1;grid-row:13/span 1"></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:13/span 1"></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:13/span 1"><span class="n">56</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:13/span 1"><span class="n">28</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:13/span 1"></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:13/span 1"><span class="n dim">8</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:13/span 1"><span class="n">13</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:14/span 1"><span class="n">70</span></div>
+<div class="c void" style="grid-column:2/span 1;grid-row:14/span 1"></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:14/span 1"></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:14/span 1"><span class="n">55</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:14/span 1"><span class="n">27</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:14/span 1"></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:14/span 1"><span class="n dim">7</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:14/span 1"><span class="n">14</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:15/span 1"><span class="n">69</span></div>
+<div class="c void" style="grid-column:2/span 1;grid-row:15/span 1"></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:15/span 1"></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:15/span 1"><span class="n">54</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:15/span 1"><span class="n">26</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:15/span 1"></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:15/span 1"><span class="n dim">6</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:15/span 1"><span class="n">15</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:16/span 1"><span class="n">68</span></div>
+<div class="c void" style="grid-column:2/span 1;grid-row:16/span 1"></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:16/span 1"></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:16/span 1"><span class="n">53</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:16/span 1"><span class="n">25</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:16/span 1"></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:16/span 1"><span class="n dim">5</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:16/span 1"><span class="n">16</span></div>
+<div class="c spot" style="grid-column:1/span 1;grid-row:17/span 1"><span class="n">67</span></div>
+<div class="c void" style="grid-column:2/span 1;grid-row:17/span 1"></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:17/span 1"></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:17/span 1"><span class="n">52</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:17/span 1"><span class="n">24</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:17/span 1"></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:17/span 1"><span class="n dim">4</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:17/span 1"><span class="n">17</span></div>
+<div class="c void" style="grid-column:1/span 1;grid-row:18/span 1"></div>
+<div class="c void" style="grid-column:2/span 1;grid-row:18/span 1"></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:18/span 1"></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:18/span 1"><span class="n">51</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:18/span 1"><span class="n">23</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:18/span 1"></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:18/span 1"><span class="n dim">3</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:18/span 1"><span class="n">18</span></div>
+<div class="c void" style="grid-column:1/span 1;grid-row:19/span 1"></div>
+<div class="c void" style="grid-column:2/span 1;grid-row:19/span 1"></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:19/span 1"></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:19/span 1"><span class="n">50</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:19/span 1"><span class="n">22</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:19/span 1"></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:19/span 1"><span class="n dim">2</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:19/span 1"><span class="n">19</span></div>
+<div class="c void" style="grid-column:1/span 1;grid-row:20/span 1"></div>
+<div class="c void" style="grid-column:2/span 1;grid-row:20/span 1"></div>
+<div class="c void" style="grid-column:3/span 1;grid-row:20/span 1"></div>
+<div class="c spot" style="grid-column:4/span 1;grid-row:20/span 1"><span class="n">49</span></div>
+<div class="c spot" style="grid-column:5/span 1;grid-row:20/span 1"><span class="n">21</span></div>
+<div class="c void" style="grid-column:6/span 1;grid-row:20/span 1"></div>
+<div class="c skip" style="grid-column:12/span 1;grid-row:20/span 1"><span class="n dim">1</span></div>
+<div class="c spot" style="grid-column:14/span 1;grid-row:20/span 1"><span class="n">20</span></div>
+</div>
+        <div class="voicebar">
+          <div class="dot"></div>
+          <div class="txt">듣는 중 &middot; 마지막 인식 <b>&ldquo;1042&rdquo;</b></div>
+        </div>
+      </div>
+    </div>
+    <p class="caption">실제 xlsx 병합 구조 기반 그리드 재현 · 초록 = 입력완료 · 주황 = 현재 대기 자리</p>
+
+    <h3>화면 구성 4요소</h3>
+    <div class="flow">
+      <div class="step"><span class="idx">A</span><div class="body"><b>배치도 화면</b><span>핀치줌 가능. 빈칸/입력완료(번호 표시)/공차(회색+&ldquo;공차&rdquo;) 구분. 진행 중 자리는 주황 하이라이트.</span></div></div>
+      <div class="step"><span class="idx">B</span><div class="body"><b>음성 입력 모드</b><span>상단 &ldquo;n번째 자리 (총 109) 대기 중&rdquo;. 숫자 인식 시 자동 기입 후 다음 순번 이동.</span></div></div>
+      <div class="step"><span class="idx">C</span><div class="body"><b>수동 입력</b><span>칸 탭 → 음성 재시작 / 숫자 키패드 직접입력 선택 시트.</span></div></div>
+      <div class="step"><span class="idx">D</span><div class="body"><b>진행률 바</b><span>하단 고정 &ldquo;23/109 입력 완료&rdquo;. 항상 화면에 보이는 위치.</span></div></div>
+    </div>
+  </section>
+
+  <section id="voice">
+    <h2><span class="num">4</span> 음성 인식 규칙</h2>
+
+    <div class="risk">
+      <div class="lbl">⚠ 최우선 검증 필요</div>
+      <p style="margin:0">iOS 사파리의 <code>webkitSpeechRecognition</code>은 <code>continuous:true</code>를 사실상 무시하고 발화 한 번마다 자동 종료됨. 109자리 연속 인식을 위해선 종료될 때마다 즉시 재시작하는 체이닝이 필요하고, 재시작 지연·삑 소리가 현장 체감 속도를 좌우함. 서버 인식이라 <b>차고지 전파 상태에 따라 아예 안 될 수도 있음</b>. → <b>본 개발 착수 전, 독립된 1페이지 테스트 화면을 먼저 배포해 아이폰으로 직접 검증</b>하고, 이 결과로 연속인식 vs 대형 키패드 우선 여부를 확정.</p>
+    </div>
+
+    <h3>1000번대 고정 보정</h3>
+    <p>모든 차량번호가 <b>1로 시작하는 4자리</b>라는 제약을 인식 파이프라인에 그대로 반영:</p>
+    <ul>
+      <li>숫자 시퀀스가 3자리로만 잡히면(<code>042</code>) 앞에 <code>1</code>을 자동으로 붙여 <code>1042</code>로 보정</li>
+      <li>4자리인데 첫 자리가 1이 아니면(예: 잘못 인식된 <code>7042</code>) 오인식 가능성 높음 → 자동 확정하지 않고 화면에 큼직하게 띄워 1.5초 유예 후 확정(정정 명령으로 취소 가능)</li>
+      <li>한글 숫자(&ldquo;천사십이&rdquo;, &ldquo;일공사이&rdquo; 등)든 아라비아 숫자든 동일 파이프라인으로 정규화</li>
+    </ul>
+
+    <h3>명령어 처리</h3>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>발화</th><th>동작</th></tr></thead>
+        <tbody>
+          <tr><td>4자리 숫자 (한글/아라비아)</td><td>현재 자리에 기입 → 다음 순번 자동 이동</td></tr>
+          <tr><td>&ldquo;공차&rdquo; / &ldquo;빈칸&rdquo; / &ldquo;패스&rdquo;</td><td>현재 자리를 공차로 표시 → 다음 순번 이동 (동의어 처리)</td></tr>
+          <tr><td>&ldquo;이전&rdquo; / &ldquo;정정&rdquo;</td><td>한 자리 뒤로 이동, 재입력 대기</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>구분 기준은 <b>1.5초 무음 구간</b>. AirPods 연결 시 Bluetooth HFP 오디오 세션으로 자동 전환.</p>
+  </section>
+
+  <section id="print">
+    <h2><span class="num">5</span> 인쇄</h2>
+    <div class="flow">
+      <div class="step"><span class="idx">1</span><div class="body"><b>사무실 도착</b><span>프린터 와이파이 연결은 평소처럼 수동으로.</span></div></div>
+      <div class="step"><span class="idx">2</span><div class="body"><b>앱 안 &ldquo;인쇄&rdquo; 버튼 탭</b><span>오늘 데이터 1건 이상일 때만 활성화. GPS·SSID 자동 감지 없이 사용자가 직접 판단해 누름.</span></div></div>
+      <div class="step"><span class="idx">3</span><div class="body"><b><code>window.print()</code> 호출</b><span>iOS 표준 인쇄 시트(AirPrint) 자동 호출, 배치도 화면과 동일한 그리드 레이아웃으로 출력 CSS 별도 구성.</span></div></div>
+    </div>
+    <p>수동 버튼 방식이므로 <code>NEHotspotNetwork</code>/SSID 읽기 권한, Apple 유료 개발자 계정 승인, 백그라운드 위치 감지 정확도 — 인수인계 문서가 우려했던 리스크 전부 해당 없음.</p>
+  </section>
+
+  <section id="future">
+    <h2><span class="num">6</span> MVP 이후 확장 대비 구조</h2>
+    <ul>
+      <li><b>1일 2회차</b> — 순회 데이터에 <code>round</code> 필드만 추가하면 됨 (지금은 <code>round:1</code> 고정)</li>
+      <li><b>구차고지 등 타 차고지</b> — <code>spot_map.json</code> 형태의 매핑 파일만 추가하면 동일 렌더링 로직 재사용. 지금 신차고지 매핑을 이 구조로 분리해두는 것이 핵심.</li>
+      <li><b>히스토리 저장/조회</b> — 지금부터 매 순회를 날짜별 레코드로 저장해두면 나중에 조회 화면만 얹으면 됨</li>
+    </ul>
+  </section>
+
+  <section id="plan">
+    <h2><span class="num">7</span> 개발 순서</h2>
+    <ul class="checklist">
+      <li><span class="box"></span><span><b>0단계 — 음성인식 실측 검증.</b> 최소 페이지 배포 → 아이폰 실기 테스트 (한글숫자 인식률 / 연속발화 재시작 지연 / 전파 약한 곳 동작 여부)</span></li>
+      <li><span class="box"></span><span><b>1단계 — 배치도 정적 렌더링.</b> xlsx 좌표 → 그리드 변환, 라벨·빈칸 포함 종이와 동일한 모양 확인</span></li>
+      <li><span class="box"></span><span><b>2단계 — 수동 입력.</b> 탭 → 키패드 입력, localStorage 저장, 진행률 표시</span></li>
+      <li><span class="box"></span><span><b>3단계 — 음성 입력 연동.</b> 0단계 검증 결과 반영해 연속인식 또는 확정 방식 구현, 1000번대 보정 로직</span></li>
+      <li><span class="box"></span><span><b>4단계 — 인쇄.</b> 인쇄 전용 CSS, 원본과 동일 레이아웃 검증</span></li>
+      <li><span class="box"></span><span><b>5단계 — PWA 마감.</b> manifest, 아이콘, Service Worker 오프라인 캐싱, GitHub Pages 배포 → 홈화면 추가 실기 확인</span></li>
+    </ul>
+  </section>
+
+  <div class="footer">busyardapp · design v1 · reference: 차고지 프린트.xlsx, spot_map.json</div>
+</div>
+
+<script>
+(function(){
+  var grid = document.getElementById('yardgrid');
+  var spots = Array.prototype.slice.call(grid.querySelectorAll('.c.spot'));
+  spots.forEach(function(el){ el.dataset.n = parseInt(el.querySelector('.n').textContent,10); });
+  spots.sort(function(a,b){ return a.dataset.n - b.dataset.n; });
+  spots.forEach(function(el,i){
+    if(i < 23) el.classList.add('filled');
+    else if(i === 23) el.classList.add('current');
+  });
+})();
+</script>

@@ -1,0 +1,12 @@
+# 원본 업무 자료는 로컬에만 둔다.
+# GitHub Pages는 무료 계정에서 공개 저장소만 지원하므로, 근무 관련 원본 파일은
+# 올리지 않는다. 앱 동작에 필요한 것은 생성물인 src/yard-data.js 뿐이다.
+reference/
+
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+
+# 루트에 둔 원본 엑셀도 제외
+*.xlsx

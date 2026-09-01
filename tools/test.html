@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>plate.js 테스트</title>
+<style>
+  body { font: 14px/1.6 ui-monospace, Menlo, Consolas, monospace; background:#14140f; color:#e8e2d2; padding:24px; }
+  h2 { color:#e6a23c; font-size:14px; margin:20px 0 6px; }
+  .fail { color:#ff8f6b; white-space:pre; }
+  .sum { margin-top:24px; padding:12px 16px; border-radius:8px; font-size:16px; font-weight:700; }
+  .sum.ok { background:#20361f; color:#a9d18e; }
+  .sum.no { background:#3a1f18; color:#ff8f6b; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script type="module">
+import { extractSequence, normalizePlate } from '../src/plate.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const log = (html, cls) => {
+  const d = document.createElement('div');
+  if (cls) d.className = cls;
+  d.innerHTML = html;
+  out.appendChild(d);
+};
+
+function eq(actual, expected, label) {
+  const a = JSON.stringify(actual), e = JSON.stringify(expected);
+  if (a === e) pass++;
+  else { fail++; log(`  FAIL  ${label}\n        기대 ${e}\n        실제 ${a}`, 'fail'); }
+}
+
+const seq = (t) => extractSequence(t).map(x => x.type === 'plate' ? x.plate : `<${x.type}>`);
+const conf = (t) => extractSequence(t).map(x => x.confidence || x.type);
+
+log('<h2>▶ 아라비아 숫자 인식</h2>');
+eq(seq('1042'), ['1042'], '숫자 그대로');
+eq(seq('10 42'), ['1042'], '공백 섞임');
+eq(seq('1 0 4 2'), ['1042'], '한 자리씩 띄어읽기');
+eq(seq('1134번입니다'), ['1134'], '뒤에 조사가 붙음');
+
+log('<h2>▶ 한글 한자어 수사 (천/백/십)</h2>');
+eq(seq('천사십이'), ['1042'], '1042');
+eq(seq('천백삼십사'), ['1134'], '1134');
+eq(seq('천삼백사'), ['1304'], '1304');
+eq(seq('천오백육'), ['1506'], '1506');
+eq(seq('천구백구십구'), ['1999'], '1999');
+eq(seq('일천이백삼십사'), ['1234'], '앞에 일이 붙은 형태');
+eq(seq('천'), ['1000'], '천 단독');
+
+log('<h2>▶ 한글 자릿수 읽기</h2>');
+eq(seq('일공사이'), ['1042'], '일공사이');
+eq(seq('일일삼사'), ['1134'], '일일삼사');
+eq(seq('일영오육'), ['1056'], '영=0');
+eq(seq('일이삼사'), ['1234'], '일이삼사');
+
+log('<h2>▶ 1000번대 고정 규칙</h2>');
+eq(seq('공사이'), ['1042'], '3자리만 인식 -> 앞에 1 보충');
+eq(seq('042'), ['1042'], '3자리 숫자');
+eq(conf('042'), ['assumed'], '3자리는 assumed');
+eq(seq('7042'), ['1042'], '첫 자리 오인식 -> 1로 교정');
+eq(conf('7042'), ['corrected'], '교정은 corrected로 표시');
+eq(conf('1042'), ['high'], '정상은 high');
+eq(seq('42'), [], '2자리는 버림');
+
+log('<h2>▶ 명령어</h2>');
+eq(seq('공차'), ['<skip>'], '공차');
+eq(seq('빈칸'), ['<skip>'], '빈칸');
+eq(seq('패스'), ['<skip>'], '패스');
+eq(seq('이전'), ['<back>'], '이전 (숫자 2로 새지 않아야 함)');
+eq(seq('정정'), ['<back>'], '정정');
+
+log('<h2>▶ 누적 전사 / 연속 발화</h2>');
+eq(seq('천사십이 천백삼십사'), ['1042', '1134'], '한자어 두 개 연속');
+eq(seq('천사십이천백삼십사'), ['1042', '1134'], '붙여서 두 개');
+eq(seq('10421134'), ['1042', '1134'], '숫자 8자리 = 두 대');
+eq(seq('천사십이 공차 천백삼십사'), ['1042', '<skip>', '1134'], '중간에 공차');
+eq(seq('천사십이공차'), ['1042', '<skip>'], '띄어쓰기 없이 명령이 붙음');
+eq(seq('천사십이 이전 천백삼십사'), ['1042', '<back>', '1134'], '중간에 정정');
+
+log('<h2>▶ 잡음 / 빈 입력</h2>');
+eq(seq(''), [], '빈 문자열');
+eq(seq('어어그'), [], '의미 없는 소리');
+eq(seq('네'), [], '대답');
+
+log('<h2>▶ normalizePlate 직접</h2>');
+eq(normalizePlate('1042'), { plate: '1042', confidence: 'high' }, 'high');
+eq(normalizePlate('042'), { plate: '1042', confidence: 'assumed', heard: '042' }, 'assumed');
+eq(normalizePlate('9042'), { plate: '1042', confidence: 'corrected', heard: '9042' }, 'corrected');
+eq(normalizePlate('4'), null, '1자리는 null');
+
+log(`통과 ${pass} / 실패 ${fail}`, `sum ${fail === 0 ? 'ok' : 'no'}`);
+document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
+</script>
+</body>
+</html>

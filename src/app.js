@@ -1,0 +1,387 @@
+import { YARD } from './yard-data.js';
+import { createVoice, isSupported, beep, speak, primeAudio } from './voice.js';
+import { loadSession, setEntry, countFilled, workDate } from './store.js';
+
+// ---------------------------------------------------------------- 상태
+
+const spots = YARD.cells.filter((c) => c.kind === 'spot').sort((a, b) => a.spot - b.spot);
+const TOTAL = spots.length;
+
+let session = loadSession(YARD.id);
+let cursor = firstEmptySpot();
+let voice = null;
+let wakeLock = null;
+const heardLog = [];
+
+const $ = (id) => document.getElementById(id);
+const cellEls = new Map();   // spot 번호 -> DOM
+
+function firstEmptySpot() {
+  for (let n = 1; n <= TOTAL; n++) if (!session.entries[n]) return n;
+  return TOTAL;
+}
+
+// ---------------------------------------------------------------- 배치도
+
+function buildMap(container, cls) {
+  container.innerHTML = '';
+  for (const c of YARD.cells) {
+    const el = document.createElement('div');
+    el.className = 'cell ' + c.kind;
+    el.style.gridColumn = `${c.col} / span ${c.colspan}`;
+    el.style.gridRow = `${c.row} / span ${c.rowspan}`;
+
+    if (c.kind === 'spot') {
+      el.innerHTML = `<span class="no">${c.spot}</span><span class="plate"></span>`;
+      if (cls === 'live') {
+        el.addEventListener('click', () => openSpotSheet(c.spot));
+        cellEls.set(c.spot, el);
+      }
+    } else if (c.kind === 'label') {
+      el.textContent = c.text;
+      if (c.rowspan >= 4) el.classList.add('tall');
+    } else if (c.kind === 'skip') {
+      el.textContent = c.text;
+    }
+    container.appendChild(el);
+  }
+}
+
+function paintSpot(n) {
+  const el = cellEls.get(n);
+  if (!el) return;
+  const e = session.entries[n];
+  const plateEl = el.querySelector('.plate');
+
+  el.classList.remove('filled', 'vacant', 'corrected', 'current');
+  if (e && e.status === 'vacant') {
+    el.classList.add('vacant');
+    plateEl.textContent = '공차';
+  } else if (e) {
+    el.classList.add('filled');
+    if (e.confidence === 'corrected' || e.confidence === 'assumed') el.classList.add('corrected');
+    plateEl.textContent = e.plate;
+  } else {
+    plateEl.textContent = '';
+  }
+  if (n === cursor) el.classList.add('current');
+}
+
+function repaintAll() {
+  for (let n = 1; n <= TOTAL; n++) paintSpot(n);
+}
+
+// ---------------------------------------------------------------- 안내판
+
+function renderHud(flash) {
+  $('hudSpot').textContent = cursor;
+  const done = countFilled(session);
+  $('hudCount').textContent = `${done} / ${TOTAL}`;
+  $('progressFill').style.width = `${(done / TOTAL) * 100}%`;
+
+  const plateEl = $('hudPlate');
+  plateEl.className = 'hud-plate';
+
+  const e = flash || session.entries[cursor];
+  if (flash) {
+    if (flash.status === 'vacant') { plateEl.textContent = '공차'; plateEl.classList.add('vacant'); }
+    else { plateEl.textContent = flash.plate; if (flash.confidence !== 'high') plateEl.classList.add('corrected'); }
+  } else if (e) {
+    if (e.status === 'vacant') { plateEl.textContent = '공차'; plateEl.classList.add('vacant'); }
+    else { plateEl.textContent = e.plate; if (e.confidence !== 'high') plateEl.classList.add('corrected'); }
+  } else {
+    plateEl.innerHTML = '<span class="ph">– – – –</span>';
+  }
+}
+
+function note(text, kind) {
+  const el = $('hudNote');
+  el.textContent = text;
+  el.className = 'hud-note' + (kind ? ' ' + kind : '');
+}
+
+// ---------------------------------------------------------------- 입력 반영
+
+function commit(spot, entry, { announce = true } = {}) {
+  setEntry(session, spot, entry);
+  paintSpot(spot);
+
+  const isLast = spot >= TOTAL;
+  cursor = isLast ? TOTAL : spot + 1;
+  paintSpot(spot);
+  paintSpot(cursor);
+  renderHud(entry);
+
+  if (entry.confidence === 'corrected') {
+    note(`"${entry.heard}"로 들려서 ${entry.plate}로 맞췄습니다`, 'warn');
+    beep('warn');
+  } else if (entry.confidence === 'assumed') {
+    note(`앞자리 1을 붙여 ${entry.plate}로 넣었습니다`, 'warn');
+    beep('warn');
+  } else if (entry.status === 'vacant') {
+    note('공차 처리');
+    beep('back');
+  } else {
+    note('');
+    beep('ok');
+  }
+
+  if (isLast && countFilled(session) >= TOTAL) {
+    note('109자리 전부 입력 완료', 'warn');
+    beep('done');
+    if (announce) announceSpeak('순회 완료');
+    return;
+  }
+  if (announce) announceSpeak(`${cursor}번`);
+}
+
+function goBack() {
+  if (cursor > 1) cursor -= 1;
+  setEntry(session, cursor, null);
+  repaintAll();
+  renderHud();
+  note(`${cursor}번 자리로 되돌렸습니다`);
+  beep('back');
+  if (voice) voice.reset();
+  announceSpeak(`${cursor}번 다시`);
+}
+
+function markVacant() {
+  commit(cursor, { plate: null, status: 'vacant', confidence: 'high', method: 'manual' });
+}
+
+/** 안내 음성. 말하는 동안 자기 목소리가 다시 인식되지 않게 막는다. */
+function announceSpeak(text) {
+  if (!ttsOn) return;
+  const ms = speak(text);
+  if (voice) voice.muteFor(ms + 250);
+}
+
+let ttsOn = localStorage.getItem('busyard:tts') === '1';
+
+// ---------------------------------------------------------------- 음성
+
+function handleToken(t) {
+  if (t.type === 'plate') {
+    commit(cursor, {
+      plate: t.plate, status: 'filled',
+      confidence: t.confidence, heard: t.heard, method: 'voice',
+    });
+  } else if (t.type === 'skip') {
+    commit(cursor, { plate: null, status: 'vacant', confidence: 'high', method: 'voice' });
+  } else if (t.type === 'back') {
+    goBack();
+  }
+}
+
+function handleInterim(text) {
+  if (!text) return;
+  heardLog.unshift(`${new Date().toLocaleTimeString('ko-KR')} · ${text}`);
+  heardLog.length = Math.min(heardLog.length, 10);
+}
+
+function handleStatus(state, detail) {
+  const mic = $('btnMic');
+  const label = mic.querySelector('.mic-label');
+
+  if (state === 'listening') {
+    mic.classList.add('on'); label.textContent = '듣는 중 — 누르면 멈춤';
+    note('');
+  } else if (state === 'starting') {
+    mic.classList.add('on'); label.textContent = '마이크 준비 중…';
+  } else if (state === 'idle') {
+    mic.classList.remove('on'); label.textContent = '음성 입력 시작';
+  } else if (state === 'denied') {
+    mic.classList.remove('on'); label.textContent = '음성 입력 시작';
+    note('마이크 권한이 거부됐습니다. 설정 > Safari에서 허용해 주세요.', 'err');
+    beep('error');
+  } else if (state === 'network') {
+    note('전파가 약해 음성 인식이 안 됩니다. 키패드를 쓰세요.', 'err');
+  } else if (state === 'unsupported') {
+    mic.classList.remove('on');
+    note('이 브라우저는 음성 인식을 지원하지 않습니다. 키패드를 쓰세요.', 'err');
+  } else if (state === 'error') {
+    note(`음성 오류: ${detail}`, 'err');
+  }
+}
+
+function toggleMic() {
+  primeAudio();
+  if (!voice) voice = createVoice({ onToken: handleToken, onInterim: handleInterim, onStatus: handleStatus });
+  if (voice.isOn()) { voice.stop(); releaseWakeLock(); }
+  else { voice.start(); requestWakeLock(); }
+}
+
+// ---------------------------------------------------------------- 화면 꺼짐 방지
+
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) wakeLock = await navigator.wakeLock.request('screen');
+  } catch (_) { /* 지원 안 하면 그냥 넘어감 */ }
+}
+function releaseWakeLock() {
+  if (wakeLock) { try { wakeLock.release(); } catch (_) {} wakeLock = null; }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && voice && voice.isOn()) requestWakeLock();
+});
+
+// ---------------------------------------------------------------- 키패드
+
+let padSpot = null;
+let padDigits = '';
+
+function openPad(spot) {
+  padSpot = spot; padDigits = '';
+  $('padTitle').textContent = `${spot}번 자리`;
+  renderPad();
+  $('padSheet').hidden = false;
+}
+function renderPad() {
+  document.querySelectorAll('#padDisplay .slot').forEach((el, i) => {
+    const ch = padDigits[i];
+    el.textContent = ch || '_';
+    el.classList.toggle('set', Boolean(ch));
+  });
+}
+function padKey(k) {
+  primeAudio();
+  if (k === 'del') { padDigits = padDigits.slice(0, -1); renderPad(); return; }
+  if (k === 'vacant') {
+    commit(padSpot, { plate: null, status: 'vacant', confidence: 'high', method: 'keypad' }, { announce: false });
+    padSpot = cursor; padDigits = '';
+    $('padTitle').textContent = `${padSpot}번 자리`;
+    renderPad();
+    return;
+  }
+  if (padDigits.length >= 3) return;
+  padDigits += k;
+  renderPad();
+  if (padDigits.length === 3) {
+    const plate = '1' + padDigits;
+    commit(padSpot, { plate, status: 'filled', confidence: 'high', method: 'keypad' }, { announce: false });
+    // 이어서 다음 자리를 계속 찍을 수 있게 시트를 열어 둔다
+    padSpot = cursor; padDigits = '';
+    $('padTitle').textContent = `${padSpot}번 자리`;
+    renderPad();
+  }
+}
+
+// ---------------------------------------------------------------- 자리 탭 시트
+
+let sheetSpot = null;
+function openSpotSheet(spot) {
+  sheetSpot = spot;
+  const e = session.entries[spot];
+  $('spotTitle').textContent = `${spot}번 자리` + (e ? ` — ${e.status === 'vacant' ? '공차' : e.plate}` : '');
+  $('spotClear').hidden = !e;
+  $('spotSheet').hidden = false;
+}
+
+// ---------------------------------------------------------------- 진단
+
+function openDiag() {
+  const rows = [
+    ['음성 인식 지원', isSupported(), isSupported() ? '사용 가능' : '미지원'],
+    ['보안 연결(HTTPS)', window.isSecureContext, window.isSecureContext ? '정상' : '마이크 사용 불가'],
+    ['안내 음성(TTS)', Boolean(window.speechSynthesis), ttsOn ? '켜짐' : '꺼짐 — 눌러서 켜기'],
+    ['화면 꺼짐 방지', 'wakeLock' in navigator, 'wakeLock' in navigator ? '지원' : '미지원'],
+    ['홈화면 설치 상태', window.navigator.standalone === true, window.navigator.standalone ? '설치됨' : '사파리 탭'],
+    ['네트워크', navigator.onLine, navigator.onLine ? '온라인' : '오프라인 — 음성 불가'],
+  ];
+  $('diagBody').innerHTML = rows.map(
+    ([k, ok, v]) => `<div class="diag-row"><b>${k}</b><span class="${ok ? 'ok' : 'no'}">${v}</span></div>`
+  ).join('') +
+  `<div class="diag-row"><b>저장된 순회</b><span>${workDate()} · ${countFilled(session)}건</span></div>`;
+
+  $('diagLog').innerHTML = heardLog.length
+    ? heardLog.map((l) => `<li>${l.replace(/</g, '&lt;')}</li>`).join('')
+    : '<li>아직 인식된 내용이 없습니다</li>';
+
+  $('diagSheet').hidden = false;
+}
+
+// ---------------------------------------------------------------- 인쇄
+
+function doPrint() {
+  const done = countFilled(session);
+  if (done === 0) { note('입력된 자리가 없습니다', 'warn'); beep('error'); return; }
+
+  const area = $('printArea');
+  area.innerHTML =
+    `<div class="p-title">${YARD.name}</div>` +
+    `<div class="p-meta">${session.date} · ${session.round}회차 · ${done}/${TOTAL} 입력</div>` +
+    `<div class="p-map" id="pMap"></div>`;
+  const pMap = $('pMap');
+  buildMap(pMap, 'print');
+  pMap.querySelectorAll('.cell.spot').forEach((el) => {
+    const n = Number(el.querySelector('.no').textContent);
+    const e = session.entries[n];
+    if (e) el.querySelector('.plate').textContent = e.status === 'vacant' ? '공차' : e.plate;
+  });
+  window.print();
+}
+
+// ---------------------------------------------------------------- 시작
+
+function init() {
+  $('yardName').textContent = YARD.name.replace(/\s*\(.*\)/, '');
+  $('roundName').textContent = `${session.round}회차 · ${session.date}`;
+
+  buildMap($('map'), 'live');
+  repaintAll();
+  renderHud();
+  if (countFilled(session) > 0) note(`이어서 ${cursor}번부터 입력합니다`);
+
+  $('btnMic').addEventListener('click', toggleMic);
+  $('btnBack').addEventListener('click', () => { primeAudio(); goBack(); });
+  $('btnVacant').addEventListener('click', () => { primeAudio(); markVacant(); });
+  $('btnPad').addEventListener('click', () => openPad(cursor));
+  $('btnPrint').addEventListener('click', doPrint);
+  $('btnDiag').addEventListener('click', openDiag);
+
+  $('padClose').addEventListener('click', () => { $('padSheet').hidden = true; });
+  document.querySelectorAll('.pad-keys button').forEach((b) =>
+    b.addEventListener('click', () => padKey(b.dataset.k)));
+
+  $('spotClose').addEventListener('click', () => { $('spotSheet').hidden = true; });
+  $('spotGoto').addEventListener('click', () => {
+    cursor = sheetSpot; repaintAll(); renderHud();
+    $('spotSheet').hidden = true;
+    if (voice) voice.reset();
+    note(`${cursor}번 자리부터 입력합니다`);
+  });
+  $('spotPad').addEventListener('click', () => { $('spotSheet').hidden = true; openPad(sheetSpot); });
+  $('spotVacant').addEventListener('click', () => {
+    commit(sheetSpot, { plate: null, status: 'vacant', confidence: 'high', method: 'manual' }, { announce: false });
+    $('spotSheet').hidden = true;
+  });
+  $('spotClear').addEventListener('click', () => {
+    setEntry(session, sheetSpot, null);
+    cursor = firstEmptySpot();
+    repaintAll(); renderHud();
+    $('spotSheet').hidden = true;
+  });
+
+  $('diagClose').addEventListener('click', () => { $('diagSheet').hidden = true; });
+  $('diagBody').addEventListener('click', (ev) => {
+    const row = ev.target.closest('.diag-row');
+    if (row && row.querySelector('b').textContent.includes('안내 음성')) {
+      ttsOn = !ttsOn;
+      localStorage.setItem('busyard:tts', ttsOn ? '1' : '0');
+      openDiag();
+      if (ttsOn) speak('안내 음성을 켰습니다');
+    }
+  });
+
+  [$('padSheet'), $('spotSheet'), $('diagSheet')].forEach((bg) =>
+    bg.addEventListener('click', (ev) => { if (ev.target === bg) bg.hidden = true; }));
+
+  if (!isSupported()) handleStatus('unsupported');
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  }
+}
+
+init();

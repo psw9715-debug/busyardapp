@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>voice.js 테스트</title>
+<style>
+  body { font: 14px/1.6 ui-monospace, Menlo, Consolas, monospace; background:#14140f; color:#e8e2d2; padding:24px; }
+  h2 { color:#e6a23c; font-size:14px; margin:20px 0 6px; }
+  .fail { color:#ff8f6b; white-space:pre; }
+  .sum { margin-top:24px; padding:12px 16px; border-radius:8px; font-size:16px; font-weight:700; }
+  .sum.ok { background:#20361f; color:#a9d18e; }
+  .sum.no { background:#3a1f18; color:#ff8f6b; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script>
+// ---- iOS 사파리 흉내: 한 세션의 전사를 누적해서 돌려주고, 발화가 끝나면 스스로 종료 ----
+window.__instances = [];
+class MockSR {
+  constructor() {
+    this.results = [];
+    this._started = false;
+    window.__instances.push(this);
+    window.__sr = this;
+  }
+  start() {
+    if (this._started) { const e = new Error('already started'); e.name = 'InvalidStateError'; throw e; }
+    this._started = true;
+    this.results = [];
+    if (this.onstart) this.onstart();
+  }
+  abort() { this._end(); }
+  stop() { this._end(); }
+  _end() {
+    if (!this._started) return;
+    this._started = false;
+    if (this.onend) this.onend();
+  }
+  /** 인식 결과를 누적해서 통보 (사파리 동작) */
+  say(text, isFinal = false) {
+    this.results.push({ 0: { transcript: text }, isFinal, length: 1 });
+    const list = this.results.slice();
+    list.length = this.results.length;
+    if (this.onresult) this.onresult({ results: Object.assign(list, { length: list.length }) });
+  }
+  fail(name) { if (this.onerror) this.onerror({ error: name }); }
+}
+window.SpeechRecognition = MockSR;
+window.webkitSpeechRecognition = MockSR;
+</script>
+<script type="module">
+import { createVoice } from '../src/voice.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const log = (html, cls) => { const d = document.createElement('div'); if (cls) d.className = cls; d.innerHTML = html; out.appendChild(d); };
+function eq(a_, e_, label) {
+  const a = JSON.stringify(a_), e = JSON.stringify(e_);
+  if (a === e) pass++; else { fail++; log(`  FAIL  ${label}\n        기대 ${e}\n        실제 ${a}`, 'fail'); }
+}
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function harness() {
+  const tokens = [];
+  const states = [];
+  const v = createVoice({
+    onToken: t => tokens.push(t.type === 'plate' ? t.plate : `<${t.type}>`),
+    onInterim: () => {},
+    onStatus: s => states.push(s),
+  });
+  return { v, tokens, states };
+}
+
+log('<h2>▶ 누적 전사에서 새로 늘어난 것만 처리</h2>');
+{
+  const { v, tokens } = harness();
+  v.start();
+  const sr = window.__sr;
+  sr.say('천사십이');                 // 1대째
+  eq(tokens, ['1042'], '첫 발화');
+  sr.say('천백삼십사');               // 사파리가 누적해서 통보
+  eq(tokens, ['1042', '1134'], '두 번째는 새 것만 추가 (중복 없음)');
+  sr.say('공차');
+  eq(tokens, ['1042', '1134', '<skip>'], '명령도 순서대로');
+  v.stop();
+}
+
+log('<h2>▶ 발화 종료 후 자동 재시작 (사파리는 continuous 무시)</h2>');
+{
+  const { v, tokens } = harness();
+  v.start();
+  const first = window.__sr;
+  first.say('천사십이', true);
+  first._end();                        // 사파리가 스스로 종료
+  await sleep(300);
+  const second = window.__sr;
+  eq(second !== first || second._started, true, '자동으로 다시 듣기 시작');
+  second.say('천백삼십사');
+  eq(tokens, ['1042', '1134'], '재시작 후에도 이어서 인식');
+  eq(tokens.filter(t => t === '1042').length, 1, '재시작 때 앞 내용이 중복 처리되지 않음');
+  v.stop();
+}
+
+log('<h2>▶ 중지하면 재시작하지 않음</h2>');
+{
+  const { v } = harness();
+  v.start();
+  const sr = window.__sr;
+  v.stop();
+  await sleep(300);
+  eq(sr._started, false, '멈춘 뒤에는 다시 켜지지 않음');
+  eq(v.isOn(), false, 'isOn false');
+}
+
+log('<h2>▶ 오류 처리</h2>');
+{
+  const { v, states } = harness();
+  v.start();
+  window.__sr.fail('no-speech');
+  eq(states.includes('denied'), false, 'no-speech는 무시하고 계속');
+  window.__sr.fail('not-allowed');
+  eq(states.includes('denied'), true, '권한 거부는 denied 상태로');
+  eq(v.isOn(), false, '권한 거부되면 스스로 꺼짐');
+  v.stop();
+}
+{
+  const { v, states } = harness();
+  v.start();
+  window.__sr.fail('network');
+  eq(states.includes('network'), true, '전파 문제는 network 상태로');
+  v.stop();
+}
+
+log('<h2>▶ 안내 음성 되먹임 차단</h2>');
+{
+  const { v, tokens } = harness();
+  v.start();
+  v.muteFor(200);                      // TTS 재생 중이라고 가정
+  window.__sr.say('천사십이');
+  eq(tokens, [], '차단 구간에는 자기 목소리를 먹지 않음');
+  await sleep(260);
+  window.__sr.say('천백삼십사');
+  eq(tokens, ['1134'], '차단이 풀리면 다시 인식');
+  v.stop();
+}
+
+log(`통과 ${pass} / 실패 ${fail}`, `sum ${fail === 0 ? 'ok' : 'no'}`);
+document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
+</script>
+</body>
+</html>

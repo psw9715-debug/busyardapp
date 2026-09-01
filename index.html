@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="차고지">
+<meta name="theme-color" content="#14140f">
+<title>차고지 순회</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="src/app.css">
+</head>
+<body>
+
+<div id="app">
+
+  <!-- 상단: 진행 상황 -->
+  <header class="bar">
+    <div class="bar-left">
+      <span class="yard" id="yardName">6차고지</span>
+      <span class="round" id="roundName">1회차</span>
+    </div>
+    <div class="bar-right">
+      <button class="icon-btn" id="btnDiag" aria-label="음성 진단">진단</button>
+      <button class="icon-btn" id="btnPrint" aria-label="인쇄">인쇄</button>
+    </div>
+  </header>
+  <div class="progress"><div class="progress-fill" id="progressFill"></div></div>
+
+  <!-- 현재 자리 안내판 -->
+  <section class="hud" id="hud">
+    <div class="hud-spot">
+      <span class="hud-spot-num" id="hudSpot">1</span>
+      <span class="hud-spot-unit">번 자리</span>
+      <span class="hud-count" id="hudCount">0 / 109</span>
+    </div>
+    <div class="hud-plate" id="hudPlate">
+      <span class="ph">– – – –</span>
+    </div>
+    <div class="hud-note" id="hudNote">시작하려면 아래 마이크를 누르세요</div>
+  </section>
+
+  <!-- 배치도 -->
+  <section class="mapwrap" id="mapwrap">
+    <div class="map" id="map"></div>
+  </section>
+
+  <!-- 하단 조작부 -->
+  <footer class="controls">
+    <div class="ctl-row">
+      <button class="ctl back" id="btnBack">◀ 이전</button>
+      <button class="ctl vacant" id="btnVacant">공차</button>
+      <button class="ctl pad" id="btnPad">키패드</button>
+    </div>
+    <button class="mic" id="btnMic">
+      <span class="mic-dot"></span>
+      <span class="mic-label">음성 입력 시작</span>
+    </button>
+  </footer>
+</div>
+
+<!-- 숫자 키패드 시트 -->
+<div class="sheet-bg" id="padSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <span id="padTitle">1번 자리</span>
+      <button class="sheet-close" id="padClose">닫기</button>
+    </div>
+    <div class="pad-display" id="padDisplay">
+      <span class="fixed">1</span><span class="slot" data-i="0">_</span><span class="slot" data-i="1">_</span><span class="slot" data-i="2">_</span>
+    </div>
+    <div class="pad-hint">앞자리 1은 자동입니다. 나머지 세 자리만 누르세요.</div>
+    <div class="pad-keys">
+      <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
+      <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
+      <button data-k="7">7</button><button data-k="8">8</button><button data-k="9">9</button>
+      <button data-k="vacant" class="alt">공차</button>
+      <button data-k="0">0</button>
+      <button data-k="del" class="alt">지움</button>
+    </div>
+  </div>
+</div>
+
+<!-- 자리 탭했을 때 뜨는 선택 시트 -->
+<div class="sheet-bg" id="spotSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <span id="spotTitle">자리</span>
+      <button class="sheet-close" id="spotClose">닫기</button>
+    </div>
+    <div class="sheet-actions">
+      <button id="spotGoto">여기부터 음성 입력</button>
+      <button id="spotPad">숫자 키패드로 입력</button>
+      <button id="spotVacant">공차로 표시</button>
+      <button id="spotClear" class="danger">입력 지우기</button>
+    </div>
+  </div>
+</div>
+
+<!-- 음성 진단 패널 -->
+<div class="sheet-bg" id="diagSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <span>음성 인식 진단</span>
+      <button class="sheet-close" id="diagClose">닫기</button>
+    </div>
+    <div class="diag" id="diagBody"></div>
+    <div class="diag-log">
+      <div class="diag-log-head">들린 그대로 (최근 10건)</div>
+      <ol id="diagLog"></ol>
+    </div>
+  </div>
+</div>
+
+<!-- 인쇄 전용 레이아웃 -->
+<div id="printArea"></div>
+
+<script type="module" src="src/app.js"></script>
+</body>
+</html>
