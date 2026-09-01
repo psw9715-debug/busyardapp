@@ -97,6 +97,30 @@ export function normalizePlate(digits) {
   return null;
 }
 
+const ONES = ['', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+
+/**
+ * 1042 -> "천사십이" 처럼 한국식으로 읽는다.
+ * 확인용으로 되읽어 줄 때 쓰며, extractSequence 의 정확한 역함수다.
+ * 1000번대만 다루면 되므로 만 단위는 고려하지 않는다.
+ */
+export function toKoreanSino(plate) {
+  const n = Number(plate);
+  if (!Number.isInteger(n) || n < 1 || n > 9999) return String(plate);
+
+  const digits = [Math.floor(n / 1000) % 10, Math.floor(n / 100) % 10, Math.floor(n / 10) % 10, n % 10];
+  const units = ['천', '백', '십', ''];
+  let out = '';
+
+  digits.forEach((d, i) => {
+    if (d === 0) return;
+    // 1000/100/10 자리의 1은 "일천"이 아니라 그냥 "천"으로 읽는다
+    out += (d === 1 && i < 3) ? units[i] : ONES[d] + units[i];
+  });
+
+  return out;
+}
+
 /**
  * 인식 문장 전체에서 명령/차량번호를 나온 순서대로 뽑는다.
  * iOS 사파리는 한 세션의 인식 결과를 누적해서 돌려주므로, 앱은 이 배열의

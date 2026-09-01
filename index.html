@@ -99,6 +99,27 @@
   </div>
 </div>
 
+<!-- 인쇄 전 확인 -->
+<div class="sheet-bg" id="printSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <span>인쇄</span>
+      <button class="sheet-close" id="printClose">닫기</button>
+    </div>
+    <div class="print-count" id="printCount"></div>
+    <div class="print-wifi">
+      <div class="print-wifi-label">프린터 와이파이</div>
+      <div class="print-wifi-ssid" id="printSsid"></div>
+      <button class="print-copy" id="printCopySsid">이름 복사</button>
+    </div>
+    <p class="print-help">
+      제어센터나 <b>설정 → Wi-Fi</b>에서 위 이름을 골라 연결한 뒤 인쇄하세요.
+      iOS는 앱이 와이파이를 대신 잡아줄 수 없습니다.
+    </p>
+    <button class="print-go" id="printGo">인쇄 시트 열기</button>
+  </div>
+</div>
+
 <!-- 음성 진단 패널 -->
 <div class="sheet-bg" id="diagSheet" hidden>
   <div class="sheet">

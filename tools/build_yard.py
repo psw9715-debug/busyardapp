@@ -1,10 +1,14 @@
 # -*- coding: utf-8 -*-
 """차고지 프린트.xlsx -> src/yard-data.js
 
-신차고지-순서 시트의 병합 셀을 읽어 배치도 그리드 데이터를 생성한다.
-- 자리 한 칸 = 엑셀 세로 3행 병합 블록
-- 그리드 행 = (엑셀행 - 3) / 3 + 1   (1..20)
-- 그리드 열 = 엑셀 열 번호            (1..15, A..O)
+두 시트를 합쳐 배치도 하나를 만든다.
+- `신차고지-순서` : 자리마다 순회 번호(1~109)가 적힌 시트. 앱의 입력 순서 기준.
+- `신차고지`      : 실제로 손으로 적는 인쇄용 시트. 주차장 바닥에 칠해진
+                    고정번호가 L열(위 7칸)·M열(아래 13칸)에 따로 적혀 있다.
+
+자리 한 칸 = 엑셀 세로 3행 블록.
+  그리드 행 = (엑셀행 - 3) / 3 + 1   (1..20)
+  그리드 열 = 엑셀 열 번호            (1..15, A..O)
 """
 import json
 import openpyxl
@@ -13,8 +17,10 @@ from openpyxl.utils import get_column_letter as col_letter
 XLSX = "reference/차고지 프린트.xlsx"
 OUT = "src/yard-data.js"
 
-ORDER_SHEET = "신차고지-순서"   # 순회 번호가 적힌 시트
-PRINT_SHEET = "신차고지"        # 주차장 바닥 고정번호가 적힌 시트
+ORDER_SHEET = "신차고지-순서"
+PRINT_SHEET = "신차고지"
+
+COL_L, COL_M = 12, 13
 
 
 def grid_row(excel_row):
@@ -39,14 +45,6 @@ def main():
     ws = wb[ORDER_SHEET]
     wp = wb[PRINT_SHEET]
 
-    # 인쇄 시트의 고정번호 라벨 (L열 3~23행, M열 24~62행)
-    painted = {}
-    for r in range(3, 63, 3):
-        for c in (12, 13):
-            v = wp.cell(r, c).value
-            if v is not None:
-                painted[col_letter(c) + str(r)] = v
-
     cells = []
     for rng in ws.merged_cells.ranges:
         if rng.min_row < 3:
@@ -66,18 +64,43 @@ def main():
         elif value is not None:
             cell["kind"] = "label"
             cell["text"] = join_label(str(value))
-        elif cell["col"] == 12 and cell["row"] >= 8:
-            # L열 하단 13칸: 바닥에 적힌 고정번호일 뿐 순회 대상 아님
+        elif cell["col"] == COL_L and cell["row"] >= 8:
+            # L열 아래쪽 13칸: 바닥 고정번호만 있고 순회 대상은 아니다.
+            # 번호 자체는 옆 M열에 따로 찍히므로 여기는 빈 칸으로 둔다.
             cell["kind"] = "skip"
-            cell["text"] = str(painted.get(col_letter(13) + str((cell["row"] - 1) * 3 + 3), ""))
         else:
             cell["kind"] = "void"
         cells.append(cell)
+
+    # 주차장 바닥 고정번호 (인쇄용 시트에만 있는 라벨 열)
+    painted = 0
+    for excel_row in range(3, 63, 3):
+        for col in (COL_L, COL_M):
+            v = wp.cell(excel_row, col).value
+            if v is None:
+                continue
+            cells.append({
+                "col": col,
+                "colspan": 1,
+                "row": grid_row(excel_row),
+                "rowspan": 1,
+                "xl": col_letter(col) + str(excel_row),
+                "kind": "paint",
+                "text": str(v),
+            })
+            painted += 1
 
     cells.sort(key=lambda c: (c["row"], c["col"]))
     spots = sorted(c["spot"] for c in cells if c["kind"] == "spot")
 
     assert spots == list(range(1, 110)), f"순회 번호가 1~109 연속이 아님: {spots[:5]}...{spots[-5:]}"
+
+    # 같은 칸을 두 번 그리지 않는지 확인
+    seen = set()
+    for c in cells:
+        key = (c["col"], c["row"])
+        assert key not in seen, f"{c['xl']} 자리가 겹침"
+        seen.add(key)
 
     data = {
         "id": "new",

@@ -1,4 +1,5 @@
 import { YARD } from './yard-data.js';
+import { toKoreanSino } from './plate.js';
 import { createVoice, isSupported, beep, speak, primeAudio } from './voice.js';
 import { loadSession, setEntry, countFilled, workDate } from './store.js';
 
@@ -32,16 +33,17 @@ function buildMap(container, cls) {
     el.style.gridRow = `${c.row} / span ${c.rowspan}`;
 
     if (c.kind === 'spot') {
+      el.dataset.spot = c.spot;
+      // 순회 번호는 화면에서만 쓴다. 인쇄물은 지금 쓰는 종이와 똑같이
+      // 번호 없는 빈 칸에 차량번호만 찍혀야 한다 (CSS에서 숨김).
       el.innerHTML = `<span class="no">${c.spot}</span><span class="plate"></span>`;
       if (cls === 'live') {
         el.addEventListener('click', () => openSpotSheet(c.spot));
         cellEls.set(c.spot, el);
       }
-    } else if (c.kind === 'label') {
+    } else if (c.kind === 'label' || c.kind === 'paint') {
       el.textContent = c.text;
-      if (c.rowspan >= 4) el.classList.add('tall');
-    } else if (c.kind === 'skip') {
-      el.textContent = c.text;
+      if (c.kind === 'label' && c.rowspan >= 4) el.classList.add('tall');
     }
     container.appendChild(el);
   }
@@ -158,6 +160,14 @@ function announceSpeak(text) {
 }
 
 let ttsOn = localStorage.getItem('busyard:tts') === '1';
+// 키패드로 넣은 번호를 한국식으로 되읽어 확인시켜 준다 ("734" -> "천칠백삼십사")
+let padTtsOn = localStorage.getItem('busyard:padtts') === '1';
+
+function readBackPlate(plate) {
+  if (!padTtsOn || !plate) return;
+  const ms = speak(toKoreanSino(plate), { rate: 1.7 });
+  if (voice) voice.muteFor(ms + 200);
+}
 
 // ---------------------------------------------------------------- 음성
 
@@ -260,6 +270,7 @@ function padKey(k) {
   if (padDigits.length === 3) {
     const plate = '1' + padDigits;
     commit(padSpot, { plate, status: 'filled', confidence: 'high', method: 'keypad' }, { announce: false });
+    readBackPlate(plate);
     // 이어서 다음 자리를 계속 찍을 수 있게 시트를 열어 둔다
     padSpot = cursor; padDigits = '';
     $('padTitle').textContent = `${padSpot}번 자리`;
@@ -284,14 +295,17 @@ function openDiag() {
   const rows = [
     ['음성 인식 지원', isSupported(), isSupported() ? '사용 가능' : '미지원'],
     ['보안 연결(HTTPS)', window.isSecureContext, window.isSecureContext ? '정상' : '마이크 사용 불가'],
-    ['안내 음성(TTS)', Boolean(window.speechSynthesis), ttsOn ? '켜짐' : '꺼짐 — 눌러서 켜기'],
+    ['다음 자리 안내 음성', ttsOn, ttsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
+    ['키패드 입력 되읽기', padTtsOn, padTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
     ['화면 꺼짐 방지', 'wakeLock' in navigator, 'wakeLock' in navigator ? '지원' : '미지원'],
     ['홈화면 설치 상태', window.navigator.standalone === true, window.navigator.standalone ? '설치됨' : '사파리 탭'],
     ['네트워크', navigator.onLine, navigator.onLine ? '온라인' : '오프라인 — 음성 불가'],
   ];
-  $('diagBody').innerHTML = rows.map(
-    ([k, ok, v]) => `<div class="diag-row"><b>${k}</b><span class="${ok ? 'ok' : 'no'}">${v}</span></div>`
-  ).join('') +
+  const TOGGLES = ['안내 음성', '되읽기'];
+  $('diagBody').innerHTML = rows.map(([k, ok, v]) => {
+    const toggle = TOGGLES.some((t) => k.includes(t)) ? ' toggle' : '';
+    return `<div class="diag-row${toggle}"><b>${k}</b><span class="${ok ? 'ok' : 'no'}">${v}</span></div>`;
+  }).join('') +
   `<div class="diag-row"><b>저장된 순회</b><span>${workDate()} · ${countFilled(session)}건</span></div>`;
 
   $('diagLog').innerHTML = heardLog.length
@@ -303,9 +317,22 @@ function openDiag() {
 
 // ---------------------------------------------------------------- 인쇄
 
-function doPrint() {
+// 프린터 전용 와이파이 이름. iOS는 웹에서든 앱에서든 특정 와이파이에 자동
+// 접속시킬 방법이 없으므로, 어느 것을 골라야 하는지 보여주는 데까지만 한다.
+const PRINTER_SSID = 'DIRECT-s0-EPSON-WF-C579R Series';
+
+function askPrint() {
   const done = countFilled(session);
   if (done === 0) { note('입력된 자리가 없습니다', 'warn'); beep('error'); return; }
+  $('printCount').textContent = `${done}자리 입력됨 · ${TOTAL - done}자리 비어 있음`;
+  $('printSsid').textContent = PRINTER_SSID;
+  $('printSheet').hidden = false;
+}
+
+function doPrint() {
+  const done = countFilled(session);
+  if (done === 0) return;
+  $('printSheet').hidden = true;
 
   const area = $('printArea');
   area.innerHTML =
@@ -315,8 +342,7 @@ function doPrint() {
   const pMap = $('pMap');
   buildMap(pMap, 'print');
   pMap.querySelectorAll('.cell.spot').forEach((el) => {
-    const n = Number(el.querySelector('.no').textContent);
-    const e = session.entries[n];
+    const e = session.entries[Number(el.dataset.spot)];
     if (e) el.querySelector('.plate').textContent = e.status === 'vacant' ? '공차' : e.plate;
   });
   window.print();
@@ -337,8 +363,20 @@ function init() {
   $('btnBack').addEventListener('click', () => { primeAudio(); goBack(); });
   $('btnVacant').addEventListener('click', () => { primeAudio(); markVacant(); });
   $('btnPad').addEventListener('click', () => openPad(cursor));
-  $('btnPrint').addEventListener('click', doPrint);
+  $('btnPrint').addEventListener('click', askPrint);
   $('btnDiag').addEventListener('click', openDiag);
+
+  $('printClose').addEventListener('click', () => { $('printSheet').hidden = true; });
+  $('printGo').addEventListener('click', doPrint);
+  $('printCopySsid').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(PRINTER_SSID);
+      $('printCopySsid').textContent = '복사됨';
+      setTimeout(() => { $('printCopySsid').textContent = '이름 복사'; }, 1500);
+    } catch (_) {
+      $('printCopySsid').textContent = '복사 실패';
+    }
+  });
 
   $('padClose').addEventListener('click', () => { $('padSheet').hidden = true; });
   document.querySelectorAll('.pad-keys button').forEach((b) =>
@@ -366,11 +404,20 @@ function init() {
   $('diagClose').addEventListener('click', () => { $('diagSheet').hidden = true; });
   $('diagBody').addEventListener('click', (ev) => {
     const row = ev.target.closest('.diag-row');
-    if (row && row.querySelector('b').textContent.includes('안내 음성')) {
+    if (!row) return;
+    const name = row.querySelector('b').textContent;
+    primeAudio();
+
+    if (name.includes('안내 음성')) {
       ttsOn = !ttsOn;
       localStorage.setItem('busyard:tts', ttsOn ? '1' : '0');
       openDiag();
-      if (ttsOn) speak('안내 음성을 켰습니다');
+      if (ttsOn) speak('다음 자리를 읽어 드립니다');
+    } else if (name.includes('되읽기')) {
+      padTtsOn = !padTtsOn;
+      localStorage.setItem('busyard:padtts', padTtsOn ? '1' : '0');
+      openDiag();
+      if (padTtsOn) speak(toKoreanSino('1734'), { rate: 1.7 });   // 실제 속도로 미리 들려준다
     }
   });
 
