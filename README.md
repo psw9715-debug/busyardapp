@@ -84,6 +84,17 @@ python tools/build_yard.py
 
 탭 제목에 `PASS n` / `FAIL n`이 뜬다.
 
+### 배포
+
+`src/build.js`(앱에 표시되는 버전)와 `sw.js`의 캐시 이름을 함께 갱신한다.
+**배포 전에 반드시 실행해야** 아이폰이 옛 파일을 계속 쓰는 일이 없다.
+
+```bash
+python tools/stamp_build.py
+```
+
+그 뒤 커밋하고 push 하면 GitHub Pages가 알아서 올린다.
+
 ## 구조
 
 ```
@@ -94,7 +105,9 @@ src/plate.js        한글/아라비아 숫자 → 차량번호 (브라우저 AP
 src/voice.js        iOS 사파리 음성 인식 래퍼, 소리·안내음성
 src/store.js        localStorage 저장
 src/yard-data.js    자동 생성된 배치도 (수정 금지)
+src/build.js        자동 생성된 배포 버전 (수정 금지)
 tools/build_yard.py 엑셀 → yard-data.js
+tools/stamp_build.py 배포 버전 도장
 sw.js               오프라인 캐싱
 reference/          원본 엑셀 등 (저장소에 올리지 않음)
 ```
@@ -112,6 +125,13 @@ reference/          원본 엑셀 등 (저장소에 올리지 않음)
   와이파이 API가 없고, 네이티브 앱이라도 `NEHotspotConfiguration` 권한(유료 개발자
   계정)이 필요하다. 단축어 앱에도 특정 네트워크 접속 동작이 없다. 그래서 인쇄를
   누르면 골라야 할 이름(`DIRECT-s0-EPSON-WF-C579R Series`)을 띄워주는 데까지만 한다.
+
+## 화면이 안 바뀔 때
+
+사파리와 서비스 워커가 옛 파일을 붙잡고 있는 경우다. **진단 → 최신 버전 받기**를
+누르면 캐시와 서비스 워커를 지우고 새로 받는다. 입력해 둔 순회 데이터는 지워지지 않는다.
+
+그래도 안 되면 설정 → Safari → 고급 → 웹사이트 데이터에서 해당 항목을 지운다.
 
 ## 나중에 붙일 것
 

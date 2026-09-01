@@ -299,6 +299,26 @@ html, body {
 }
 .diag-log li { padding: 2px 0; word-break: break-all; }
 
+.diag-build {
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.diag-build-label { font-size: 11px; color: var(--ink-dim); }
+.diag-build-val {
+  font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--ink);
+  -webkit-user-select: text; user-select: text;
+}
+#diagUpdate {
+  flex: none; padding: 11px 16px; border-radius: 9px;
+  background: var(--panel-2); color: var(--amber);
+  border: 1px solid var(--amber); font-size: 13px; font-weight: 700; font-family: inherit;
+}
+#diagUpdate:active { background: var(--amber); color: var(--amber-ink); }
+#diagUpdate:disabled { opacity: .5; color: var(--ink-dim); border-color: var(--line); }
+.diag-build-help {
+  font-size: 12px; color: var(--ink-dim); line-height: 1.6; margin: 10px 2px 0;
+}
+
 /* ---------- 인쇄 ---------- */
 #printArea { display: none; }
 

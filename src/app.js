@@ -1,4 +1,5 @@
 import { YARD } from './yard-data.js';
+import { BUILD } from './build.js';
 import { toKoreanSino } from './plate.js';
 import { createVoice, isSupported, beep, speak, primeAudio } from './voice.js';
 import { loadSession, setEntry, countFilled, workDate } from './store.js';
@@ -312,7 +313,33 @@ function openDiag() {
     ? heardLog.map((l) => `<li>${l.replace(/</g, '&lt;')}</li>`).join('')
     : '<li>아직 인식된 내용이 없습니다</li>';
 
+  $('diagBuild').textContent = BUILD;
   $('diagSheet').hidden = false;
+}
+
+/**
+ * 사파리와 서비스 워커가 옛 파일을 붙잡고 있을 때 쓴다.
+ * 캐시와 서비스 워커를 전부 지우고 주소에 새 값을 붙여 다시 받는다.
+ * 입력해 둔 순회 데이터(localStorage)는 건드리지 않는다.
+ */
+async function forceUpdate() {
+  const btn = $('diagUpdate');
+  btn.textContent = '받는 중…';
+  btn.disabled = true;
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (_) { /* 지우기에 실패해도 아래 재요청은 해본다 */ }
+
+  const url = new URL(location.href);
+  url.searchParams.set('v', Date.now().toString(36));
+  location.replace(url.toString());
 }
 
 // ---------------------------------------------------------------- 인쇄
@@ -402,6 +429,7 @@ function init() {
   });
 
   $('diagClose').addEventListener('click', () => { $('diagSheet').hidden = true; });
+  $('diagUpdate').addEventListener('click', forceUpdate);
   $('diagBody').addEventListener('click', (ev) => {
     const row = ev.target.closest('.diag-row');
     if (!row) return;
@@ -427,7 +455,22 @@ function init() {
   if (!isSupported()) handleStatus('unsupported');
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
+    navigator.serviceWorker.register('sw.js')
+      .then((reg) => {
+        // 실행할 때마다 새 버전이 올라왔는지 확인한다
+        reg.update().catch(() => {});
+        reg.addEventListener('updatefound', () => {
+          const sw = reg.installing;
+          if (!sw) return;
+          sw.addEventListener('statechange', () => {
+            // 이미 쓰던 앱 위에 새 버전이 준비된 경우에만 알린다
+            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+              note('새 버전이 있습니다 — 진단에서 "최신 버전 받기"', 'warn');
+            }
+          });
+        });
+      })
+      .catch(() => {});
   }
 }
 
