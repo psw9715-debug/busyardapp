@@ -15,11 +15,15 @@
 <body>
 <div id="out"></div>
 <script>
-// ---- iOS 사파리 흉내: 한 세션의 전사를 누적해서 돌려주고, 발화가 끝나면 스스로 종료 ----
+// ---- iOS 사파리 흉내 ----------------------------------------------------
+// 사파리는 한 세션의 전사를 누적해 돌려준다. 말하는 중에는 마지막 항목을
+// 계속 갈아치우다가(중간 결과), 확정되면 그 항목을 굳히고 다음으로 넘어간다.
+// 그리고 발화가 끝나면 continuous 와 무관하게 스스로 종료한다.
 window.__instances = [];
 class MockSR {
   constructor() {
-    this.results = [];
+    this.finals = [];
+    this.interim = null;
     this._started = false;
     window.__instances.push(this);
     window.__sr = this;
@@ -27,7 +31,8 @@ class MockSR {
   start() {
     if (this._started) { const e = new Error('already started'); e.name = 'InvalidStateError'; throw e; }
     this._started = true;
-    this.results = [];
+    this.finals = [];
+    this.interim = null;
     if (this.onstart) this.onstart();
   }
   abort() { this._end(); }
@@ -37,13 +42,16 @@ class MockSR {
     this._started = false;
     if (this.onend) this.onend();
   }
-  /** 인식 결과를 누적해서 통보 (사파리 동작) */
-  say(text, isFinal = false) {
-    this.results.push({ 0: { transcript: text }, isFinal, length: 1 });
-    const list = this.results.slice();
-    list.length = this.results.length;
-    if (this.onresult) this.onresult({ results: Object.assign(list, { length: list.length }) });
+  _emit() {
+    const list = this.finals.map(t => ({ 0: { transcript: t }, isFinal: true, length: 1 }));
+    if (this.interim !== null) list.push({ 0: { transcript: this.interim }, isFinal: false, length: 1 });
+    list.length = list.length;
+    if (this.onresult) this.onresult({ results: list });
   }
+  /** 말하는 중 — 마지막 중간 결과를 갈아치운다 */
+  say(text) { this.interim = text; this._emit(); }
+  /** 확정 — 이 부분은 더 이상 바뀌지 않는다 */
+  finalize(text) { this.finals.push(text); this.interim = null; this._emit(); }
   fail(name) { if (this.onerror) this.onerror({ error: name }); }
 }
 window.SpeechRecognition = MockSR;
@@ -64,12 +72,62 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 function harness() {
   const tokens = [];
   const states = [];
+  const heard = [];
   const v = createVoice({
     onToken: t => tokens.push(t.type === 'plate' ? t.plate : `<${t.type}>`),
-    onInterim: () => {},
+    onInterim: t => heard.push(t),
     onStatus: s => states.push(s),
   });
-  return { v, tokens, states };
+  return { v, tokens, states, heard };
+}
+
+log('<h2>▶ 말하는 도중에는 확정하지 않는다 (현장에서 터진 문제)</h2>');
+{
+  // "천칠백이십사" 를 말하면 사파리는 조각조각 중간 결과를 흘린다.
+  // 예전 코드는 첫 조각 "천"을 1000으로 확정해 버리고 다음 자리로 넘어갔다.
+  const { v, tokens, heard } = harness();
+  v.start();
+  const sr = window.__sr;
+  sr.say('천');
+  eq(tokens, [], '"천"만 들렸을 때 확정하지 않음');
+  sr.say('천칠백');
+  eq(tokens, [], '"천칠백"에서도 확정하지 않음');
+  sr.say('천칠백이십사');
+  eq(tokens, [], '완성돼도 확정 전에는 넣지 않음');
+  eq(heard.length > 0, true, '말하는 중에도 화면에는 보여준다');
+  sr.finalize('천칠백이십사');
+  eq(tokens, ['1724'], '확정되고 나서 한 번만 입력');
+  v.stop();
+}
+{
+  const { v, tokens } = harness();
+  v.start();
+  const sr = window.__sr;
+  sr.say('천백');
+  sr.finalize('천백삼십사');
+  eq(tokens, ['1134'], '중간에 다르게 들렸어도 확정값이 들어감');
+  v.stop();
+}
+
+log('<h2>▶ 확정 없이 세션이 끝나도 잃지 않는다</h2>');
+{
+  const { v, tokens } = harness();
+  v.start();
+  const sr = window.__sr;
+  sr.say('천칠백이십사');
+  sr._end();
+  eq(tokens, ['1724'], '말은 끝났으니 확정으로 보고 입력');
+  v.stop();
+}
+{
+  const { v, tokens } = harness();
+  v.start();
+  const sr = window.__sr;
+  sr.finalize('천사십이');
+  sr.say('천백삼십사');
+  sr._end();
+  eq(tokens, ['1042', '1134'], '확정분과 미확정분이 섞여도 중복·누락 없음');
+  v.stop();
 }
 
 log('<h2>▶ 누적 전사에서 새로 늘어난 것만 처리</h2>');
@@ -77,11 +135,11 @@ log('<h2>▶ 누적 전사에서 새로 늘어난 것만 처리</h2>');
   const { v, tokens } = harness();
   v.start();
   const sr = window.__sr;
-  sr.say('천사십이');                 // 1대째
+  sr.finalize('천사십이');
   eq(tokens, ['1042'], '첫 발화');
-  sr.say('천백삼십사');               // 사파리가 누적해서 통보
+  sr.finalize('천백삼십사');
   eq(tokens, ['1042', '1134'], '두 번째는 새 것만 추가 (중복 없음)');
-  sr.say('공차');
+  sr.finalize('공차');
   eq(tokens, ['1042', '1134', '<skip>'], '명령도 순서대로');
   v.stop();
 }
@@ -91,12 +149,12 @@ log('<h2>▶ 발화 종료 후 자동 재시작 (사파리는 continuous 무시)
   const { v, tokens } = harness();
   v.start();
   const first = window.__sr;
-  first.say('천사십이', true);
-  first._end();                        // 사파리가 스스로 종료
+  first.finalize('천사십이');
+  first._end();
   await sleep(300);
   const second = window.__sr;
-  eq(second !== first || second._started, true, '자동으로 다시 듣기 시작');
-  second.say('천백삼십사');
+  eq(second._started, true, '자동으로 다시 듣기 시작');
+  second.finalize('천백삼십사');
   eq(tokens, ['1042', '1134'], '재시작 후에도 이어서 인식');
   eq(tokens.filter(t => t === '1042').length, 1, '재시작 때 앞 내용이 중복 처리되지 않음');
   v.stop();
@@ -136,11 +194,11 @@ log('<h2>▶ 안내 음성 되먹임 차단</h2>');
 {
   const { v, tokens } = harness();
   v.start();
-  v.muteFor(200);                      // TTS 재생 중이라고 가정
-  window.__sr.say('천사십이');
+  v.muteFor(200);
+  window.__sr.finalize('천사십이');
   eq(tokens, [], '차단 구간에는 자기 목소리를 먹지 않음');
   await sleep(260);
-  window.__sr.say('천백삼십사');
+  window.__sr.finalize('천백삼십사');
   eq(tokens, ['1134'], '차단이 풀리면 다시 인식');
   v.stop();
 }

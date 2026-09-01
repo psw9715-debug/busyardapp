@@ -16,23 +16,32 @@ export function createVoice({ onToken, onInterim, onStatus }) {
   let wanted = false;      // 사용자가 켜 둔 상태인가
   let running = false;     // 실제 엔진이 도는 중인가
   let consumed = 0;        // 현재 세션에서 이미 앱에 넘긴 토큰 개수
+  let settled = '';        // 사파리가 확정해 준 말
+  let pending = '';        // 아직 말하는 중인 부분
   let restartTimer = null;
   let muteUntil = 0;       // 안내 음성 재생 중 자기 목소리 되먹임 차단
 
   const status = (state, detail) => onStatus && onStatus(state, detail);
 
-  function feed(text, isFinal) {
-    const tokens = extractSequence(text);
-    const muted = Date.now() < muteUntil;
+  /**
+   * 확정된 말에서만 입력을 만든다.
+   *
+   * "천칠백이십사" 를 말하면 사파리는 "천" → "천칠백" → "천칠백이십사" 순으로
+   * 중간 결과를 흘린다. 이걸 그대로 받으면 첫 조각 "천"이 1000으로 확정돼
+   * 다음 자리로 넘어가 버리고, 완성된 값은 들어갈 자리를 잃는다.
+   * 그래서 확정(isFinal) 된 부분만 입력으로 옮긴다.
+   */
+  function commitFinal(finalText) {
+    const tokens = extractSequence(finalText);
+    if (tokens.length <= consumed) return;
 
-    if (tokens.length > consumed) {
-      const fresh = tokens.slice(consumed);
-      // 차단 구간이라도 소비 처리는 해야 한다. 그러지 않으면 차단이 풀리는 순간
-      // 안내 음성이 남긴 전사가 뒤늦게 한꺼번에 입력돼 버린다.
-      consumed = tokens.length;
-      if (!muted) for (const t of fresh) onToken && onToken(t);
+    const fresh = tokens.slice(consumed);
+    // 차단 구간이라도 소비 처리는 해야 한다. 그러지 않으면 차단이 풀리는 순간
+    // 안내 음성이 남긴 전사가 뒤늦게 한꺼번에 입력돼 버린다.
+    consumed = tokens.length;
+    if (Date.now() >= muteUntil) {
+      for (const t of fresh) onToken && onToken(t);
     }
-    if (!muted && !isFinal) onInterim && onInterim(text, tokens.length);
   }
 
   function build() {
@@ -42,17 +51,27 @@ export function createVoice({ onToken, onInterim, onStatus }) {
     r.interimResults = true;
     r.maxAlternatives = 1;
 
-    r.onstart = () => { running = true; consumed = 0; status('listening'); };
+    r.onstart = () => {
+      running = true; consumed = 0; settled = ''; pending = '';
+      status('listening');
+    };
 
     r.onresult = (e) => {
-      // 사파리는 세션 시작부터의 전사를 누적해서 준다
-      let text = '';
-      let isFinal = false;
+      // 사파리는 세션 시작부터의 전사를 누적해서 준다.
+      // 확정된 부분과 아직 말하는 중인 부분을 나눠서 받는다.
+      let finalText = '';
+      let interimText = '';
       for (let i = 0; i < e.results.length; i++) {
-        text += e.results[i][0].transcript;
-        if (e.results[i].isFinal) isFinal = true;
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) finalText += t;
+        else interimText += t;
       }
-      feed(text, isFinal);
+      settled = finalText;
+      pending = interimText;
+      commitFinal(settled);
+      if (Date.now() >= muteUntil && interimText) {
+        onInterim && onInterim(settled + pending, false);
+      }
     };
 
     r.onerror = (e) => {
@@ -68,7 +87,10 @@ export function createVoice({ onToken, onInterim, onStatus }) {
 
     r.onend = () => {
       running = false;
-      consumed = 0;
+      // 사파리가 확정을 안 준 채 세션을 끝내는 경우가 있다. 말은 이미 끝났으니
+      // 남아 있던 말을 확정으로 보고 넘긴다 — 안 그러면 한 자리를 통째로 잃는다.
+      if (pending) commitFinal(settled + pending);
+      consumed = 0; settled = ''; pending = '';
       if (wanted) {
         clearTimeout(restartTimer);
         restartTimer = setTimeout(safeStart, 120);
@@ -111,8 +133,8 @@ export function createVoice({ onToken, onInterim, onStatus }) {
     muteFor(ms) { muteUntil = Date.now() + ms; },
     /** 자리를 옮겼으니 지금까지의 전사는 잊고 새로 듣는다 */
     reset() {
+      consumed = 0; settled = ''; pending = '';
       if (rec && running) { try { rec.abort(); } catch (_) {} }
-      consumed = 0;
     },
   };
 }

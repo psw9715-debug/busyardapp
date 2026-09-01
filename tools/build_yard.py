@@ -14,6 +14,8 @@ import json
 import openpyxl
 from openpyxl.utils import get_column_letter as col_letter
 
+from xlsx_color import load_theme, cell_bg, border_weights
+
 XLSX = "reference/차고지 프린트.xlsx"
 OUT = "src/yard-data.js"
 
@@ -45,6 +47,8 @@ def main():
     ws = wb[ORDER_SHEET]
     wp = wb[PRINT_SHEET]
 
+    theme = load_theme(XLSX)
+
     cells = []
     for rng in ws.merged_cells.ranges:
         if rng.min_row < 3:
@@ -57,6 +61,11 @@ def main():
             "rowspan": (rng.max_row - rng.min_row + 1) // 3,
             "xl": col_letter(rng.min_col) + str(rng.min_row),
         }
+        # 색과 테두리는 실제로 손에 쥐는 인쇄용 시트에서 가져온다
+        bg = cell_bg(wp.cell(rng.min_row, rng.min_col), theme)
+        if bg:
+            cell["bg"] = bg
+        cell["b"] = border_weights(wp, rng.min_row, rng.min_col, rng.max_row, rng.max_col)
 
         if isinstance(value, int):
             cell["kind"] = "spot"
@@ -72,23 +81,39 @@ def main():
             cell["kind"] = "void"
         cells.append(cell)
 
-    # 주차장 바닥 고정번호 (인쇄용 시트에만 있는 라벨 열)
-    painted = 0
+    # 병합에 속하지 않은 나머지 칸. 여기에 주차장 바닥 고정번호가 있고,
+    # 색만 칠해진 구역 표시도 있다 (교통사업처 아래 초록 블록 등).
+    # 하나라도 빠지면 인쇄물이 원본과 달라지므로 격자 전체를 훑는다.
+    taken = set()
+    for c in cells:
+        for dr in range(c["rowspan"]):
+            for dc in range(c["colspan"]):
+                taken.add((c["row"] + dr, c["col"] + dc))
+
     for excel_row in range(3, 63, 3):
-        for col in (COL_L, COL_M):
-            v = wp.cell(excel_row, col).value
-            if v is None:
+        row = grid_row(excel_row)
+        for col in range(1, 16):
+            if (row, col) in taken:
                 continue
-            cells.append({
+            v = wp.cell(excel_row, col).value
+            bg = cell_bg(wp.cell(excel_row, col), theme)
+            borders = border_weights(wp, excel_row, col, excel_row + 2, col)
+            if v is None and not bg and not any(borders):
+                continue  # 정말 아무것도 없는 여백
+            c = {
                 "col": col,
                 "colspan": 1,
-                "row": grid_row(excel_row),
+                "row": row,
                 "rowspan": 1,
                 "xl": col_letter(col) + str(excel_row),
-                "kind": "paint",
-                "text": str(v),
-            })
-            painted += 1
+                "kind": "paint" if v is not None else "plain",
+                "b": borders,
+            }
+            if v is not None:
+                c["text"] = str(v)
+            if bg:
+                c["bg"] = bg
+            cells.append(c)
 
     cells.sort(key=lambda c: (c["row"], c["col"]))
     spots = sorted(c["spot"] for c in cells if c["kind"] == "spot")
@@ -104,7 +129,7 @@ def main():
 
     data = {
         "id": "new",
-        "name": "6차고지 (신차고지)",
+        "name": str(wp["A1"].value or "").strip() or "6차고지 (신차고지)",
         "cols": 15,
         "rows": 20,
         "wideCol": 1,        # A열은 원본에서 폭이 2배 이상

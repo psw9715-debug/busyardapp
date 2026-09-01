@@ -25,6 +25,9 @@ function firstEmptySpot() {
 
 // ---------------------------------------------------------------- 배치도
 
+// 인쇄물의 테두리 굵기 (엑셀의 hair / thin / medium 에 대응)
+const BORDER_PT = ['0', '.25pt', '.5pt', '1.2pt'];
+
 function buildMap(container, cls) {
   container.innerHTML = '';
   for (const c of YARD.cells) {
@@ -32,6 +35,16 @@ function buildMap(container, cls) {
     el.className = 'cell ' + c.kind;
     el.style.gridColumn = `${c.col} / span ${c.colspan}`;
     el.style.gridRow = `${c.row} / span ${c.rowspan}`;
+
+    // 색과 테두리는 인쇄물에만 입힌다. 화면은 야간 순회용이라 어두운 채로 둔다.
+    if (cls === 'print') {
+      if (c.bg) el.style.background = c.bg;
+      if (c.b) {
+        const [t, r, b, l] = c.b;
+        el.style.borderWidth = `${BORDER_PT[t]} ${BORDER_PT[r]} ${BORDER_PT[b]} ${BORDER_PT[l]}`;
+        el.style.borderStyle = 'solid';
+      }
+    }
 
     if (c.kind === 'spot') {
       el.dataset.spot = c.spot;
