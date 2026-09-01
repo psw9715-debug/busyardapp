@@ -1,11 +1,12 @@
 // 오프라인 캐싱 — 차고지에서 전파가 약해도 앱 자체는 뜨게 한다.
 // 버전을 올리면 다음 실행 때 새 파일을 받아간다.
 
-const CACHE = 'busyard-202609020027';
+const CACHE = 'busyard-202609020043';
 const ASSETS = [
   './',
   './index.html',
   './manifest.json',
+  './version.json',
   './src/app.css',
   './src/app.js',
   './src/plate.js',

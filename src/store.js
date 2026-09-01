@@ -40,6 +40,13 @@ export function countFilled(session) {
   return Object.keys(session.entries).length;
 }
 
+/** 이 회차에 입력한 차량번호를 전부 지운다 */
+export function clearSession(session) {
+  session.entries = {};
+  saveSession(session);
+  return session;
+}
+
 export function listSessions() {
   const out = [];
   for (let i = 0; i < localStorage.length; i++) {

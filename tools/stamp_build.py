@@ -22,6 +22,10 @@ def main():
         f.write('// 자동 생성 파일 — `python tools/stamp_build.py` 로 갱신.\n')
         f.write(f"export const BUILD = '{build}';\n")
 
+    # 앱이 실행할 때마다 캐시를 건너뛰고 받아와 지금 것과 비교하는 파일
+    with io.open('version.json', 'w', encoding='utf-8') as f:
+        f.write('{"build": "%s"}\n' % build)
+
     # 서비스 워커 캐시 이름을 바꿔 옛 캐시를 확실히 버리게 한다
     sw = io.open('sw.js', encoding='utf-8').read()
     cache_id = datetime.now(KST).strftime('%Y%m%d%H%M')

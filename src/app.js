@@ -1,8 +1,8 @@
 import { YARD } from './yard-data.js';
 import { BUILD } from './build.js';
 import { toKoreanSino } from './plate.js';
-import { createVoice, isSupported, beep, speak, primeAudio } from './voice.js';
-import { loadSession, setEntry, countFilled, workDate } from './store.js';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js';
+import { loadSession, setEntry, countFilled, workDate, clearSession } from './store.js';
 
 // ---------------------------------------------------------------- 상태
 
@@ -25,9 +25,6 @@ function firstEmptySpot() {
 
 // ---------------------------------------------------------------- 배치도
 
-// 인쇄물의 테두리 굵기 (엑셀의 hair / thin / medium 에 대응)
-const BORDER_PT = ['0', '.25pt', '.5pt', '1.2pt'];
-
 function buildMap(container, cls) {
   container.innerHTML = '';
   for (const c of YARD.cells) {
@@ -36,15 +33,9 @@ function buildMap(container, cls) {
     el.style.gridColumn = `${c.col} / span ${c.colspan}`;
     el.style.gridRow = `${c.row} / span ${c.rowspan}`;
 
-    // 색과 테두리는 인쇄물에만 입힌다. 화면은 야간 순회용이라 어두운 채로 둔다.
-    if (cls === 'print') {
-      if (c.bg) el.style.background = c.bg;
-      if (c.b) {
-        const [t, r, b, l] = c.b;
-        el.style.borderWidth = `${BORDER_PT[t]} ${BORDER_PT[r]} ${BORDER_PT[b]} ${BORDER_PT[l]}`;
-        el.style.borderStyle = 'solid';
-      }
-    }
+    // 구역 색은 인쇄물에만 입힌다. 화면은 야간 순회용이라 어두운 채로 둔다.
+    // 테두리는 원본의 굵기 차이를 따르지 않고 전부 같은 얇은 선으로 긋는다.
+    if (cls === 'print' && c.bg) el.style.background = c.bg;
 
     if (c.kind === 'spot') {
       el.dataset.spot = c.spot;
@@ -176,6 +167,18 @@ function announceSpeak(text) {
 let ttsOn = localStorage.getItem('busyard:tts') === '1';
 // 키패드로 넣은 번호를 한국식으로 되읽어 확인시켜 준다 ("734" -> "천칠백삼십사")
 let padTtsOn = localStorage.getItem('busyard:padtts') === '1';
+// 키패드에서 누른 숫자를 바로 읽어준다 ("7" -> "칠"). 기본 켜짐.
+let keyTtsOn = localStorage.getItem('busyard:keytts') !== '0';
+
+// 말이 멎고 얼마 만에 확정할지. 짧을수록 다음 자리로 빨리 넘어가지만,
+// 번호를 중간에 끊어 말하면 두 개로 쪼개질 수 있다.
+const SETTLE = [
+  { ms: 300, label: '빠름' },
+  { ms: 450, label: '보통' },
+  { ms: 700, label: '느림' },
+];
+let settleIdx = Number(localStorage.getItem('busyard:settle') ?? 1);
+if (!SETTLE[settleIdx]) settleIdx = 1;
 
 function readBackPlate(plate) {
   if (!padTtsOn || !plate) return;
@@ -229,11 +232,23 @@ function handleStatus(state, detail) {
   }
 }
 
+function ensureVoice() {
+  if (!voice) {
+    voice = createVoice({
+      onToken: handleToken,
+      onInterim: handleInterim,
+      onStatus: handleStatus,
+      settleMs: SETTLE[settleIdx].ms,
+    });
+  }
+  return voice;
+}
+
 function toggleMic() {
   primeAudio();
-  if (!voice) voice = createVoice({ onToken: handleToken, onInterim: handleInterim, onStatus: handleStatus });
-  if (voice.isOn()) { voice.stop(); releaseWakeLock(); }
-  else { voice.start(); requestWakeLock(); }
+  const v = ensureVoice();
+  if (v.isOn()) { v.stop(); releaseWakeLock(); }
+  else { v.start(); requestWakeLock(); }
 }
 
 // ---------------------------------------------------------------- 화면 꺼짐 방지
@@ -254,12 +269,25 @@ document.addEventListener('visibilitychange', () => {
 
 let padSpot = null;
 let padDigits = '';
+let padPausedVoice = false;
 
 function openPad(spot) {
+  primeAudio();
+  // 키패드를 쓰는 동안 마이크가 켜져 있으면 숫자 읽는 소리까지 받아 적는다.
+  if (voice && voice.isOn()) { voice.stop(); padPausedVoice = true; }
+
   padSpot = spot; padDigits = '';
   $('padTitle').textContent = `${spot}번 자리`;
   renderPad();
   $('padSheet').hidden = false;
+}
+
+function closePad() {
+  $('padSheet').hidden = true;
+  if (padPausedVoice) {
+    padPausedVoice = false;
+    ensureVoice().start();      // 키패드 쓰기 전에 켜져 있었으면 되돌린다
+  }
 }
 function renderPad() {
   document.querySelectorAll('#padDisplay .slot').forEach((el, i) => {
@@ -270,7 +298,12 @@ function renderPad() {
 }
 function padKey(k) {
   primeAudio();
-  if (k === 'del') { padDigits = padDigits.slice(0, -1); renderPad(); return; }
+  if (k === 'del') {
+    padDigits = padDigits.slice(0, -1);
+    renderPad();
+    beep('back');
+    return;
+  }
   if (k === 'vacant') {
     commit(padSpot, { plate: null, status: 'vacant', confidence: 'high', method: 'keypad' }, { announce: false });
     padSpot = cursor; padDigits = '';
@@ -281,6 +314,7 @@ function padKey(k) {
   if (padDigits.length >= 3) return;
   padDigits += k;
   renderPad();
+  if (keyTtsOn) speakDigit(k);   // 무엇을 눌렀는지 귀로 확인
   if (padDigits.length === 3) {
     const plate = '1' + padDigits;
     commit(padSpot, { plate, status: 'filled', confidence: 'high', method: 'keypad' }, { announce: false });
@@ -309,13 +343,15 @@ function openDiag() {
   const rows = [
     ['음성 인식 지원', isSupported(), isSupported() ? '사용 가능' : '미지원'],
     ['보안 연결(HTTPS)', window.isSecureContext, window.isSecureContext ? '정상' : '마이크 사용 불가'],
+    ['음성 넘어가는 속도', true, `${SETTLE[settleIdx].label} (${SETTLE[settleIdx].ms}ms) — 눌러서 바꾸기`],
+    ['키패드 숫자 읽기', keyTtsOn, keyTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
     ['다음 자리 안내 음성', ttsOn, ttsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
     ['키패드 입력 되읽기', padTtsOn, padTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
     ['화면 꺼짐 방지', 'wakeLock' in navigator, 'wakeLock' in navigator ? '지원' : '미지원'],
     ['홈화면 설치 상태', window.navigator.standalone === true, window.navigator.standalone ? '설치됨' : '사파리 탭'],
     ['네트워크', navigator.onLine, navigator.onLine ? '온라인' : '오프라인 — 음성 불가'],
   ];
-  const TOGGLES = ['안내 음성', '되읽기'];
+  const TOGGLES = ['안내 음성', '되읽기', '숫자 읽기', '넘어가는 속도'];
   $('diagBody').innerHTML = rows.map(([k, ok, v]) => {
     const toggle = TOGGLES.some((t) => k.includes(t)) ? ' toggle' : '';
     return `<div class="diag-row${toggle}"><b>${k}</b><span class="${ok ? 'ok' : 'no'}">${v}</span></div>`;
@@ -331,14 +367,40 @@ function openDiag() {
 }
 
 /**
+ * 새 버전이 올라왔는지 확인하고, 올라왔으면 알아서 새로 받는다.
+ *
+ * 사파리는 옛 파일을 꽤 오래 붙잡고 있어서 새로고침만으로는 풀리지 않는다.
+ * version.json 만 캐시를 완전히 건너뛰고 받아와 지금 돌고 있는 것과 비교한다.
+ * 같은 버전으로 두 번 새로 받는 일이 없도록 한 번 시도한 것은 기억해 둔다.
+ */
+async function checkForUpdate() {
+  let remote;
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (!res.ok) return;
+    remote = (await res.json()).build;
+  } catch (_) {
+    return;   // 전파가 없으면 그냥 지금 것으로 쓴다
+  }
+  if (!remote || remote === BUILD) return;
+
+  if (sessionStorage.getItem('busyard:tried') === remote) {
+    // 이미 받아봤는데도 그대로다. 무한 새로고침 대신 사용자에게 알린다.
+    note('새 버전이 있습니다 — 진단에서 "최신 버전 받기"', 'warn');
+    return;
+  }
+  sessionStorage.setItem('busyard:tried', remote);
+  await forceUpdate();
+}
+
+/**
  * 사파리와 서비스 워커가 옛 파일을 붙잡고 있을 때 쓴다.
  * 캐시와 서비스 워커를 전부 지우고 주소에 새 값을 붙여 다시 받는다.
  * 입력해 둔 순회 데이터(localStorage)는 건드리지 않는다.
  */
 async function forceUpdate() {
   const btn = $('diagUpdate');
-  btn.textContent = '받는 중…';
-  btn.disabled = true;
+  if (btn) { btn.textContent = '받는 중…'; btn.disabled = true; }
   try {
     if ('serviceWorker' in navigator) {
       const regs = await navigator.serviceWorker.getRegistrations();
@@ -418,7 +480,7 @@ function init() {
     }
   });
 
-  $('padClose').addEventListener('click', () => { $('padSheet').hidden = true; });
+  $('padClose').addEventListener('click', closePad);
   document.querySelectorAll('.pad-keys button').forEach((b) =>
     b.addEventListener('click', () => padKey(b.dataset.k)));
 
@@ -443,6 +505,33 @@ function init() {
 
   $('diagClose').addEventListener('click', () => { $('diagSheet').hidden = true; });
   $('diagUpdate').addEventListener('click', forceUpdate);
+
+  // 되돌릴 수 없는 일이라 두 번 눌러야 지워진다
+  let clearArmed = false;
+  $('diagClear').addEventListener('click', () => {
+    if (!clearArmed) {
+      clearArmed = true;
+      $('diagClear').textContent = '정말 지울까요? 한 번 더 누르세요';
+      $('diagClear').classList.add('armed');
+      setTimeout(() => {
+        if (!clearArmed) return;
+        clearArmed = false;
+        $('diagClear').textContent = '이 회차 입력 전부 지우기';
+        $('diagClear').classList.remove('armed');
+      }, 4000);
+      return;
+    }
+    clearArmed = false;
+    clearSession(session);
+    cursor = 1;
+    repaintAll();
+    renderHud();
+    $('diagClear').textContent = '이 회차 입력 전부 지우기';
+    $('diagClear').classList.remove('armed');
+    $('diagSheet').hidden = true;
+    note('입력을 전부 지웠습니다. 1번 자리부터 시작합니다.');
+    beep('back');
+  });
   $('diagBody').addEventListener('click', (ev) => {
     const row = ev.target.closest('.diag-row');
     if (!row) return;
@@ -459,32 +548,34 @@ function init() {
       localStorage.setItem('busyard:padtts', padTtsOn ? '1' : '0');
       openDiag();
       if (padTtsOn) speak(toKoreanSino('1734'), { rate: 1.7 });   // 실제 속도로 미리 들려준다
+    } else if (name.includes('숫자 읽기')) {
+      keyTtsOn = !keyTtsOn;
+      localStorage.setItem('busyard:keytts', keyTtsOn ? '1' : '0');
+      openDiag();
+      if (keyTtsOn) speakDigit('7');
+    } else if (name.includes('넘어가는 속도')) {
+      settleIdx = (settleIdx + 1) % SETTLE.length;
+      localStorage.setItem('busyard:settle', String(settleIdx));
+      if (voice) voice.setSettle(SETTLE[settleIdx].ms);
+      openDiag();
     }
   });
 
   [$('padSheet'), $('spotSheet'), $('diagSheet')].forEach((bg) =>
-    bg.addEventListener('click', (ev) => { if (ev.target === bg) bg.hidden = true; }));
+    bg.addEventListener('click', (ev) => {
+      if (ev.target !== bg) return;
+      if (bg.id === 'padSheet') closePad(); else bg.hidden = true;
+    }));
 
   if (!isSupported()) handleStatus('unsupported');
 
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js')
-      .then((reg) => {
-        // 실행할 때마다 새 버전이 올라왔는지 확인한다
-        reg.update().catch(() => {});
-        reg.addEventListener('updatefound', () => {
-          const sw = reg.installing;
-          if (!sw) return;
-          sw.addEventListener('statechange', () => {
-            // 이미 쓰던 앱 위에 새 버전이 준비된 경우에만 알린다
-            if (sw.state === 'installed' && navigator.serviceWorker.controller) {
-              note('새 버전이 있습니다 — 진단에서 "최신 버전 받기"', 'warn');
-            }
-          });
-        });
-      })
+    // updateViaCache:'none' — 서비스 워커 파일만은 사파리 캐시를 거치지 않게 한다
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+      .then((reg) => reg.update().catch(() => {}))
       .catch(() => {});
   }
+  checkForUpdate();
 }
 
 init();

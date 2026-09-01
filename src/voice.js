@@ -11,7 +11,7 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 export const isSupported = () => Boolean(SR);
 
-export function createVoice({ onToken, onInterim, onStatus }) {
+export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
   let rec = null;
   let wanted = false;      // 사용자가 켜 둔 상태인가
   let running = false;     // 실제 엔진이 도는 중인가
@@ -19,6 +19,7 @@ export function createVoice({ onToken, onInterim, onStatus }) {
   let settled = '';        // 사파리가 확정해 준 말
   let pending = '';        // 아직 말하는 중인 부분
   let restartTimer = null;
+  let settleTimer = null;  // 말이 멈춘 뒤 스스로 확정하기까지
   let muteUntil = 0;       // 안내 음성 재생 중 자기 목소리 되먹임 차단
 
   const status = (state, detail) => onStatus && onStatus(state, detail);
@@ -68,9 +69,17 @@ export function createVoice({ onToken, onInterim, onStatus }) {
       }
       settled = finalText;
       pending = interimText;
+
+      clearTimeout(settleTimer);
       commitFinal(settled);
-      if (Date.now() >= muteUntil && interimText) {
-        onInterim && onInterim(settled + pending, false);
+
+      if (pending) {
+        if (Date.now() >= muteUntil) onInterim && onInterim(settled + pending, false);
+        // 사파리는 말이 끝나고도 한참 뒤에야 확정을 준다. 그때까지 기다리면
+        // 자리마다 눈에 띄게 굼뜨다. 말이 멎으면 그 자리에서 확정으로 본다.
+        settleTimer = setTimeout(() => {
+          commitFinal(settled + pending);
+        }, settleMs);
       }
     };
 
@@ -87,6 +96,7 @@ export function createVoice({ onToken, onInterim, onStatus }) {
 
     r.onend = () => {
       running = false;
+      clearTimeout(settleTimer);
       // 사파리가 확정을 안 준 채 세션을 끝내는 경우가 있다. 말은 이미 끝났으니
       // 남아 있던 말을 확정으로 보고 넘긴다 — 안 그러면 한 자리를 통째로 잃는다.
       if (pending) commitFinal(settled + pending);
@@ -124,16 +134,20 @@ export function createVoice({ onToken, onInterim, onStatus }) {
     stop() {
       wanted = false;
       clearTimeout(restartTimer);
+      clearTimeout(settleTimer);
       if (rec && running) { try { rec.abort(); } catch (_) {} }
       running = false;
       status('idle');
     },
     isOn: () => wanted,
+    /** 말이 멎고 몇 ms 뒤에 확정할지 — 짧을수록 다음 자리로 빨리 넘어간다 */
+    setSettle(ms) { settleMs = ms; },
     /** 안내 음성이 나가는 동안 인식 결과를 무시한다 (에어팟 되먹임 방지) */
     muteFor(ms) { muteUntil = Date.now() + ms; },
     /** 자리를 옮겼으니 지금까지의 전사는 잊고 새로 듣는다 */
     reset() {
       consumed = 0; settled = ''; pending = '';
+      clearTimeout(settleTimer);
       if (rec && running) { try { rec.abort(); } catch (_) {} }
     },
   };
@@ -183,13 +197,25 @@ export function beep(kind) {
 }
 
 /** 안내 음성. 말하는 동안 인식을 잠시 막으려면 voice.muteFor 를 함께 쓴다. */
-export function speak(text, { rate = 1.25 } = {}) {
+export function speak(text, { rate = 1.25, interrupt = true } = {}) {
   if (!window.speechSynthesis) return 0;
   const u = new SpeechSynthesisUtterance(text);
   u.lang = 'ko-KR';
   u.rate = rate;
-  window.speechSynthesis.cancel();
+  if (interrupt) window.speechSynthesis.cancel();
   window.speechSynthesis.speak(u);
   // 대략적인 재생 시간(ms) — 되먹임 차단 구간 계산용
   return Math.max(600, (text.length / rate) * 130);
+}
+
+const DIGIT_WORD = ['공', '일', '이', '삼', '사', '오', '육', '칠', '팔', '구'];
+
+/**
+ * 키패드에서 누른 숫자를 바로 읽어준다.
+ * 손가락 속도를 따라가야 하므로 앞의 발음을 끊고 아주 빠르게 낸다.
+ */
+export function speakDigit(d) {
+  const word = DIGIT_WORD[Number(d)];
+  if (word === undefined) return;
+  speak(word, { rate: 2.2 });
 }
