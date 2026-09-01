@@ -210,6 +210,7 @@ th{ font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.05em;
   display:flex; gap:10px; padding:9px 0; border-bottom:1px solid var(--rule); font-size:14.5px;
 }
 .checklist li:last-child{ border-bottom:none; }
+.checklist .box.done{ background:var(--accent); border-color:var(--accent); color:var(--paper); font-size:11px; line-height:14px; text-align:center; font-weight:700; }
 .checklist .box{
   flex:none; width:16px; height:16px; margin-top:2px; border-radius:4px;
   border:1.5px solid var(--ink-dim);
@@ -547,15 +548,24 @@ th{ font-family:"IBM Plex Mono",monospace; font-size:11px; letter-spacing:.05em;
   </section>
 
   <section id="plan">
-    <h2><span class="num">7</span> 개발 순서</h2>
+    <h2><span class="num">7</span> 개발 진행</h2>
+    <p class="lede">1차 구현 완료. 남은 것은 아이폰 실기 확인뿐.</p>
     <ul class="checklist">
-      <li><span class="box"></span><span><b>0단계 — 음성인식 실측 검증.</b> 최소 페이지 배포 → 아이폰 실기 테스트 (한글숫자 인식률 / 연속발화 재시작 지연 / 전파 약한 곳 동작 여부)</span></li>
-      <li><span class="box"></span><span><b>1단계 — 배치도 정적 렌더링.</b> xlsx 좌표 → 그리드 변환, 라벨·빈칸 포함 종이와 동일한 모양 확인</span></li>
-      <li><span class="box"></span><span><b>2단계 — 수동 입력.</b> 탭 → 키패드 입력, localStorage 저장, 진행률 표시</span></li>
-      <li><span class="box"></span><span><b>3단계 — 음성 입력 연동.</b> 0단계 검증 결과 반영해 연속인식 또는 확정 방식 구현, 1000번대 보정 로직</span></li>
-      <li><span class="box"></span><span><b>4단계 — 인쇄.</b> 인쇄 전용 CSS, 원본과 동일 레이아웃 검증</span></li>
-      <li><span class="box"></span><span><b>5단계 — PWA 마감.</b> manifest, 아이콘, Service Worker 오프라인 캐싱, GitHub Pages 배포 → 홈화면 추가 실기 확인</span></li>
+      <li><span class="box done">✓</span><span><b>배치도 렌더링.</b> 엑셀 병합 셀 → 15열 × 20행 그리드 자동 변환(<code>tools/build_yard.py</code>). 순회번호 1–109 연속성 검사 통과, 라벨·제외칸까지 종이와 동일.</span></li>
+      <li><span class="box done">✓</span><span><b>한글 숫자 파서.</b> 한자어 수사("천백삼십사")·자릿수 읽기("일일삼사")·아라비아 숫자 전부 대응. 1000번대 보정 포함 <b>테스트 40건 통과</b>.</span></li>
+      <li><span class="box done">✓</span><span><b>음성 엔진.</b> 사파리가 발화마다 끊는 문제를 자동 재시작으로 우회, 누적 전사에서 새 토큰만 추출. <b>테스트 14건 통과</b>.</span></li>
+      <li><span class="box done">✓</span><span><b>키패드 입력.</b> 앞자리 1 고정이라 세 자리만 누르면 자동 확정 후 다음 자리로 연속 입력.</span></li>
+      <li><span class="box done">✓</span><span><b>저장.</b> localStorage, 야간 근무 감안해 오전 9시 기준 날짜 전환. 회차·차고지 키 분리(확장 대비).</span></li>
+      <li><span class="box done">✓</span><span><b>인쇄.</b> A4 세로 한 장, 흑백 명료, 원본 배열 그대로 출력 확인.</span></li>
+      <li><span class="box done">✓</span><span><b>PWA.</b> manifest·아이콘·Service Worker 오프라인 캐싱.</span></li>
+      <li><span class="box"></span><span><b>GitHub Pages 배포</b> → 아이폰 홈화면 추가</span></li>
+      <li><span class="box"></span><span><b>실기 검증.</b> 앱 안 <b>진단</b> 화면에서 마이크 권한·전파·설치 상태를 확인하고, 실제로 불러서 인식률과 속도를 본다. 여기서 음성이 못 쓸 수준이면 키패드 위주로 전환.</span></li>
     </ul>
+
+    <div class="risk" style="border-left-color:var(--accent)">
+      <div class="lbl" style="color:var(--accent)">구현 중 잡은 버그</div>
+      <p style="margin:0">에어팟 사용 시 안내 음성이 자기 마이크로 되돌아 들어오는 문제. 재생 중에는 인식 결과를 무시하도록 막았는데, <b>차단이 풀리는 순간 그동안 쌓인 전사가 한꺼번에 입력</b>되는 경로가 남아 있었다. 차단 구간의 토큰도 소비 처리하도록 고쳐 테스트로 고정했다.</p>
+    </div>
   </section>
 
   <div class="footer">busyardapp · design v1 · reference: 차고지 프린트.xlsx, spot_map.json</div>
