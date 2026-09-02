@@ -58,7 +58,8 @@ window.SpeechRecognition = MockSR;
 window.webkitSpeechRecognition = MockSR;
 </script>
 <script type="module">
-import { createVoice } from '../src/voice.js';
+// 브라우저가 모듈을 캐시하면 고친 코드가 아니라 옛 코드를 검사하게 된다
+const { createVoice } = await import(`../src/voice.js?t=${Date.now()}`);
 
 const out = document.getElementById('out');
 let pass = 0, fail = 0;
@@ -154,8 +155,18 @@ log('<h2>▶ 말이 멎으면 확정을 기다리지 않고 넘어간다 (속도
   eq(tokens, [], '멎은 직후에는 아직 아님');
   await sleep(200);
   eq(tokens, ['1724'], '사파리 확정을 기다리지 않고 넘어감');
-  sr.finalize('천칠백이십사');   // 끊긴 뒤 뒤늦게 확정이 와도
-  eq(tokens, ['1724'], '같은 값이 두 번 들어가지 않음');
+  v.stop();
+}
+{
+  // 스스로 확정한 뒤 사파리가 같은 내용을 확정으로 다시 줘도 한 번만 들어가야 한다.
+  // (한 세션 안에서 벌어지는 일 — 끊고 새로 시작한 뒤 같은 말이 오면
+  //  그것은 사용자가 다시 부른 것이므로 새 입력이 맞다.)
+  const { v, tokens } = harness(100000);   // 스스로 확정하지 않게 아주 길게
+  v.start();
+  const sr = window.__sr;
+  sr.say('천칠백이십사');
+  sr.finalize('천칠백이십사');
+  eq(tokens, ['1724'], '중간 결과와 확정이 같으면 한 번만');
   v.stop();
 }
 {

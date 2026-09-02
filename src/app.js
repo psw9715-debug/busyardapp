@@ -1,20 +1,24 @@
-import { YARD } from './yard-data.js?v=202609030126';
-import { BUILD } from './build.js?v=202609030126';
-import { toKoreanSino } from './plate.js?v=202609030126';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609030126';
+import { YARD } from './yard-data.js?v=202609030407';
+import { BUILD } from './build.js?v=202609030407';
+import { toKoreanSino } from './plate.js?v=202609030407';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609030407';
 import {
-  loadSession, setEntry, countFilled, workDate, clearSession, saveSession,
-  saveLog, listLogs, readLog, deleteLog, restoreLog, ROUNDS,
-} from './store.js?v=202609030126';
+  loadSession, setEntry, countFilled, workDate, clearSession,
+  saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
+  countRound, ROUNDS,
+} from './store.js?v=202609030407';
 
 // ---------------------------------------------------------------- 상태
 
 const spots = YARD.cells.filter((c) => c.kind === 'spot').sort((a, b) => a.spot - b.spot);
 const TOTAL = spots.length;
 
+// 회차는 "지금 무엇으로 적는가" 일 뿐이다. 순회 판은 하루에 하나이고
+// 입력마다 회차 표시가 붙는다. 2회차는 1회차에 비어 있던 자리를 채우러 가는 것이라
+// 기존 입력이 지워지면 안 된다.
 let round = ROUNDS.includes(Number(localStorage.getItem('busyard:round')))
   ? Number(localStorage.getItem('busyard:round')) : 1;
-let session = loadSession(YARD.id, workDate(), round);
+let session = mergeLegacyRound2(loadSession(YARD.id, workDate(), 1));
 let cursor = firstEmptySpot();
 let voice = null;
 let wakeLock = null;
@@ -72,7 +76,7 @@ function paintSpot(n) {
   } else if (e) {
     // 회차마다 색이 달라야 2회차에 무엇이 바뀌었는지 눈에 들어온다.
     // 음성이든 키패드든 같은 회차면 같은 색이다.
-    el.classList.add('filled', 'r' + round);
+    el.classList.add('filled', 'r' + (e.round || 1));
     if (e.confidence === 'corrected' || e.confidence === 'assumed') el.classList.add('corrected');
     const kind = targetKind(e.plate);
     if (kind) el.classList.add('target', 'k-' + kind);
@@ -179,12 +183,22 @@ function note(text, kind) {
 
 // ---------------------------------------------------------------- 입력 반영
 
+/**
+ * 다음에 갈 자리.
+ * 2회차는 비어 있는 자리만 채우러 다니므로 이미 적힌 칸은 건너뛴다.
+ */
+function nextSpotAfter(spot) {
+  if (round === 1) return Math.min(spot + 1, TOTAL);
+  for (let n = spot + 1; n <= TOTAL; n++) if (!session.entries[n]) return n;
+  return Math.min(spot + 1, TOTAL);
+}
+
 function commit(spot, entry, { announce = true } = {}) {
-  setEntry(session, spot, entry);
+  setEntry(session, spot, { ...entry, round });
   paintSpot(spot);
 
   const isLast = spot >= TOTAL;
-  cursor = isLast ? TOTAL : spot + 1;
+  cursor = isLast ? TOTAL : nextSpotAfter(spot);
   paintSpot(spot);
   paintSpot(cursor);
   renderHud(entry);
@@ -222,7 +236,19 @@ function commit(spot, entry, { announce = true } = {}) {
 }
 
 function goBack() {
-  if (cursor > 1) cursor -= 1;
+  // 이번 회차에 방금 넣은 것을 되돌린다. 지난 회차 기록은 건드리지 않는다.
+  let n = cursor - 1;
+  if (round === 2) {
+    while (n >= 1 && !(session.entries[n] && (session.entries[n].round || 1) === 2)) n -= 1;
+    if (n < 1) {
+      note('되돌릴 2회차 입력이 없습니다', 'warn');
+      beep('error');
+      return;
+    }
+  }
+  if (n < 1) n = 1;
+
+  cursor = n;
   setEntry(session, cursor, null);
   repaintAll();
   renderHud();
@@ -515,21 +541,27 @@ function renderRound() {
   btn.classList.toggle('r2', round === 2);
 }
 
-/** 회차를 바꾼다. 회차마다 순회 데이터가 따로 저장돼 있다. */
+/**
+ * 회차를 바꾼다. 순회 판은 그대로 두고 "지금 무엇으로 적는가" 만 바뀐다.
+ * 2회차는 1회차에 비어 있던 자리를 채우러 가는 것이므로, 앞서 적은 것은
+ * 1회차 색 그대로 남고 커서만 첫 빈 칸으로 간다.
+ */
 function switchRound(next) {
   if (!ROUNDS.includes(next) || next === round) return;
   if (voice && voice.isOn()) voice.stop();
 
   round = next;
   localStorage.setItem('busyard:round', String(round));
-  session = loadSession(YARD.id, workDate(), round);
   cursor = firstEmptySpot();
 
   renderRound();
   repaintAll();
   renderHud();
-  renderTargetBadge();
-  note(`${round}회차로 바꿨습니다 — ${countFilled(session)}대 입력됨`);
+
+  const empty = TOTAL - countFilled(session);
+  note(round === 2
+    ? `2회차 — 빈 자리 ${empty}칸을 채웁니다 (${cursor}번부터)`
+    : `1회차로 돌아왔습니다`);
   beep('back');
 }
 
@@ -555,13 +587,13 @@ function renderLogList() {
 }
 
 function doSaveLog() {
-  const counts = ROUNDS.map((r) => countFilled(loadSession(YARD.id, workDate(), r)));
+  const counts = ROUNDS.map((r) => countRound(session.entries, r));
   if (!counts.some(Boolean)) {
     $('logSaveNote').textContent = '입력된 자리가 없어 저장할 것이 없습니다.';
     beep('error');
     return;
   }
-  saveLog(YARD.id, targets);
+  saveLog(session, targets);
   $('logSaveNote').textContent =
     `${workDate()} 저장 완료 — 1회차 ${counts[0]}대 · 2회차 ${counts[1]}대 · 대상 ${targets.length}대`;
   renderLogList();
@@ -573,8 +605,7 @@ function doLoadLog(date) {
   const rec = readLog(date);
   if (!rec) return;
 
-  restoreLog(rec, YARD.id, workDate());
-  session = loadSession(YARD.id, workDate(), round);
+  restoreLog(rec, session);
   targets = (rec.targets || []).map((t) =>
     (typeof t === 'string' ? { plate: t, kind: 'cctv' } : t));
   saveTargets();
@@ -584,7 +615,7 @@ function doLoadLog(date) {
   renderHud();
   renderTargetBadge();
   $('logSheet').hidden = true;
-  note(`${date} 일지를 불러왔습니다 — ${round}회차 ${countFilled(session)}대`);
+  note(`${date} 일지를 불러왔습니다 — 모두 ${countFilled(session)}대`);
   beep('ok');
 }
 
@@ -678,7 +709,7 @@ function askPrint() {
   const done = countFilled(session);
   if (done === 0) { note('입력된 자리가 없습니다', 'warn'); beep('error'); return; }
   $('printCount').textContent = round === 2
-    ? `2회차 ${done}자리 입력됨 — 1회차 것은 흐리게 함께 찍힙니다`
+    ? `모두 ${done}자리 — 2회차 ${countRound(session.entries, 2)}자리는 진하게, 1회차는 흐리게`
     : `${done}자리 입력됨 · ${TOTAL - done}자리 비어 있음`;
   $('printSsid').textContent = PRINTER_SSID;
   $('printSheet').hidden = false;
@@ -689,10 +720,6 @@ function doPrint() {
   if (done === 0) return;
   $('printSheet').hidden = true;
 
-  // 2회차 인쇄물은 1회차와 겹쳐 찍는다. 1회차 것은 흐리게, 이번 회차 것은
-  // 진하게 나오므로 이번에 무엇이 바뀌었는지 한눈에 들어온다.
-  const prev = round === 2 ? loadSession(YARD.id, session.date, 1).entries : null;
-
   const area = $('printArea');
   area.innerHTML =
     `<div class="p-title">${YARD.name}</div>` +
@@ -702,20 +729,15 @@ function doPrint() {
   buildMap(pMap, 'print');
 
   // 공차는 찍지 않는다. 종이에서는 빈 칸이 곧 공차이고, 글자가 있으면 지저분하다.
+  // 2회차 인쇄물은 1회차 것을 흐리게 깔고 이번에 적은 것만 진하게 찍어,
+  // 무엇이 새로 들어왔는지 종이만 보고 알 수 있게 한다.
   pMap.querySelectorAll('.cell.spot').forEach((el) => {
-    const n = Number(el.dataset.spot);
-    const now = session.entries[n];
-    const plateEl = el.querySelector('.plate');
+    const e = session.entries[Number(el.dataset.spot)];
+    if (!e || e.status !== 'filled') return;
 
-    if (now && now.status === 'filled') {
-      plateEl.textContent = now.plate;
-      return;
-    }
-    const old = prev && prev[n];
-    if (old && old.status === 'filled') {
-      plateEl.textContent = old.plate;
-      plateEl.classList.add('prev');     // 지난 회차 것 — 흐리게
-    }
+    const plateEl = el.querySelector('.plate');
+    plateEl.textContent = e.plate;
+    if (round === 2 && (e.round || 1) === 1) plateEl.classList.add('prev');
   });
   window.print();
 }

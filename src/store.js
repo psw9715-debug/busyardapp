@@ -55,36 +55,65 @@ const LOG = `${PREFIX}:log`;
 
 export const ROUNDS = [1, 2];
 
-/** 그날의 모든 회차를 한 덩어리로 남긴다 */
-export function saveLog(yard, targets, date = workDate()) {
-  const rounds = {};
-  for (const r of ROUNDS) rounds[r] = loadSession(yard, date, r).entries;
-
+/**
+ * 그날 순회를 통째로 남긴다.
+ *
+ * 회차는 자리마다 따로 저장하는 것이 아니라 각 입력에 표시로 붙어 있다.
+ * 2회차는 1회차에 비어 있던 자리를 채우러 가는 것이라, 한 판을 이어 쓴다.
+ */
+export function saveLog(session, targets, date = workDate()) {
   const record = {
     date,
-    yard,
+    yard: session.yard,
     savedAt: new Date().toISOString(),
-    rounds,
+    entries: session.entries,
     targets,
   };
   localStorage.setItem(`${LOG}:${date}`, JSON.stringify(record));
   return record;
 }
 
-/** 예전 일지는 회차 구분 없이 entries 하나만 담았다. 그건 1회차로 본다. */
-function logRounds(rec) {
-  if (rec && rec.rounds) return rec.rounds;
-  return { 1: (rec && rec.entries) || {}, 2: {} };
+/** 예전 일지는 회차별로 나뉘어 있었다. 한 판으로 합쳐서 읽는다. */
+function logEntries(rec) {
+  if (!rec) return {};
+  if (rec.entries) return rec.entries;
+  const out = {};
+  for (const r of ROUNDS) {
+    for (const [n, e] of Object.entries((rec.rounds || {})[r] || {})) {
+      out[n] = { ...e, round: e.round || r };
+    }
+  }
+  return out;
 }
 
-/** 저장해 둔 일지를 회차별 순회 데이터로 되돌려 놓는다 */
-export function restoreLog(rec, yard, date = workDate()) {
-  const rounds = logRounds(rec);
-  for (const r of ROUNDS) {
-    const s = loadSession(yard, date, r);
-    s.entries = rounds[r] || {};
-    saveSession(s);
-  }
+export function countRound(entries, round) {
+  return Object.values(entries || {}).filter((e) => (e.round || 1) === round).length;
+}
+
+/** 저장해 둔 일지를 지금 순회로 되돌려 놓는다 */
+export function restoreLog(rec, session) {
+  session.entries = logEntries(rec);
+  saveSession(session);
+  return session;
+}
+
+/**
+ * 예전 버전은 2회차를 별도 판에 저장했다. 그 판이 남아 있으면 한 판으로 합친다.
+ * 합치고 나면 그 키는 지운다 (한 번만 일어나는 일).
+ */
+export function mergeLegacyRound2(session) {
+  const key = `${PREFIX}:${session.yard}:${session.date}:2`;
+  const raw = localStorage.getItem(key);
+  if (!raw) return session;
+  try {
+    const old = JSON.parse(raw);
+    for (const [n, e] of Object.entries(old.entries || {})) {
+      if (!session.entries[n]) session.entries[n] = { ...e, round: 2 };
+    }
+    saveSession(session);
+  } catch (_) { /* 깨졌으면 버린다 */ }
+  localStorage.removeItem(key);
+  return session;
 }
 
 export function listLogs() {
@@ -94,11 +123,11 @@ export function listLogs() {
     if (!k || !k.startsWith(LOG + ':')) continue;
     try {
       const r = JSON.parse(localStorage.getItem(k));
-      const rounds = logRounds(r);
+      const entries = logEntries(r);
       out.push({
         date: r.date,
         savedAt: r.savedAt,
-        counts: ROUNDS.map((n) => Object.keys(rounds[n] || {}).length),
+        counts: ROUNDS.map((n) => countRound(entries, n)),
         targets: (r.targets || []).length,
       });
     } catch (_) { /* 깨진 것은 건너뛴다 */ }

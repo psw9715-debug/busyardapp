@@ -15,7 +15,8 @@
 <body>
 <div id="out"></div>
 <script type="module">
-import { extractSequence, normalizePlate, toKoreanSino } from '../src/plate.js';
+// 브라우저가 모듈을 캐시하면 고친 코드가 아니라 옛 코드를 검사하게 된다
+const { extractSequence, normalizePlate, toKoreanSino } = await import(`../src/plate.js?t=${Date.now()}`);
 
 const out = document.getElementById('out');
 let pass = 0, fail = 0;
