@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202609022214';
+import { extractSequence } from './plate.js?v=202609030008';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 

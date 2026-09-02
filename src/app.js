@@ -1,11 +1,11 @@
-import { YARD } from './yard-data.js?v=202609022214';
-import { BUILD } from './build.js?v=202609022214';
-import { toKoreanSino } from './plate.js?v=202609022214';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609022214';
+import { YARD } from './yard-data.js?v=202609030008';
+import { BUILD } from './build.js?v=202609030008';
+import { toKoreanSino } from './plate.js?v=202609030008';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609030008';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession, saveSession,
   saveLog, listLogs, readLog, deleteLog,
-} from './store.js?v=202609022214';
+} from './store.js?v=202609030008';
 
 // ---------------------------------------------------------------- 상태
 
@@ -148,7 +148,7 @@ function commit(spot, entry, { announce = true } = {}) {
   }
 
   if (isLast && countFilled(session) >= TOTAL) {
-    note('109자리 전부 입력 완료', 'warn');
+    note(`${TOTAL}자리 전부 입력 완료`, 'warn');
     beep('done');
     if (announce) announceSpeak('순회 완료');
     return;
