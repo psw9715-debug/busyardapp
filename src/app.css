@@ -42,7 +42,7 @@ html, body {
 /* ---------- 상단 바 ---------- */
 .bar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 7px 12px 6px;
+  padding: 5px 12px 4px;
   flex: none;
 }
 .bar-left {
@@ -82,7 +82,7 @@ html, body {
 /* ---------- 현재 자리 안내판 ---------- */
 .hud {
   flex: none;
-  padding: 9px 14px 10px;
+  padding: 7px 14px 6px;
   text-align: center;
   border-bottom: 1px solid var(--line);
 }
@@ -91,7 +91,7 @@ html, body {
   position: relative;
 }
 .hud-spot-num {
-  font-size: 40px; font-weight: 800; line-height: 1;
+  font-size: 37px; font-weight: 800; line-height: 1;
   color: var(--amber); font-variant-numeric: tabular-nums;
 }
 .hud-spot-unit { font-size: 15px; color: var(--ink-dim); }
@@ -100,10 +100,10 @@ html, body {
   font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums;
 }
 .hud-plate {
-  margin-top: 4px;
-  font-size: 50px; font-weight: 800; line-height: 1.05;
+  margin-top: 2px;
+  font-size: 48px; font-weight: 800; line-height: 1;
   letter-spacing: .08em; font-variant-numeric: tabular-nums;
-  min-height: 52px;
+  min-height: 48px;
 }
 .hud-plate .ph { color: var(--grey); letter-spacing: .12em; }
 .hud-plate.vacant { font-size: 40px; color: var(--ink-dim); letter-spacing: .1em; }
@@ -112,6 +112,7 @@ html, body {
   margin-top: 3px; font-size: 12.5px; color: var(--ink-dim);
   min-height: 17px;
 }
+.hud-note:empty { display: none; }
 .hud-note.warn { color: var(--amber); }
 .hud-note.err  { color: var(--red); }
 
@@ -121,7 +122,7 @@ html, body {
   flex: 1 1 auto; min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 8px;
+  padding: 6px;
   touch-action: pan-x pan-y;      /* 확대는 앱이 직접 처리한다 */
 }
 .zoom-chip {
@@ -222,7 +223,7 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
 /* ---------- 하단 조작부 ---------- */
 .controls {
   flex: none;
-  padding: 7px 10px calc(6px + var(--pad));
+  padding: 6px 10px calc(4px + var(--pad) * 0.7);
   border-top: 1px solid var(--line);
   background: var(--panel);
   display: flex; flex-direction: column; gap: 6px;
