@@ -10,7 +10,7 @@
 <title>차고지 순회</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="src/app.css?v=202609030008">
+<link rel="stylesheet" href="src/app.css?v=202609030126">
 </head>
 <body>
 
@@ -20,7 +20,7 @@
   <header class="bar">
     <div class="bar-left">
       <span class="yard" id="yardName">6차고지</span>
-      <span class="round" id="roundName">1회차</span>
+      <button class="round" id="btnRound" aria-label="회차 바꾸기">1회차</button>
     </div>
     <div class="bar-right">
       <button class="icon-btn" id="btnFind" aria-label="차량번호 찾기">찾기</button>
@@ -48,6 +48,7 @@
   <!-- 배치도 -->
   <section class="mapwrap" id="mapwrap">
     <div class="map" id="map"></div>
+    <button class="zoom-chip" id="zoomChip" hidden>1.0×</button>
   </section>
 
   <!-- 하단 조작부 -->
@@ -229,6 +230,6 @@
 <!-- 인쇄 전용 레이아웃 -->
 <div id="printArea"></div>
 
-<script type="module" src="src/app.js?v=202609030008"></script>
+<script type="module" src="src/app.js?v=202609030126"></script>
 </body>
 </html>

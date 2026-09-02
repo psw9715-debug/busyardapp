@@ -5,12 +5,12 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202609030008';
+import { extractSequence } from './plate.js?v=202609030126';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
 // 다 부른 번호는 이만큼만 기다렸다 넘긴다 (더 이어질 수 없으므로)
-const FAST_MS = 120;
+const FAST_MS = 70;
 
 export const isSupported = () => Boolean(SR);
 
@@ -135,7 +135,7 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
       consumed = 0; settled = ''; pending = '';
       if (wanted) {
         clearTimeout(restartTimer);
-        restartTimer = setTimeout(safeStart, 60);
+        restartTimer = setTimeout(safeStart, 30);
       } else {
         status('idle');
       }

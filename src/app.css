@@ -15,6 +15,10 @@
   --grey:      #4a4738;
   --red:       #d9714a;
   --blue:      #5b8fd4;
+  /* 2회차 — 1회차 초록과 같은 계열이되 확실히 밝다 */
+  --r2-bg:     #14403a;
+  --r2-line:   #2f7d6d;
+  --r2-ink:    #6fe3c4;
   --pad:       env(safe-area-inset-bottom, 0px);
 }
 
@@ -45,7 +49,12 @@ html, body {
   min-width: 0; overflow: hidden;
 }
 .yard { font-size: 14px; font-weight: 700; white-space: nowrap; }
-.round { font-size: 11px; color: var(--ink-dim); white-space: nowrap; }
+.round {
+  font-size: 11px; font-family: inherit; white-space: nowrap;
+  background: var(--panel-2); color: var(--ink-dim);
+  border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px;
+}
+.round.r2 { background: var(--r2-bg); color: var(--r2-ink); border-color: var(--r2-line); }
 .bar-right { display: flex; gap: 5px; flex: none; }
 .icon-btn {
   position: relative;
@@ -107,12 +116,21 @@ html, body {
 
 /* ---------- 배치도 ---------- */
 .mapwrap {
+  position: relative;
   flex: 1 1 auto; min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
   padding: 10px;
-  touch-action: pan-x pan-y pinch-zoom;
+  touch-action: pan-x pan-y;      /* 확대는 앱이 직접 처리한다 */
 }
+.zoom-chip {
+  position: sticky; bottom: 6px; left: 6px; z-index: 5;
+  background: var(--panel-2); color: var(--amber);
+  border: 1px solid var(--amber); border-radius: 20px;
+  font-size: 12px; font-weight: 700; font-family: inherit;
+  padding: 6px 12px; float: left;
+}
+.zoom-chip[hidden] { display: none; }
 .map {
   display: grid;
   grid-template-columns: 2.1fr repeat(14, 1fr);
@@ -138,8 +156,12 @@ html, body {
 .cell.spot .no    { font-size: 7px; color: var(--ink-dim); }
 .cell.spot .plate { font-size: 9px; font-weight: 700; color: var(--ink); }
 
-.cell.spot.filled          { background: var(--green-bg); border-color: #38512c; }
-.cell.spot.filled .plate   { color: #bcd9a6; }
+/* 1회차는 차분한 초록, 2회차는 밝은 민트.
+   음성이든 키패드든 같은 회차면 같은 색이다. */
+.cell.spot.filled.r1        { background: var(--green-bg); border-color: #38512c; }
+.cell.spot.filled.r1 .plate { color: #bcd9a6; }
+.cell.spot.filled.r2        { background: var(--r2-bg); border-color: var(--r2-line); }
+.cell.spot.filled.r2 .plate { color: var(--r2-ink); }
 .cell.spot.vacant          { background: #201f18; }
 .cell.spot.vacant .plate   { color: var(--ink-dim); font-weight: 500; }
 .cell.spot.corrected       { border-color: var(--amber); }
@@ -511,6 +533,8 @@ html, body {
     font-size: 8pt; font-weight: 700; color: #000;
     letter-spacing: -.01em; white-space: nowrap;
   }
+  /* 지난 회차에 적힌 번호 — 이번 회차 것과 구분되게 흐리게 */
+  .p-map .cell .plate.prev { color: #a8a8a8; font-weight: 400; }
   .p-map .cell.label { font-size: 12pt; font-weight: 700; color: #000; }
   .p-map .cell.label.tall { writing-mode: vertical-rl; letter-spacing: .1em; }
   /* 바닥 고정번호는 표지일 뿐이라 작은 회색 글씨 */

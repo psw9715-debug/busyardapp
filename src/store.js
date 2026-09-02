@@ -53,17 +53,38 @@ export function clearSession(session) {
 
 const LOG = `${PREFIX}:log`;
 
-export function saveLog(session, targets, date = workDate()) {
+export const ROUNDS = [1, 2];
+
+/** 그날의 모든 회차를 한 덩어리로 남긴다 */
+export function saveLog(yard, targets, date = workDate()) {
+  const rounds = {};
+  for (const r of ROUNDS) rounds[r] = loadSession(yard, date, r).entries;
+
   const record = {
     date,
-    yard: session.yard,
-    round: session.round,
+    yard,
     savedAt: new Date().toISOString(),
-    entries: session.entries,
+    rounds,
     targets,
   };
   localStorage.setItem(`${LOG}:${date}`, JSON.stringify(record));
   return record;
+}
+
+/** 예전 일지는 회차 구분 없이 entries 하나만 담았다. 그건 1회차로 본다. */
+function logRounds(rec) {
+  if (rec && rec.rounds) return rec.rounds;
+  return { 1: (rec && rec.entries) || {}, 2: {} };
+}
+
+/** 저장해 둔 일지를 회차별 순회 데이터로 되돌려 놓는다 */
+export function restoreLog(rec, yard, date = workDate()) {
+  const rounds = logRounds(rec);
+  for (const r of ROUNDS) {
+    const s = loadSession(yard, date, r);
+    s.entries = rounds[r] || {};
+    saveSession(s);
+  }
 }
 
 export function listLogs() {
@@ -73,10 +94,11 @@ export function listLogs() {
     if (!k || !k.startsWith(LOG + ':')) continue;
     try {
       const r = JSON.parse(localStorage.getItem(k));
+      const rounds = logRounds(r);
       out.push({
         date: r.date,
         savedAt: r.savedAt,
-        filled: Object.keys(r.entries || {}).length,
+        counts: ROUNDS.map((n) => Object.keys(rounds[n] || {}).length),
         targets: (r.targets || []).length,
       });
     } catch (_) { /* 깨진 것은 건너뛴다 */ }
