@@ -34,14 +34,15 @@ html, body {
 
 #app {
   display: flex; flex-direction: column;
-  height: 100%;
+  height: 100vh;
+  height: 100dvh;          /* 사파리 주소창·홈 인디케이터까지 감안한 실제 높이 */
   padding-top: env(safe-area-inset-top, 0px);
 }
 
 /* ---------- 상단 바 ---------- */
 .bar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 14px 8px;
+  padding: 7px 12px 6px;
   flex: none;
 }
 .bar-left {
@@ -81,7 +82,7 @@ html, body {
 /* ---------- 현재 자리 안내판 ---------- */
 .hud {
   flex: none;
-  padding: 14px 16px 16px;
+  padding: 9px 14px 10px;
   text-align: center;
   border-bottom: 1px solid var(--line);
 }
@@ -99,17 +100,17 @@ html, body {
   font-size: 12px; color: var(--ink-dim); font-variant-numeric: tabular-nums;
 }
 .hud-plate {
-  margin-top: 10px;
-  font-size: 54px; font-weight: 800; line-height: 1.1;
+  margin-top: 4px;
+  font-size: 50px; font-weight: 800; line-height: 1.05;
   letter-spacing: .08em; font-variant-numeric: tabular-nums;
-  min-height: 60px;
+  min-height: 52px;
 }
 .hud-plate .ph { color: var(--grey); letter-spacing: .12em; }
 .hud-plate.vacant { font-size: 40px; color: var(--ink-dim); letter-spacing: .1em; }
 .hud-plate.corrected { color: var(--amber); }
 .hud-note {
-  margin-top: 6px; font-size: 13px; color: var(--ink-dim);
-  min-height: 18px;
+  margin-top: 3px; font-size: 12.5px; color: var(--ink-dim);
+  min-height: 17px;
 }
 .hud-note.warn { color: var(--amber); }
 .hud-note.err  { color: var(--red); }
@@ -120,7 +121,7 @@ html, body {
   flex: 1 1 auto; min-height: 0;
   overflow: auto;
   -webkit-overflow-scrolling: touch;
-  padding: 10px;
+  padding: 8px;
   touch-action: pan-x pan-y;      /* 확대는 앱이 직접 처리한다 */
 }
 .zoom-chip {
@@ -131,6 +132,7 @@ html, body {
   padding: 6px 12px; float: left;
 }
 .zoom-chip[hidden] { display: none; }
+.mapzoom { position: relative; }
 .map {
   display: grid;
   grid-template-columns: 2.1fr repeat(14, 1fr);
@@ -162,6 +164,15 @@ html, body {
 .cell.spot.filled.r1 .plate { color: #bcd9a6; }
 .cell.spot.filled.r2        { background: var(--r2-bg); border-color: var(--r2-line); }
 .cell.spot.filled.r2 .plate { color: var(--r2-ink); }
+
+/* 2회차를 도는 중에는 1회차 기록을 죽여 둔다.
+   아직 차가 들어오지 않은 자리(빈칸·공차)가 도드라져야 어디를 봐야 할지 안다. */
+body.round2 .cell.spot.filled.r1        { background: #171e13; border-color: #232c1c; }
+body.round2 .cell.spot.filled.r1 .plate { color: #5d6b52; }
+body.round2 .cell.spot.filled.r1 .no    { color: #47513f; }
+/* 공차도 2회차에는 다시 들러야 할 자리다 */
+body.round2 .cell.spot.vacant        { border-style: dashed; border-color: #4a4738; }
+body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
 .cell.spot.vacant          { background: #201f18; }
 .cell.spot.vacant .plate   { color: var(--ink-dim); font-weight: 500; }
 .cell.spot.corrected       { border-color: var(--amber); }
@@ -211,14 +222,14 @@ html, body {
 /* ---------- 하단 조작부 ---------- */
 .controls {
   flex: none;
-  padding: 10px 12px calc(10px + var(--pad));
+  padding: 7px 10px calc(6px + var(--pad));
   border-top: 1px solid var(--line);
   background: var(--panel);
-  display: flex; flex-direction: column; gap: 8px;
+  display: flex; flex-direction: column; gap: 6px;
 }
 .ctl-row { display: flex; gap: 8px; }
 .ctl {
-  flex: 1; padding: 12px 4px;
+  flex: 1; padding: 11px 4px;
   background: var(--panel-2); color: var(--ink);
   border: 1px solid var(--line); border-radius: 10px;
   font-size: 14px; font-weight: 600; font-family: inherit;
@@ -227,7 +238,7 @@ html, body {
 .ctl.vacant { color: var(--ink-dim); }
 
 .mic {
-  width: 100%; padding: 16px;
+  width: 100%; padding: 13px;
   border: none; border-radius: 12px;
   background: var(--panel-2); color: var(--ink);
   font-size: 16px; font-weight: 700; font-family: inherit;
@@ -534,7 +545,7 @@ html, body {
     letter-spacing: -.01em; white-space: nowrap;
   }
   /* 지난 회차에 적힌 번호 — 이번 회차 것과 구분되게 흐리게 */
-  .p-map .cell .plate.prev { color: #a8a8a8; font-weight: 400; }
+  .p-map .cell .plate.prev { color: #6b6b6b; font-weight: 500; }
   .p-map .cell.label { font-size: 12pt; font-weight: 700; color: #000; }
   .p-map .cell.label.tall { writing-mode: vertical-rl; letter-spacing: .1em; }
   /* 바닥 고정번호는 표지일 뿐이라 작은 회색 글씨 */

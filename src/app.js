@@ -1,12 +1,12 @@
-import { YARD } from './yard-data.js?v=202609030407';
-import { BUILD } from './build.js?v=202609030407';
-import { toKoreanSino } from './plate.js?v=202609030407';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609030407';
+import { YARD } from './yard-data.js?v=202609030447';
+import { BUILD } from './build.js?v=202609030447';
+import { toKoreanSino } from './plate.js?v=202609030447';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609030447';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS,
-} from './store.js?v=202609030407';
+} from './store.js?v=202609030447';
 
 // ---------------------------------------------------------------- 상태
 
@@ -27,9 +27,26 @@ const heardLog = [];
 const $ = (id) => document.getElementById(id);
 const cellEls = new Map();   // spot 번호 -> DOM
 
+/**
+ * 2회차에 다시 들러야 하는 자리인가.
+ * 공차는 "차가 없었다"는 뜻이라 그 사이에 새로 들어왔을 수 있다.
+ * 아직 안 적은 칸과 똑같이 취급해서 건너뛰지 않는다.
+ */
+function isOpen(n) {
+  const e = session.entries[n];
+  if (!e) return true;
+  return round === 2 && e.status === 'vacant';
+}
+
 function firstEmptySpot() {
-  for (let n = 1; n <= TOTAL; n++) if (!session.entries[n]) return n;
+  for (let n = 1; n <= TOTAL; n++) if (isOpen(n)) return n;
   return TOTAL;
+}
+
+function openCount() {
+  let c = 0;
+  for (let n = 1; n <= TOTAL; n++) if (isOpen(n)) c += 1;
+  return c;
 }
 
 // ---------------------------------------------------------------- 배치도
@@ -99,23 +116,46 @@ const ZOOM_MIN = 1;
 const ZOOM_MAX = 4;
 let zoom = Number(localStorage.getItem('busyard:zoom')) || 1;
 
+// 확대하지 않았을 때의 배치도 크기. 폭만 늘리면 세로가 따라오지 않아
+// 비율이 깨지므로, 통째로 배율을 걸고 담는 상자를 그만큼 키운다.
+let natW = 0;
+let natH = 0;
+
+function measureNatural() {
+  const box = $('mapZoom');
+  const map = $('map');
+  map.style.transform = 'none';
+  map.style.width = '100%';
+  box.style.width = '';
+  box.style.height = '';
+  natW = map.offsetWidth;
+  natH = map.offsetHeight;
+}
+
 function applyZoom(next, anchor) {
   const wrap = $('mapwrap');
+  const box = $('mapZoom');
   const map = $('map');
+  if (!natW) measureNatural();
+
   const k = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, next));
-  if (k === zoom && map.style.width) return;
 
   // 손가락 사이 지점이 제자리에 있도록 스크롤을 맞춘다
   const a = anchor || { x: wrap.clientWidth / 2, y: wrap.clientHeight / 2 };
-  const rx = (wrap.scrollLeft + a.x) / (map.offsetWidth || 1);
-  const ry = (wrap.scrollTop + a.y) / (map.offsetHeight || 1);
+  const rx = (wrap.scrollLeft + a.x) / (natW * zoom || 1);
+  const ry = (wrap.scrollTop + a.y) / (natH * zoom || 1);
 
   zoom = k;
-  map.style.width = `${k * 100}%`;
   localStorage.setItem('busyard:zoom', String(k));
 
-  wrap.scrollLeft = rx * map.offsetWidth - a.x;
-  wrap.scrollTop = ry * map.offsetHeight - a.y;
+  map.style.width = `${natW}px`;
+  map.style.transformOrigin = '0 0';
+  map.style.transform = `scale(${k})`;
+  box.style.width = `${natW * k}px`;
+  box.style.height = `${natH * k}px`;
+
+  wrap.scrollLeft = rx * natW * k - a.x;
+  wrap.scrollTop = ry * natH * k - a.y;
 
   const chip = $('zoomChip');
   chip.textContent = `${k.toFixed(1)}×`;
@@ -149,6 +189,16 @@ function setupZoom() {
   wrap.addEventListener('touchend', () => { start = null; }, { passive: true });
 
   $('zoomChip').addEventListener('click', () => applyZoom(1));
+
+  // 화면이 돌아가거나 크기가 바뀌면 기준 크기를 다시 잰다
+  window.addEventListener('resize', () => {
+    const k = zoom;
+    measureNatural();
+    zoom = 1;
+    applyZoom(k);
+  });
+
+  measureNatural();
   applyZoom(zoom);
 }
 
@@ -189,7 +239,7 @@ function note(text, kind) {
  */
 function nextSpotAfter(spot) {
   if (round === 1) return Math.min(spot + 1, TOTAL);
-  for (let n = spot + 1; n <= TOTAL; n++) if (!session.entries[n]) return n;
+  for (let n = spot + 1; n <= TOTAL; n++) if (isOpen(n)) return n;
   return Math.min(spot + 1, TOTAL);
 }
 
@@ -539,6 +589,8 @@ function renderRound() {
   const btn = $('btnRound');
   btn.textContent = `${round}회차`;
   btn.classList.toggle('r2', round === 2);
+  // 2회차에는 1회차 기록을 죽여서, 아직 차가 안 들어온 자리가 도드라지게 한다
+  document.body.classList.toggle('round2', round === 2);
 }
 
 /**
@@ -558,9 +610,8 @@ function switchRound(next) {
   repaintAll();
   renderHud();
 
-  const empty = TOTAL - countFilled(session);
   note(round === 2
-    ? `2회차 — 빈 자리 ${empty}칸을 채웁니다 (${cursor}번부터)`
+    ? `2회차 — 빈 자리·공차 ${openCount()}칸을 채웁니다 (${cursor}번부터)`
     : `1회차로 돌아왔습니다`);
   beep('back');
 }
