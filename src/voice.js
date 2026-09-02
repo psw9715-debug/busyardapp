@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202609022156';
+import { extractSequence } from './plate.js?v=202609022214';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -248,9 +248,10 @@ const DIGIT_WORD = ['공', '일', '이', '삼', '사', '오', '육', '칠', '팔
  * 키패드에서 누른 숫자를 바로 읽어준다.
  * 한 글자짜리라 빠르게 내면 뭉개져 무슨 소리인지 알 수 없다.
  * 잘못 누른 것을 알아채는 게 목적이므로 또렷한 쪽을 택한다.
+ * 빨리 연달아 누르면 앞 소리를 끊고 방금 누른 것을 읽는다.
  */
 export function speakDigit(d) {
   const word = DIGIT_WORD[Number(d)];
   if (word === undefined) return;
-  speak(word, { rate: 1.0 });
+  speak(word, { rate: 0.75 });
 }

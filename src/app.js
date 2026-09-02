@@ -1,8 +1,11 @@
-import { YARD } from './yard-data.js?v=202609022156';
-import { BUILD } from './build.js?v=202609022156';
-import { toKoreanSino } from './plate.js?v=202609022156';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609022156';
-import { loadSession, setEntry, countFilled, workDate, clearSession } from './store.js?v=202609022156';
+import { YARD } from './yard-data.js?v=202609022214';
+import { BUILD } from './build.js?v=202609022214';
+import { toKoreanSino } from './plate.js?v=202609022214';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609022214';
+import {
+  loadSession, setEntry, countFilled, workDate, clearSession, saveSession,
+  saveLog, listLogs, readLog, deleteLog,
+} from './store.js?v=202609022214';
 
 // ---------------------------------------------------------------- 상태
 
@@ -60,14 +63,15 @@ function paintSpot(n) {
   const e = session.entries[n];
   const plateEl = el.querySelector('.plate');
 
-  el.classList.remove('filled', 'vacant', 'corrected', 'current', 'target');
+  el.classList.remove('filled', 'vacant', 'corrected', 'current', 'target', 'k-cctv', 'k-key');
   if (e && e.status === 'vacant') {
     el.classList.add('vacant');
     plateEl.textContent = '공차';
   } else if (e) {
     el.classList.add('filled');
     if (e.confidence === 'corrected' || e.confidence === 'assumed') el.classList.add('corrected');
-    if (isTarget(e.plate)) el.classList.add('target');
+    const kind = targetKind(e.plate);
+    if (kind) el.classList.add('target', 'k-' + kind);
     plateEl.textContent = e.plate;
   } else {
     plateEl.textContent = '';
@@ -137,8 +141,9 @@ function commit(spot, entry, { announce = true } = {}) {
   renderTargetBadge();
 
   // 찾던 차량이면 다른 안내보다 먼저, 확실하게 알린다
-  if (entry.status === 'filled' && isTarget(entry.plate)) {
-    announceTarget(entry.plate, spot);
+  const hitKind = entry.status === 'filled' ? targetKind(entry.plate) : null;
+  if (hitKind) {
+    announceTarget(entry.plate, spot, hitKind);
     return;
   }
 
@@ -349,10 +354,20 @@ function openSpotSheet(spot) {
 
 const MAX_TARGETS = 10;
 
+// 회수해야 하는 것이 무엇이냐에 따라 나뉜다. 색과 안내 음성이 다르다.
+const KINDS = {
+  cctv: { label: 'CCTV', say: '비디오' },
+  key:  { label: 'KEY',  say: '열쇠' },
+};
+
 function loadTargets() {
   try {
     const v = JSON.parse(localStorage.getItem('busyard:targets') || '[]');
-    return Array.isArray(v) ? v.slice(0, MAX_TARGETS) : [];
+    if (!Array.isArray(v)) return [];
+    // 예전에는 번호만 문자열로 담았다. 그때 것은 CCTV로 본다.
+    return v.slice(0, MAX_TARGETS).map((t) =>
+      (typeof t === 'string' ? { plate: t, kind: 'cctv' }
+        : { plate: t.plate, kind: KINDS[t.kind] ? t.kind : 'cctv' }));
   } catch (_) { return []; }
 }
 let targets = loadTargets();
@@ -362,25 +377,33 @@ function saveTargets() {
   renderTargetBadge();
 }
 
-function isTarget(plate) {
-  return Boolean(plate) && targets.includes(plate);
+/** 이 번호가 찾을 차량이면 그 종류를 돌려준다 */
+function targetKind(plate) {
+  if (!plate) return null;
+  const t = targets.find((x) => x.plate === plate);
+  return t ? t.kind : null;
+}
+
+function foundCount() {
+  return targets.filter((t) =>
+    Object.values(session.entries).some((e) => e.plate === t.plate)).length;
 }
 
 function renderTargetBadge() {
   const badge = $('targetBadge');
-  const found = targets.filter((t) =>
-    Object.values(session.entries).some((e) => e.plate === t)).length;
+  const found = foundCount();
   badge.hidden = targets.length === 0;
   badge.textContent = targets.length ? `${found}/${targets.length}` : '';
   badge.classList.toggle('all', targets.length > 0 && found === targets.length);
 }
 
 /** 찾던 차를 만났을 때 — 소리와 음성으로 알리고 화면에 남긴다 */
-function announceTarget(plate, spot) {
+function announceTarget(plate, spot, kind) {
+  const k = KINDS[kind] || KINDS.cctv;
   beep('alert');
-  const ms = speak(`${toKoreanSino(plate)}, ${spot}번 자리`, { rate: 1.2 });
+  const ms = speak(`${k.say}, ${toKoreanSino(plate)}, ${spot}번 자리`, { rate: 1.1 });
   if (voice) voice.muteFor(ms + 300);
-  note(`★ 찾던 차량 ${plate} — ${spot}번 자리`, 'warn');
+  note(`★ ${k.label} ${plate} — ${spot}번 자리`, 'warn');
 }
 
 function renderTargetList() {
@@ -391,9 +414,10 @@ function renderTargetList() {
     return;
   }
   ul.innerHTML = targets.map((t) => {
-    const spot = Object.keys(session.entries).find((n) => session.entries[n].plate === t);
+    const spot = Object.keys(session.entries).find((n) => session.entries[n].plate === t.plate);
     const where = spot ? `<span class="target-at">${spot}번 자리</span>` : '<span class="target-wait">아직</span>';
-    return `<li><b>${t}</b>${where}<button data-plate="${t}" aria-label="빼기">✕</button></li>`;
+    return `<li class="k-${t.kind}"><span class="target-kind">${KINDS[t.kind].label}</span>`
+      + `<b>${t.plate}</b>${where}<button data-plate="${t.plate}" aria-label="빼기">✕</button></li>`;
   }).join('');
 }
 
@@ -415,6 +439,60 @@ function highlightSpot(n) {
   if (!el) return;
   el.classList.add('found');
   el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'smooth' });
+}
+
+// ---------------------------------------------------------------- 일지 보관
+
+function renderLogList() {
+  const ul = $('logList');
+  const logs = listLogs();
+  if (!logs.length) {
+    ul.innerHTML = '<li class="log-empty">저장된 일지가 없습니다</li>';
+    return;
+  }
+  ul.innerHTML = logs.map((l) => {
+    const time = new Date(l.savedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    const today = l.date === workDate() ? '<span class="log-today">오늘</span>' : '';
+    return `<li>
+      <div class="log-when"><b>${l.date}</b>${today}
+        <span class="log-meta">${time} 저장 · 차량 ${l.filled}대 · 대상 ${l.targets}대</span></div>
+      <button class="log-load" data-date="${l.date}">불러오기</button>
+      <button class="log-del" data-del="${l.date}" aria-label="지우기">✕</button>
+    </li>`;
+  }).join('');
+}
+
+function doSaveLog() {
+  const filled = countFilled(session);
+  if (!filled) {
+    $('logSaveNote').textContent = '입력된 자리가 없어 저장할 것이 없습니다.';
+    beep('error');
+    return;
+  }
+  saveLog(session, targets);
+  $('logSaveNote').textContent = `${workDate()} 저장 완료 — 차량 ${filled}대, 대상 ${targets.length}대`;
+  renderLogList();
+  beep('done');
+}
+
+/** 저장해 둔 날짜의 배치와 대상 목록을 지금 화면으로 되살린다 */
+function doLoadLog(date) {
+  const rec = readLog(date);
+  if (!rec) return;
+
+  session.entries = rec.entries || {};
+  saveSession(session);
+  targets = (rec.targets || []).map((t) =>
+    (typeof t === 'string' ? { plate: t, kind: 'cctv' } : t));
+  saveTargets();
+
+  cursor = firstEmptySpot();
+  repaintAll();
+  renderHud();
+  renderTargetBadge();
+  $('logSheet').hidden = true;
+  note(`${date} 일지를 불러왔습니다 — 차량 ${countFilled(session)}대`);
+  beep('ok');
 }
 
 // ---------------------------------------------------------------- 진단
@@ -591,7 +669,50 @@ function init() {
     note(`${n}번 자리 — ${session.entries[n].plate}`);
   });
 
+  // ---- 일지 보관 ----
+  $('btnLog').addEventListener('click', () => {
+    primeAudio();
+    $('logSaveNote').textContent = '';
+    renderLogList();
+    $('logSheet').hidden = false;
+  });
+  $('logClose').addEventListener('click', () => { $('logSheet').hidden = true; });
+  $('logSave').addEventListener('click', doSaveLog);
+
+  // 불러오기는 지금 입력을 덮어쓰므로 한 번 더 묻는다
+  let loadArmed = null;
+  $('logList').addEventListener('click', (ev) => {
+    const del = ev.target.dataset.del;
+    if (del) {
+      deleteLog(del);
+      renderLogList();
+      return;
+    }
+    const date = ev.target.dataset.date;
+    if (!date) return;
+    if (loadArmed !== date) {
+      renderLogList();
+      loadArmed = date;
+      const btn = $('logList').querySelector(`[data-date="${date}"]`);
+      btn.textContent = '덮어씁니다. 한 번 더';
+      btn.classList.add('armed');
+      setTimeout(() => { if (loadArmed === date) { loadArmed = null; renderLogList(); } }, 4000);
+      return;
+    }
+    loadArmed = null;
+    doLoadLog(date);
+  });
+
   // ---- 찾을 차량 ----
+  let targetKindPick = 'cctv';
+  $('kindPick').addEventListener('click', (ev) => {
+    const btn = ev.target.closest('button');
+    if (!btn) return;
+    targetKindPick = btn.dataset.kind;
+    $('kindPick').querySelectorAll('button').forEach((b) =>
+      b.classList.toggle('on', b.dataset.kind === targetKindPick));
+  });
+
   let targetDigits = '';
   const renderTargetPad = () => {
     document.querySelectorAll('#targetDisplay .slot').forEach((el, i) => {
@@ -618,10 +739,10 @@ function init() {
       if (targets.length >= MAX_TARGETS) {
         note(`찾을 차량은 ${MAX_TARGETS}대까지입니다`, 'warn');
         beep('error');
-      } else if (targets.includes(plate)) {
+      } else if (targets.some((t) => t.plate === plate)) {
         beep('warn');
       } else {
-        targets.push(plate);
+        targets.push({ plate, kind: targetKindPick });
         saveTargets();
         repaintAll();
         beep('ok');
@@ -632,7 +753,7 @@ function init() {
   $('targetList').addEventListener('click', (ev) => {
     const plate = ev.target.dataset.plate;
     if (!plate) return;
-    targets = targets.filter((t) => t !== plate);
+    targets = targets.filter((t) => t.plate !== plate);
     saveTargets();
     renderTargetList();
     repaintAll();

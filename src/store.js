@@ -47,6 +47,53 @@ export function clearSession(session) {
   return session;
 }
 
+// ---- 일지 보관 --------------------------------------------------------
+// 그날 순회를 마치고 "저장"을 누르면 그 시점의 배치와 찾을 차량 목록을 통째로
+// 남긴다. 매일 하나씩 쌓이고, 나중에 그날 것을 그대로 불러올 수 있다.
+
+const LOG = `${PREFIX}:log`;
+
+export function saveLog(session, targets, date = workDate()) {
+  const record = {
+    date,
+    yard: session.yard,
+    round: session.round,
+    savedAt: new Date().toISOString(),
+    entries: session.entries,
+    targets,
+  };
+  localStorage.setItem(`${LOG}:${date}`, JSON.stringify(record));
+  return record;
+}
+
+export function listLogs() {
+  const out = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith(LOG + ':')) continue;
+    try {
+      const r = JSON.parse(localStorage.getItem(k));
+      out.push({
+        date: r.date,
+        savedAt: r.savedAt,
+        filled: Object.keys(r.entries || {}).length,
+        targets: (r.targets || []).length,
+      });
+    } catch (_) { /* 깨진 것은 건너뛴다 */ }
+  }
+  return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+export function readLog(date) {
+  try {
+    return JSON.parse(localStorage.getItem(`${LOG}:${date}`));
+  } catch (_) { return null; }
+}
+
+export function deleteLog(date) {
+  localStorage.removeItem(`${LOG}:${date}`);
+}
+
 export function listSessions() {
   const out = [];
   for (let i = 0; i < localStorage.length; i++) {
