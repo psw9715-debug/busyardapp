@@ -511,7 +511,7 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
      구역 색과 테두리 굵기는 yard-data.js 에 담아 인라인으로 입힌다. */
   .p-title {
     font-size: 15pt; font-weight: 700; text-align: center;
-    border: .15pt solid #000; padding: .8mm 0; margin-bottom: 0;
+    border: .1pt solid #666; padding: .8mm 0; margin-bottom: 0;
   }
   .p-meta {
     font-size: 7pt; color: #444; text-align: right;
@@ -528,7 +528,8 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
   /* 화면용 다크 배경이 새어나가지 않도록 인쇄 색을 전부 다시 지정한다 */
   .p-map .cell {
     background: #fff; color: #000;
-    border: .15pt solid #000;         /* 전부 같은, 최대한 얇은 선 */
+    border: .1pt solid #666;          /* 전부 같은 선. 0.15pt 아래는 프린터가
+                                         1픽셀로 그리므로 색을 옅게 해 가늘어 보이게 한다 */
     border-radius: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
@@ -545,7 +546,7 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
     letter-spacing: -.01em; white-space: nowrap;
   }
   /* 지난 회차에 적힌 번호 — 이번 회차 것과 구분되게 흐리게 */
-  .p-map .cell .plate.prev { color: #6b6b6b; font-weight: 500; }
+  .p-map .cell .plate.prev { color: #8f8f8f; font-weight: 400; }
   .p-map .cell.label { font-size: 12pt; font-weight: 700; color: #000; }
   .p-map .cell.label.tall { writing-mode: vertical-rl; letter-spacing: .1em; }
   /* 바닥 고정번호는 표지일 뿐이라 작은 회색 글씨 */
