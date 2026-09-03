@@ -1,12 +1,12 @@
-import { YARD } from './yard-data.js?v=202609030715';
-import { BUILD } from './build.js?v=202609030715';
-import { toKoreanSino } from './plate.js?v=202609030715';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609030715';
+import { YARD } from './yard-data.js?v=202609040616';
+import { BUILD } from './build.js?v=202609040616';
+import { toKoreanSino } from './plate.js?v=202609040616';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609040616';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS,
-} from './store.js?v=202609030715';
+} from './store.js?v=202609040616';
 
 // ---------------------------------------------------------------- 상태
 
@@ -759,8 +759,9 @@ const PRINTER_SSID = 'DIRECT-s0-EPSON-WF-C579R Series';
 function askPrint() {
   const done = countFilled(session);
   if (done === 0) { note('입력된 자리가 없습니다', 'warn'); beep('error'); return; }
-  $('printCount').textContent = round === 2
-    ? `모두 ${done}자리 — 2회차 ${countRound(session.entries, 2)}자리는 진하게, 1회차는 흐리게`
+  const r2 = countRound(session.entries, 2);
+  $('printCount').textContent = r2 > 0
+    ? `모두 ${done}자리 — 2회차 ${r2}자리는 진하게, 1회차는 흐리게`
     : `${done}자리 입력됨 · ${TOTAL - done}자리 비어 있음`;
   $('printSsid').textContent = PRINTER_SSID;
   $('printSheet').hidden = false;
@@ -771,24 +772,27 @@ function doPrint() {
   if (done === 0) return;
   $('printSheet').hidden = true;
 
+  // 2회차 기록이 하나라도 있으면 1회차 것을 흐리게 깔고 2회차 것만 진하게 찍는다.
+  // 판단 기준은 "지금 어느 회차 모드인가" 가 아니라 판에 적힌 내용이다.
+  // 모드로 정하면 1회차로 되돌려 놓고 인쇄했을 때 구분이 통째로 사라진다.
+  const hasRound2 = countRound(session.entries, 2) > 0;
+
   const area = $('printArea');
   area.innerHTML =
     `<div class="p-title">${YARD.name}</div>` +
-    `<div class="p-meta">${session.date} · ${round}회차 · ${done}/${TOTAL} 입력</div>` +
+    `<div class="p-meta">${session.date} · ${hasRound2 ? '1·2회차' : '1회차'} · ${done}/${TOTAL} 입력</div>` +
     `<div class="p-map" id="pMap"></div>`;
   const pMap = $('pMap');
   buildMap(pMap, 'print');
 
   // 공차는 찍지 않는다. 종이에서는 빈 칸이 곧 공차이고, 글자가 있으면 지저분하다.
-  // 2회차 인쇄물은 1회차 것을 흐리게 깔고 이번에 적은 것만 진하게 찍어,
-  // 무엇이 새로 들어왔는지 종이만 보고 알 수 있게 한다.
   pMap.querySelectorAll('.cell.spot').forEach((el) => {
     const e = session.entries[Number(el.dataset.spot)];
     if (!e || e.status !== 'filled') return;
 
     const plateEl = el.querySelector('.plate');
     plateEl.textContent = e.plate;
-    if (round === 2 && (e.round || 1) === 1) plateEl.classList.add('prev');
+    if (hasRound2 && (e.round || 1) === 1) plateEl.classList.add('prev');
   });
   window.print();
 }
@@ -918,11 +922,12 @@ function init() {
   $('targetKeys').addEventListener('click', (ev) => {
     const k = ev.target.dataset.k;
     if (!k) return;
-    if (k === 'clear') { targetDigits = ''; renderTargetPad(); return; }
-    if (k === 'del') { targetDigits = targetDigits.slice(0, -1); renderTargetPad(); return; }
+    if (k === 'clear') { targetDigits = ''; renderTargetPad(); beep('back'); return; }
+    if (k === 'del') { targetDigits = targetDigits.slice(0, -1); renderTargetPad(); beep('back'); return; }
     if (targetDigits.length >= 3) return;
     targetDigits += k;
     renderTargetPad();
+    if (keyTtsOn) speakDigit(k);   // 여기서도 무엇을 눌렀는지 귀로 확인
     if (targetDigits.length === 3) {
       const plate = '1' + targetDigits;
       if (targets.length >= MAX_TARGETS) {
@@ -1004,13 +1009,15 @@ function init() {
     }
     clearArmed = false;
     clearSession(session);
+    targets = [];              // 찾을 차량도 함께 비운다 — "전부"는 전부여야 한다
+    saveTargets();
     cursor = 1;
     repaintAll();
     renderHud();
-    $('diagClear').textContent = '이 회차 입력 전부 지우기';
+    $('diagClear').textContent = '오늘 입력·대상 전부 지우기';
     $('diagClear').classList.remove('armed');
     $('diagSheet').hidden = true;
-    note('입력을 전부 지웠습니다. 1번 자리부터 시작합니다.');
+    note('입력과 찾을 차량을 전부 지웠습니다. 1번 자리부터 시작합니다.');
     beep('back');
   });
   $('diagBody').addEventListener('click', (ev) => {
