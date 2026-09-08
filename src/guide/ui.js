@@ -3,12 +3,12 @@
 // 세 자리를 누르면 바로 자리가 정해지고 숫자가 화면을 꽉 채운다.
 // 화면을 다시 누르면 키패드로 돌아온다. 확정 버튼은 없다.
 
-import { assign, place, clear, laneOf, computeCutoff, DEFAULT_CUTOFF } from './assign.js?v=202609090606';
-import { YARD12 } from './yard12-data.js?v=202609090606';
-import { load, save, rows, toCsv, COLORS } from './session.js?v=202609090606';
-import { sourceDate, fetchSource } from './source.js?v=202609090606';
-import { toKoreanSino } from '../plate.js?v=202609090606';
-import { speak, beep, primeAudio } from '../voice.js?v=202609090606';
+import { assign, place, clear, laneOf, computeCutoff, DEFAULT_CUTOFF } from './assign.js?v=202609090618';
+import { YARD12 } from './yard12-data.js?v=202609090618';
+import { load, save, rows, toCsv, COLORS } from './session.js?v=202609090618';
+import { sourceDate, fetchSource } from './source.js?v=202609090618';
+import { toKoreanSino } from '../plate.js?v=202609090618';
+import { speak, beep, primeAudio } from '../voice.js?v=202609090618';
 import { BUILD } from '../build.js?v=202609090547';
 
 const Y1 = YARD12.yard1;
@@ -126,15 +126,6 @@ function commit(plate) {
 
   if (r.ok) return putAt(car, r.spot, r.reason);
 
-  if (r.kind === 'need-time') {
-    return sheet(`${plate} — 2차고지`, '몇 시에 나가는 차인가요?', [
-      ['5시대 — 빠른 차', 'go', () => retry({ ...car, out: '05:00' })],
-      ['6시 15분 이후 — 늦은 차', '', () => retry({ ...car, out: '07:00' })],
-      ['휴차', '', () => retry({ ...car, rest: true })],
-      ['취소', 'warn', null],
-    ]);
-  }
-
   if (r.kind === 'move') {
     const where = S.entries[r.from] ? r.from : '어딘가';
     if (r.from === r.spot) {
@@ -151,13 +142,6 @@ function commit(plate) {
     ['배치도 열기', 'go', () => show('Map')],
     ['취소', 'warn', null],
   ]);
-}
-
-function retry(car) {
-  const r = assign(S.entries, car, { cutoff: S.cutoff || DEFAULT_CUTOFF });
-  if (r.ok) return putAt(car, r.spot, r.reason);
-  beep('warn');
-  sheet('자리가 없습니다', '배치도에서 직접 고르세요.', [['배치도 열기', 'go', () => show('Map')]]);
 }
 
 function putAt(car, spot, reason, from = null) {

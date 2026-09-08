@@ -6,7 +6,7 @@
 // entries 는 `{ "1-1": { plate, rest, out }, … }` 꼴이고 키가 자리번호라
 // 한 자리에 두 대가 들어가는 일이 구조적으로 생기지 않는다.
 
-import { YARD12 } from './yard12-data.js?v=202609090606';
+import { YARD12 } from './yard12-data.js?v=202609090618';
 
 const Y1 = YARD12.yard1;
 const Y2 = YARD12.yard2;
@@ -14,7 +14,8 @@ const Y2 = YARD12.yard2;
 /** 이 시각 이후에 나가는 차는 사실상 안 나가는 것으로 본다 */
 export const DAY_OUT = '09:00';
 
-/** 2차고지에서 "늦은 차"를 가르는 기본값. 실측 4일 모두 이 값이 나왔다. */
+/** 2차고지에서 "늦은 차"를 가르는 기준. 1열은 6시까지, 2열은 6시 15분 이후다.
+ *  실측 4일 모두 이 값이 2열 정원과 맞았다. */
 export const DEFAULT_CUTOFF = '06:15';
 
 /** 2열 정원 — 9칸 + 예비 2-27 */
@@ -84,21 +85,43 @@ function placeYard1(entries, car) {
   return over ? { spot: over, reason: '순번행 만차 → 맨 뒷열' } : null;
 }
 
+/**
+ * 2차고지.
+ *
+ *   1열  6시까지 나가는 차
+ *   2열  6시 15분 이후에 나가는 늦은 차 · 휴차
+ *   3열  1열과 같은 빠른 차, 또는 2열에 못 넣은 늦은 차
+ *
+ * 가운데(2열)에 늦은 차가 오면 아침에 편하지만 꼭 그래야 하는 것은 아니다.
+ * 앞에서부터 차례로 빠져도 되고, 뒤에서부터 후진으로 빠져도 된다.
+ * 그래서 자리가 없으면 옆 줄로 넘길 뿐 멈추지 않는다.
+ *
+ * **출차시각을 모르면 묻지 않는다.** 1열 → 2열 → 3열 순서로 채운다.
+ * 그렇게만 넣어도 아침에 빠져나가는 데 문제가 없다.
+ */
 function placeYard2(entries, car, cutoff) {
-  const late = staysPut(car) || car.out >= cutoff;
-  if (late) {
-    const lane2 = firstFree(entries, Y2.lanes[2]);
-    if (lane2) return { spot: lane2, reason: car.rest ? '휴차 → 2열' : `${cutoff} 이상 → 2열` };
-    if (!entries[Y2.spare[2]]) return { spot: Y2.spare[2], reason: '2열 만차 → 예비' };
-    return null;
+  const lane = (n) => firstFree(entries, Y2.lanes[n]);
+  const spare = (n) => (Y2.spare[n] && !entries[Y2.spare[n]] ? Y2.spare[n] : null);
+  const first = (...picks) => picks.find((p) => p && p[0]) || null;
+
+  if (!car.rest && !car.out) {
+    const seq = first([lane(1), '순서대로 1열'], [lane(2), '1열 만차 → 2열'],
+                      [lane(3), '2열 만차 → 3열'],
+                      [spare(2), '예비'], [spare(3), '예비']);
+    return seq && { spot: seq[0], reason: seq[1] };
   }
 
-  const lane1 = firstFree(entries, Y2.lanes[1]);
-  if (lane1) return { spot: lane1, reason: '1열' };
-  const lane3 = firstFree(entries, Y2.lanes[3]);
-  if (lane3) return { spot: lane3, reason: '1열 만차 → 3열' };
-  if (!entries[Y2.spare[3]]) return { spot: Y2.spare[3], reason: '3열 만차 → 예비' };
-  return null;
+  if (staysPut(car) || car.out >= cutoff) {
+    const late = first([lane(2), car.rest ? '휴차 → 2열' : `${cutoff} 이후 → 2열`],
+                       [spare(2), '2열 만차 → 예비'],
+                       [lane(3), '2열 만차 → 3열'], [spare(3), '예비']);
+    return late && { spot: late[0], reason: late[1] };
+  }
+
+  const early = first([lane(1), '1열'], [lane(3), '1열 만차 → 3열'],
+                      [spare(3), '3열 만차 → 예비'],
+                      [lane(2), '1·3열 만차 → 2열'], [spare(2), '예비']);
+  return early && { spot: early[0], reason: early[1] };
 }
 
 /**
@@ -107,7 +130,6 @@ function placeYard2(entries, car, cutoff) {
  * 성공 { ok:true, yard, spot, lane, reason }
  * 실패 { ok:false, kind }
  *   'move'      이미 다른 자리에 있는 차다. spot·from 을 함께 준다
- *   'need-time' 2차고지인데 휴차인지 몇 시에 나가는지 모른다
  *   'full'      빈 자리가 없다. 억지로 만들지 않는다
  */
 export function assign(entries, car, { cutoff = DEFAULT_CUTOFF } = {}) {
@@ -116,8 +138,6 @@ export function assign(entries, car, { cutoff = DEFAULT_CUTOFF } = {}) {
   if (from) delete board[from];
 
   const yard = yardOf(car.plate);
-  if (yard === 2 && !car.rest && !car.out) return { ok: false, kind: 'need-time', yard };
-
   const put = yard === 1 ? placeYard1(board, car) : placeYard2(board, car, cutoff);
   if (!put) return { ok: false, kind: 'full', yard };
 

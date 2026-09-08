@@ -182,13 +182,12 @@ group('2차고지 — 늦은 차와 휴차는 가운데');
 ok('휴차 → 2열', assign({}, car(1012, '휴차')).spot, '2-10');
 ok('휴차 이유', assign({}, car(1012, '휴차')).reason, '휴차 → 2열');
 ok('06:15 정각 → 2열', assign({}, car(1735, '06:15')).spot, '2-10');
+ok('06:00 → 1열 (첫줄은 6시까지)', assign({}, car(1735, '06:00')).spot, '2-1');
 ok('06:14 → 1열', assign({}, car(1735, '06:14')).spot, '2-1');
 ok('낮 출차(12:40) → 2열', assign({}, car(1020, '12:40')).spot, '2-10');
 {
   const lane2Full = fill({}, Y2.lanes[2]);
   ok('2열 만차 + 늦은 차 → 2-27', assign(lane2Full, car(1734, '08:00')).spot, '2-27');
-  const bothFull = fill(lane2Full, [Y2.spare[2]]);
-  ok('예비까지 차면 자리를 만들지 않는다', assign(bothFull, car(1734, '08:00')).kind, 'full');
   const fast = fill({}, [...Y2.lanes[1], ...Y2.lanes[3]]);
   ok('1·3열 만차 + 빠른 차 → 2-28', assign(fast, car(1752, '05:10')).spot, '2-28');
 }
@@ -197,11 +196,32 @@ group('2차고지 — 컷오프를 바꾸면');
 ok('06:20 차, 컷오프 06:15 → 2열', assign({}, car(1740, '06:20'), { cutoff: '06:15' }).lane, 2);
 ok('06:20 차, 컷오프 06:30 → 1열', assign({}, car(1740, '06:20'), { cutoff: '06:30' }).lane, 1);
 
-group('2차고지 — 시각을 모르면 묻는다');
-ok('소스에 없는 2차고지 차', assign({}, { plate: 1740, rest: false, out: null }),
-   { ok: false, kind: 'need-time', yard: 2 });
+group('2차고지 — 시각을 몰라도 묻지 않는다');
+{
+  // 순서대로만 넣어도 아침에 빠져나가는 데 문제가 없다.
+  const unknown = (n) => ({ plate: n, rest: false, out: null });
+  ok('첫 차는 1열', assign({}, unknown(1740)).spot, '2-1');
+  const l1 = fill({}, Y2.lanes[1]);
+  ok('1열이 차면 2열', assign(l1, unknown(1740)).spot, '2-10');
+  const l12 = fill(l1, Y2.lanes[2]);
+  ok('2열도 차면 3열', assign(l12, unknown(1740)).spot, '2-19');
+  const all = fill(l12, [...Y2.lanes[3], Y2.spare[2]]);
+  ok('마지막은 예비', assign(all, unknown(1740)).spot, '2-28');
+  ok('이유를 남긴다', assign({}, unknown(1740)).reason, '순서대로 1열');
+}
 ok('1차고지는 시각을 안 보므로 그냥 배정',
    assign({}, { plate: 1150, rest: false, out: null }).spot, '1-1');
+
+group('2차고지 — 자리가 없으면 옆 줄로 넘긴다');
+{
+  const lane2Full = fill({}, [...Y2.lanes[2], Y2.spare[2]]);
+  ok('2열·예비가 차면 늦은 차도 3열로', assign(lane2Full, car(1734, '08:00')).spot, '2-19');
+  const fastFull = fill({}, [...Y2.lanes[1], ...Y2.lanes[3], Y2.spare[3]]);
+  ok('1·3열이 차면 빠른 차도 2열로', assign(fastFull, car(1752, '05:10')).spot, '2-10');
+  const everything = fill({}, [...Y2.lanes[1], ...Y2.lanes[2], ...Y2.lanes[3],
+                               Y2.spare[2], Y2.spare[3]]);
+  ok('28칸이 다 차야 멈춘다', assign(everything, car(1752, '05:10')).kind, 'full');
+}
 
 // 5. 중복 → 이동 --------------------------------------------------------
 group('같은 차가 다시 들어오면 옮긴다');
