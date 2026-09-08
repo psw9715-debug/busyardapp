@@ -3,22 +3,23 @@
 // 세 자리를 누르면 바로 자리가 정해지고 숫자가 화면을 꽉 채운다.
 // 화면을 다시 누르면 키패드로 돌아온다. 확정 버튼은 없다.
 
-import { assign, place, clear, laneOf, computeCutoff, DEFAULT_CUTOFF } from './assign.js?v=202609090547';
-import { YARD12 } from './yard12-data.js?v=202609090547';
-import { load, save, rows, toCsv, COLORS } from './session.js?v=202609090547';
-import { sourceDate, fetchSource } from './source.js?v=202609090547';
-import { toKoreanSino } from '../plate.js?v=202609090547';
-import { speak, beep, primeAudio } from '../voice.js?v=202609090547';
+import { assign, place, clear, laneOf, computeCutoff, DEFAULT_CUTOFF } from './assign.js?v=202609090606';
+import { YARD12 } from './yard12-data.js?v=202609090606';
+import { load, save, rows, toCsv, COLORS } from './session.js?v=202609090606';
+import { sourceDate, fetchSource } from './source.js?v=202609090606';
+import { toKoreanSino } from '../plate.js?v=202609090606';
+import { speak, beep, primeAudio } from '../voice.js?v=202609090606';
+import { BUILD } from '../build.js?v=202609090547';
 
 const Y1 = YARD12.yard1;
 const Y2 = YARD12.yard2;
 const $ = (id) => document.getElementById(id);
 
-/** 순회할 때 도는 차례 — 자리번호 순 */
-const ALL_SPOTS = [
-  ...Y1.seq, ...Y1.rear,
-  ...Y2.lanes[1], ...Y2.lanes[2], ...Y2.lanes[3], Y2.spare[2], Y2.spare[3],
-];
+/** 순회할 때 도는 차례 — 종이에 그려진 순서(위 → 아래, 왼쪽 → 오른쪽).
+ *  3차고지·한노도 들어 있다. 출근해서 한 바퀴 돌 때 같이 적으신다. */
+const ALL_SPOTS = YARD12.print.cells
+  .filter((c) => c.kind === 'spot')
+  .map((c) => c.spot);
 
 let S = load();
 let typed = [];
@@ -169,8 +170,12 @@ function putAt(car, spot, reason, from = null) {
   typed = [];
   const lane = laneOf(spot);
   const tail = car.rest ? '휴차' : (car.out || '');
-  showBig(lane, `${car.plate} · ${spot}${tail ? ' · ' + tail : ''}`);
-  if (S.voice) speak(`${toKoreanSino(car.plate)}, ${lane}열`);
+  if (lane) {
+    showBig(lane, `${car.plate} · ${spot}${tail ? ' · ' + tail : ''}`);
+    if (S.voice) speak(`${toKoreanSino(car.plate)}, ${lane}열`);
+  } else {
+    beep('ok');           // 3·4차고지는 안내 대상이 아니다. 적어만 둔다
+  }
   renderBar(); renderEntry(); renderMap(); renderLog();
 }
 
@@ -204,54 +209,42 @@ function key(k) {
   if (typed.length === 3) commit(Number('1' + typed.join('')));
 }
 
-// ---- 배치도 ------------------------------------------------------------
-const chunk = (list, n) => list.reduce(
-  (acc, v, i) => (i % n ? acc[acc.length - 1].push(v) : acc.push([v]), acc), []);
+// ---- 배치도 — 사무실에서 내다보는 그대로 -------------------------------
+// 엑셀에서 읽어 둔 격자를 그대로 쓴다. 위에서부터 3열·2열·1열이고
+// 한 줄은 가로로 한 줄이다. 1차고지는 왼쪽부터, 2차고지는 오른쪽부터 찬다.
 
-function cellEl(spot) {
+function cellEl(c) {
+  const spot = c.spot;
   const e = S.entries[spot];
   const d = document.createElement('div');
-  d.className = 'cell'
+  d.className = 'mc'
     + (e ? (e.rest ? ' rest' : ' fill') : '')
     + (Y1.reserved[e && e.plate] === spot ? ' own' : '')
     + (spot === cursor && round ? ' cursor' : '');
+  d.style.gridColumn = `${c.col} / span ${c.colspan}`;
+  d.style.gridRow = `${c.row} / span ${c.rowspan}`;
   d.innerHTML = `<span class="n">${spot}</span>` + (e ? `<span class="p">${e.plate}</span>` : '');
   d.onclick = () => tapCell(spot);
   return d;
 }
 
-function block(label, list, per) {
-  const out = [document.createElement('div')];
-  out[0].className = 'lbl';
-  out[0].textContent = label;
-  for (const part of chunk(list, per)) {
-    const row = document.createElement('div');
-    row.className = 'row';
-    part.forEach((s) => row.append(cellEl(s)));
-    for (let i = part.length; i < per; i++) {
-      const pad = document.createElement('div');
-      pad.className = 'cell void';
-      row.append(pad);
-    }
-    out.push(row);
-  }
-  return out;
-}
-
 function renderMap() {
   const m = $('map');
   m.innerHTML = '';
-  const odd = Y1.seq.filter((s) => Number(s.split('-')[1]) % 2);
-  const even = Y1.seq.filter((s) => !(Number(s.split('-')[1]) % 2));
-  // 한 줄에 7칸씩. 종이와 같은 모양은 인쇄가 맡고, 화면은 손가락으로 짚을 수 있어야 한다.
-  m.append(
-    ...block('1차고지 · 맨 뒷열 (휴차 · 전용칸)', Y1.rear, 7),
-    ...block('1차고지 · 뒷줄 (짝수)', even, 7),
-    ...block('1차고지 · 앞줄 (홀수)', odd, 8),
-    ...block('2차고지 · 3열', [...Y2.lanes[3], Y2.spare[3]], 7),
-    ...block('2차고지 · 2열 (늦은 차)', [...Y2.lanes[2], Y2.spare[2]], 7),
-    ...block('2차고지 · 1열', Y2.lanes[1], 7),
-  );
+  const board = document.createElement('div');
+  board.className = 'board';
+  board.style.gridTemplateRows = `repeat(${YARD12.print.rows}, auto)`;
+  for (const c of YARD12.print.cells) {
+    if (c.kind === 'spot') { board.append(cellEl(c)); continue; }
+    if (c.kind !== 'label') continue;
+    const d = document.createElement('div');
+    d.className = 'mlab';
+    d.style.gridColumn = `${c.col} / span ${Math.max(c.colspan, 3)}`;
+    d.style.gridRow = `${c.row} / span ${c.rowspan}`;
+    d.textContent = c.text;
+    board.append(d);
+  }
+  m.append(board);
 }
 
 function tapCell(spot) {
@@ -322,9 +315,41 @@ function renderPaper() {
     + ` · 1차고지 ${n1} · 2차고지 ${n2}`;
 }
 
+// ---- 관리 --------------------------------------------------------------
+// 새 버전을 못 받는 일이 제일 곤란하다. 순회 앱과 같은 방법으로,
+// 서비스 워커와 캐시를 지우고 주소에 표를 붙여 확실히 다시 받게 한다.
+
+async function forceUpdate() {
+  const b = $('btnUpdate');
+  b.textContent = '받는 중…';
+  b.disabled = true;
+  try {
+    if ('serviceWorker' in navigator) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+    if (window.caches) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (_) { /* 못 지워도 아래 재요청은 해본다 */ }
+  const url = new URL(location.href);
+  url.searchParams.set('v', Date.now().toString(36));
+  location.replace(url.toString());
+}
+
+function renderAdmin() {
+  const cars = S.cars ? Object.keys(S.cars).length : 0;
+  $('admBuild').textContent = BUILD;
+  $('admSource').textContent = cars ? `${S.sourceDate} · ${cars}대` : '아직 안 올라옴';
+  $('admCutoff').textContent = S.cutoff || DEFAULT_CUTOFF;
+  $('btnVoice2').textContent = S.voice ? '안내 음성 — 켜짐' : '안내 음성 — 꺼짐';
+}
+
 // ---- 화면 전환 ---------------------------------------------------------
 function show(name) {
-  for (const v of ['Pad', 'Map', 'Log']) $('view' + v).hidden = v !== name;
+  for (const v of ['Pad', 'Map', 'Log', 'Admin']) $('view' + v).hidden = v !== name;
+  if (name === 'Admin') renderAdmin();
   document.querySelectorAll('#tabs button').forEach((b) => b.classList.toggle('on', b.dataset.v === name));
 }
 
@@ -376,6 +401,31 @@ $('btnCsv').onclick = async () => {
   }
 };
 $('btnPrint').onclick = () => { renderPaper(); window.print(); };
+$('btnUpdate').onclick = forceUpdate;
+$('btnVoice2').onclick = () => { S.voice = !S.voice; save(S); renderBar(); renderAdmin(); };
+$('btnReload').onclick = async () => {
+  const b = $('btnReload');
+  b.textContent = '받는 중…';
+  const ok = await loadSource();
+  b.textContent = ok ? '그날 자료 다시 받기' : '아직 안 올라왔습니다';
+  renderAdmin();
+};
+let wipeArmed = false;
+$('btnWipe').onclick = () => {
+  if (!wipeArmed) {
+    wipeArmed = true;
+    $('btnWipe').textContent = '정말 지웁니다 — 한 번 더';
+    setTimeout(() => { wipeArmed = false; $('btnWipe').textContent = '오늘 입력 전부 지우기'; }, 4000);
+    return;
+  }
+  wipeArmed = false;
+  $('btnWipe').textContent = '오늘 입력 전부 지우기';
+  S.entries = {};
+  last = null;
+  cursor = ALL_SPOTS[0];
+  save(S);
+  renderBar(); renderEntry(); renderMap(); renderLog(); renderAdmin();
+};
 $('sheet').onclick = (ev) => { if (ev.target === $('sheet')) $('sheet').hidden = true; };
 
 // 순회 커서는 첫 빈 자리에서 시작한다
@@ -383,16 +433,18 @@ cursor = ALL_SPOTS.find((s) => !S.entries[s]) || null;
 renderBar(); renderEntry(); renderMap(); renderLog();
 
 // 소스는 켤 때 한 번 받아서 폰에 남긴다. 못 받아도 수동으로 그대로 쓴다.
-(async () => {
+async function loadSource() {
   const date = sourceDate(S.date);
   const src = await fetchSource(date);
-  if (!src) return;
+  if (!src) return false;
   S.cars = src.cars;
   S.sourceDate = date;
   S.cutoff = computeCutoff(
     Object.entries(src.cars).map(([plate, c]) => ({ plate: Number(plate), ...c })));
   save(S);
   renderBar();
-})();
+  return true;
+}
+loadSource();
 
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('../sw.js').catch(() => {});

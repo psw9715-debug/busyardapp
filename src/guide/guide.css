@@ -81,24 +81,32 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #big.bw #swap i:first-child { background: #000; } #big.bw #swap i:last-child { background: #fff; }
 #big.wb #swap i:first-child { background: #fff; } #big.wb #swap i:last-child { background: #000; }
 
-/* ---- 배치도 ---- */
-#map { flex: 1; overflow-y: auto; overflow-x: hidden; padding: 10px 8px 24px; -webkit-overflow-scrolling: touch; }
-.lbl { font: 11px/1 ui-monospace, Menlo, monospace; color: #7b8590; letter-spacing: .08em; margin: 14px 2px 5px; }
-.row { display: flex; gap: 3px; margin-bottom: 3px; }
-.row > * { flex: 1 1 0; min-width: 0; }
-.cell {
-  flex: 1; min-width: 0; height: 46px; border: 1px solid #232b34; border-radius: 4px;
-  background: #131a21; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 1px;
+/* ---- 배치도 — 종이와 같은 격자 ---- */
+#map { flex: 1; overflow: auto; padding: 8px 6px 20px; -webkit-overflow-scrolling: touch; }
+.board {
+  display: grid;
+  grid-template-columns: repeat(15, 1fr);
+  gap: 2px;
+  min-width: 0;
 }
-.cell .n { font: 8px/1 ui-monospace, Menlo, monospace; color: #5a646e; }
-.cell .n, .cell .p { max-width: 100%; overflow: hidden; }
-.cell .p { font: 600 12px/1 ui-monospace, Menlo, monospace; color: #fff; }
-.cell.fill { background: #1b2a20; border-color: #2e4a36; }
-.cell.rest { background: #20222c; border-color: #343a4c; }
-.cell.own  { background: #2a2412; border-color: #5a4a18; }
-.cell.cursor { border-color: #f0b429; border-style: dashed; }
-.cell.void { visibility: hidden; }
+.mc {
+  border: 1px solid #232b34; border-radius: 3px; background: #131a21;
+  min-width: 0; min-height: 42px; padding: 2px 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+}
+.mc .n { font: 7px/1 ui-monospace, Menlo, monospace; color: #5a646e; }
+.mc .p {
+  font: 600 9.5px/1 ui-monospace, Menlo, monospace; color: #fff;
+  letter-spacing: -.04em;
+}
+.mc.fill { background: #1b2a20; border-color: #2e4a36; }
+.mc.rest { background: #20222c; border-color: #343a4c; }
+.mc.own  { background: #2a2412; border-color: #5a4a18; }
+.mc.cursor { border-color: #f0b429; border-style: dashed; }
+.mlab {
+  display: flex; align-items: center;
+  font-size: 10px; color: #8b96a2; white-space: nowrap; overflow: hidden;
+}
 
 /* ---- 기록 ---- */
 #log { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; }
@@ -125,6 +133,21 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
 #sheet .btns button.go { background: #f0b429; color: #1a1206; font-weight: 600; }
 #sheet .btns button.warn { background: #3a1f1f; color: #ff9b9b; }
 
+/* ---- 관리 ---- */
+#admin { flex: 1; overflow-y: auto; padding: 16px 16px 28px; }
+.arow {
+  display: flex; align-items: baseline; gap: 12px; padding: 11px 2px;
+  border-bottom: 1px solid #171e25; font-size: 13.5px; color: #8b96a2;
+}
+.arow b { margin-left: auto; color: #e8edf2; font-weight: 600; font-variant-numeric: tabular-nums; }
+.abtn {
+  display: block; width: 100%; margin-top: 12px; padding: 15px;
+  border-radius: 10px; background: #222b35; font-size: 15.5px; text-align: center;
+}
+.abtn.go { background: #f0b429; color: #1a1206; font-weight: 600; }
+.abtn.danger { background: #3a1f1f; color: #ff9b9b; }
+.ahint { margin: 8px 2px 0; font-size: 12px; line-height: 1.5; color: #6e7883; }
+
 /* ---- 탭 ---- */
 #tabs { flex: 0 0 56px; display: flex; border-top: 1px solid #1d242c; background: #0f141a; }
 #tabs button { flex: 1; font-size: 12.5px; color: #7b8590; }
@@ -147,11 +170,11 @@ button { font: inherit; color: inherit; background: none; border: 0; padding: 0;
   }
   .p-head b { font-size: 13pt; color: #000; }
 
-  /* A열은 원본에서 폭이 2배 이상이다. 12행 × 15mm = 180mm — A4 가로에 한 장. */
+  /* A열은 원본에서 폭이 2배 이상이다. 11행 × 16mm = 176mm — A4 가로에 한 장. */
   .p-map {
     display: grid;
     grid-template-columns: 2.2fr repeat(14, 1fr);
-    grid-auto-rows: 15mm;
+    grid-auto-rows: 16mm;
     gap: 0;
   }
   .p-map .pc {

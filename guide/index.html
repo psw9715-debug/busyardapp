@@ -9,7 +9,7 @@
 <title>차고지 안내</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="../icons/icon-180.png">
-<link rel="stylesheet" href="../src/guide/guide.css?v=202609090547">
+<link rel="stylesheet" href="../src/guide/guide.css?v=202609090606">
 </head>
 <body>
 
@@ -62,10 +62,26 @@
   </div>
 </section>
 
+<!-- 관리 -->
+<section class="view" id="viewAdmin" hidden>
+  <div id="admin">
+    <div class="arow"><span>지금 버전</span><b id="admBuild">—</b></div>
+    <div class="arow"><span>그날 자료</span><b id="admSource">—</b></div>
+    <div class="arow"><span>2차고지 컷오프</span><b id="admCutoff">—</b></div>
+    <button type="button" id="btnUpdate" class="abtn go">최신 버전 받기</button>
+    <p class="ahint">깃허브에 올라간 새 버전을 강제로 받아온다. 적어 둔 차량번호는 지워지지 않는다.</p>
+    <button type="button" id="btnReload" class="abtn">그날 자료 다시 받기</button>
+    <button type="button" id="btnVoice2" class="abtn">안내 음성 켜기 / 끄기</button>
+    <button type="button" id="btnWipe" class="abtn danger">오늘 입력 전부 지우기</button>
+    <p class="ahint">두 번 눌러야 지워진다.</p>
+  </div>
+</section>
+
 <div id="tabs">
   <button type="button" class="on" data-v="Pad">키패드</button>
   <button type="button" data-v="Map">배치도</button>
   <button type="button" data-v="Log">기록</button>
+  <button type="button" data-v="Admin">관리</button>
 </div>
 
 <!-- 전체화면 숫자 -->
@@ -92,6 +108,6 @@
   <div class="p-map" id="pMap"></div>
 </div>
 
-<script type="module" src="../src/guide/ui.js?v=202609090547"></script>
+<script type="module" src="../src/guide/ui.js?v=202609090606"></script>
 </body>
 </html>

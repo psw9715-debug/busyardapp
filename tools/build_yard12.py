@@ -5,9 +5,11 @@
 - `구차고지-순서.xlsx` : 자리번호가 적힌 시트. 배정 순서와 자리 수는 여기가 정한다.
 - `구차고지.xlsx`      : 실제로 손으로 적는 인쇄용 시트. 색·테두리·라벨을 여기서 가져온다.
 
-자리 한 칸 = 엑셀 세로 3행 블록이다.
-  그리드 행 = (엑셀행 - 1) / 3 + 1   (1..12)
-  그리드 열 = 엑셀 열 번호            (1..15, A..O)
+자리 한 칸 = 엑셀 세로 3행 블록이다. 다만 블록 간격이 일정하지 않아
+(제목 줄은 2행, 구분 줄은 4행) 산술로 나누면 서로 다른 줄이 한 줄로 겹친다.
+그래서 **엑셀에 실제로 있는 블록 시작행을 모아 차례로 번호를 매긴다.**
+
+  그리드 열 = 엑셀 열 번호 (1..15, A..O)
 """
 import json
 import openpyxl
@@ -54,13 +56,24 @@ def num(spot):
     return int(spot.split("-")[1])
 
 
-def grid_row(excel_row):
-    return (excel_row - 1) // 3 + 1
-
-
 def print_cells(ws, wp):
-    """인쇄용 격자. 종이와 같은 모양이 되도록 병합·색·테두리를 그대로 옮긴다."""
+    """인쇄용 격자. 종이와 같은 모양이 되도록 병합·색·테두리를 그대로 옮긴다.
+
+    화면 배치도도 이 격자를 그대로 쓴다. 사무실에서 내다보는 주차장 모습과
+    같아야 하기 때문이다 — 위에서부터 3열·2열·1열, 한 줄은 가로로 한 줄.
+    """
     theme = load_theme(PRINT_XLSX)
+
+    # 엑셀에 실제로 있는 블록 시작행에만 차례로 번호를 매긴다
+    block_rows = sorted({r.min_row for r in ws.merged_cells.ranges})
+    row_index = {r: i + 1 for i, r in enumerate(block_rows)}
+
+    def grid_row(excel_row):
+        return row_index[excel_row]
+
+    def span(min_row, max_row):
+        return max(1, sum(1 for r in block_rows if min_row <= r <= max_row))
+
     cells, taken = [], set()
 
     for rng in sorted(ws.merged_cells.ranges, key=lambda r: (r.min_row, r.min_col)):
@@ -69,7 +82,7 @@ def print_cells(ws, wp):
             "col": rng.min_col,
             "colspan": rng.max_col - rng.min_col + 1,
             "row": grid_row(rng.min_row),
-            "rowspan": max(1, (rng.max_row - rng.min_row + 1) // 3),
+            "rowspan": span(rng.min_row, rng.max_row),
             "xl": col_letter(rng.min_col) + str(rng.min_row),
         }
         bg = cell_bg(wp.cell(rng.min_row, rng.min_col), theme)
@@ -95,7 +108,7 @@ def print_cells(ws, wp):
                 taken.add((c["row"] + dr, c["col"] + dc))
 
     # 병합에 안 든 나머지 — 색만 칠해진 구역 표시가 여기 있다
-    for excel_row in range(1, 35, 3):
+    for excel_row in block_rows:
         row = grid_row(excel_row)
         for col in range(1, 16):
             if (row, col) in taken:
@@ -115,7 +128,7 @@ def print_cells(ws, wp):
             cells.append(c)
 
     cells.sort(key=lambda c: (c["row"], c["col"]))
-    return cells
+    return cells, len(block_rows)
 
 
 def main():
@@ -147,7 +160,7 @@ def main():
     total = len(seq) + len(rear) + sum(len(v) for v in lanes.values()) + len(spare)
 
     wp = openpyxl.load_workbook(PRINT_XLSX).worksheets[0]
-    cells = print_cells(ws, wp)
+    cells, grid_rows = print_cells(ws, wp)
     printed = {c["spot"] for c in cells if c["kind"] == "spot"}
     ours = set(seq) | set(rear) | {s for v in lanes.values() for s in v} | set(spare.values())
     missing = ours - printed
@@ -156,7 +169,7 @@ def main():
     data = {
         "yard1": {"seq": seq, "rear": rear, "reserved": RESERVED},
         "yard2": {"lanes": lanes, "spare": spare},
-        "print": {"cols": 15, "rows": 12, "wideCol": 1, "cells": cells},
+        "print": {"cols": 15, "rows": grid_rows, "wideCol": 1, "cells": cells},
     }
 
     body = json.dumps(data, ensure_ascii=False, separators=(",", ":"))
@@ -169,7 +182,7 @@ def main():
         kinds[c["kind"]] = kinds.get(c["kind"], 0) + 1
     print(f"{OUT} 생성 완료 — 1차고지 순번 {len(seq)} + 뒷열 {len(rear)}, "
           f"2차고지 {[len(lanes[i]) for i in (1,2,3)]} + 예비 {sorted(spare.values())}, 합계 {total}칸")
-    print(f"  인쇄 격자 {len(cells)}칸 — {kinds}")
+    print(f"  인쇄 격자 {len(cells)}칸 · {grid_rows}행 — {kinds}")
 
 
 if __name__ == "__main__":
