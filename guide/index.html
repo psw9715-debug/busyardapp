@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="theme-color" content="#0a0d11">
+<title>차고지 안내</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="../icons/icon-180.png">
+<link rel="stylesheet" href="../src/guide/guide.css?v=202609090547">
+</head>
+<body>
+
+<div id="bar">
+  <span id="barDate">—</span>
+  <span id="barCount">0대</span>
+  <span class="grow"></span>
+  <button id="btnRound" type="button">순회</button>
+  <button id="btnVoice" type="button">음성</button>
+</div>
+
+<!-- 키패드 -->
+<section class="view" id="viewPad">
+  <div id="entry">
+    <div id="slots"><span class="fix">1</span><i></i><i></i><i></i></div>
+    <div id="hint"></div>
+  </div>
+  <div id="pad">
+    <button type="button" data-k="1">1</button>
+    <button type="button" data-k="2">2</button>
+    <button type="button" data-k="3">3</button>
+    <button type="button" class="fn del" data-k="del">⌫</button>
+
+    <button type="button" data-k="4">4</button>
+    <button type="button" data-k="5">5</button>
+    <button type="button" data-k="6">6</button>
+    <button type="button" class="fn" id="btnRest">휴차</button>
+
+    <button type="button" data-k="7">7</button>
+    <button type="button" data-k="8">8</button>
+    <button type="button" data-k="9">9</button>
+    <button type="button" class="fn" id="btnLast">직전<br>취소</button>
+
+    <button type="button" class="fn" id="btnClearKey">지움</button>
+    <button type="button" data-k="0">0</button>
+    <button type="button" class="fn" id="btnSkip">건너뛰기</button>
+    <button type="button" class="fn" id="btnToMap">배치도</button>
+  </div>
+</section>
+
+<!-- 배치도 -->
+<section class="view" id="viewMap" hidden><div id="map"></div></section>
+
+<!-- 기록 -->
+<section class="view" id="viewLog" hidden>
+  <div id="log"></div>
+  <div id="logfoot">
+    <button type="button" id="btnCsv">엑셀용으로 복사</button>
+    <button type="button" id="btnPrint" class="ghost">인쇄</button>
+  </div>
+</section>
+
+<div id="tabs">
+  <button type="button" class="on" data-v="Pad">키패드</button>
+  <button type="button" data-v="Map">배치도</button>
+  <button type="button" data-v="Log">기록</button>
+</div>
+
+<!-- 전체화면 숫자 -->
+<div id="big" class="wr" hidden>
+  <span class="tag" id="bigTag"></span>
+  <svg id="bigSvg" viewBox="-50 -75 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+    <text class="g" id="bigText" x="0" y="0"
+          font-family="-apple-system, Helvetica Neue, Arial, sans-serif"
+          font-weight="900" font-size="100">1</text>
+  </svg>
+  <button type="button" id="swap" aria-label="색 바꾸기"><i></i><i></i></button>
+</div>
+
+<!-- 시트 -->
+<div id="sheet" hidden><div class="box">
+  <h2 id="sheetTitle"></h2>
+  <p id="sheetBody"></p>
+  <div class="btns" id="sheetBtns"></div>
+</div></div>
+
+<!-- 인쇄 — 지금 쓰는 종이(구차고지.xlsx)와 같은 모양. 화면에는 안 보인다. -->
+<div class="paper" id="paper">
+  <div class="p-head"><b>구차고지</b><span id="pMeta"></span></div>
+  <div class="p-map" id="pMap"></div>
+</div>
+
+<script type="module" src="../src/guide/ui.js?v=202609090547"></script>
+</body>
+</html>

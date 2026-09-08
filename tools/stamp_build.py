@@ -17,6 +17,44 @@ KST = timezone(timedelta(hours=9))
 MODULES = ['app.js', 'plate.js', 'voice.js', 'store.js', 'yard-data.js', 'build.js']
 ASSETS = MODULES + ['app.css']
 
+# 진입 안내 앱(guide/) — 순회 앱과 같은 이유로 주소에 버전을 붙여야 한다.
+GUIDE_MODULES = ['ui.js', 'assign.js', 'session.js', 'source.js', 'yard12-data.js']
+GUIDE_ASSETS = GUIDE_MODULES + ['guide.css']
+
+
+def stamp_guide_urls(tag):
+    """guide/ 쪽 주소에도 같은 도장을 찍는다.
+
+    guide/index.html 은 `../src/guide/ui.js` 로, 모듈끼리는 `./assign.js` 나
+    `../plate.js` 로 서로를 부른다. 세 모양을 다 갈아끼운다.
+    """
+    paths = ['guide/index.html'] + [f'src/guide/{m}' for m in GUIDE_MODULES]
+    changed = 0
+
+    for path in paths:
+        try:
+            text = io.open(path, encoding='utf-8').read()
+        except FileNotFoundError:
+            continue
+        original = text
+        for asset in GUIDE_ASSETS:
+            text = re.sub(
+                r'((?:\./|\.\./src/guide/)%s)(\?v=\d+)?' % re.escape(asset),
+                lambda m: m.group(1) + '?v=' + tag,
+                text,
+            )
+        for asset in ['plate.js', 'voice.js', 'store.js']:      # 공용 모듈
+            text = re.sub(
+                r'((?:\.\./)%s)(\?v=\d+)?' % re.escape(asset),
+                lambda m: m.group(1) + '?v=' + tag,
+                text,
+            )
+        if text != original:
+            io.open(path, 'w', encoding='utf-8').write(text)
+            changed += 1
+
+    print(f'guide 주소 갱신: {changed}개 파일 (?v={tag})')
+
 
 def stamp_module_urls(tag):
     """모듈·스타일 주소에 버전을 붙인다.
@@ -60,7 +98,9 @@ def main():
     with io.open('version.json', 'w', encoding='utf-8') as f:
         f.write('{"build": "%s"}\n' % build)
 
-    stamp_module_urls(datetime.now(KST).strftime('%Y%m%d%H%M'))
+    tag = datetime.now(KST).strftime('%Y%m%d%H%M')
+    stamp_module_urls(tag)
+    stamp_guide_urls(tag)
 
     # 서비스 워커 캐시 이름을 바꿔 옛 캐시를 확실히 버리게 한다
     sw = io.open('sw.js', encoding='utf-8').read()

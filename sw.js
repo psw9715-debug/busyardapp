@@ -1,7 +1,7 @@
 // 오프라인 캐싱 — 차고지에서 전파가 약해도 앱 자체는 뜨게 한다.
 // 버전을 올리면 다음 실행 때 새 파일을 받아간다.
 
-const CACHE = 'busyard-202609040616';
+const CACHE = 'busyard-202609090547';
 const ASSETS = [
   './',
   './index.html',
@@ -14,6 +14,14 @@ const ASSETS = [
   './src/store.js',
   './src/yard-data.js',
   './src/build.js',
+  './guide/index.html',
+  './guide/manifest.json',
+  './src/guide/guide.css',
+  './src/guide/ui.js',
+  './src/guide/assign.js',
+  './src/guide/session.js',
+  './src/guide/yard12-data.js',
+  './src/guide/source.js',
   './icons/icon-180.png',
   './icons/icon-192.png',
   './icons/icon-512.png',

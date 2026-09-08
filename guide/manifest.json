@@ -1,0 +1,16 @@
+{
+  "name": "차고지 안내",
+  "short_name": "안내",
+  "description": "1·2차고지 진입 안내",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0d11",
+  "theme_color": "#0a0d11",
+  "icons": [
+    { "src": "../icons/icon-180.png", "sizes": "180x180", "type": "image/png" },
+    { "src": "../icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "../icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
