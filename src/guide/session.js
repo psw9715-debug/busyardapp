@@ -2,7 +2,7 @@
 //
 // 순회 앱과 같은 오전 9시 기준 날짜 전환을 쓴다. 새벽 00:40 에 넣어도 같은 날 근무다.
 
-import { workDate } from '../store.js?v=202609090618';
+import { workDate } from '../store.js?v=202609092159';
 
 const PREFIX = 'busyard:guide:v1';
 const key = (date) => `${PREFIX}:${date}`;
@@ -40,6 +40,6 @@ export function rows(entries) {
 export function toCsv(entries) {
   const head = '자리,차량번호,출차,비고';
   const body = rows(entries).map((r) =>
-    [r.spot, r.plate, r.rest ? '휴차' : (r.out || ''), r.reason || ''].join(','));
+    [r.spot, r.plate, r.rest ? '휴차' : (r.band || r.out || ''), r.reason || ''].join(','));
   return [head, ...body].join('\n');
 }

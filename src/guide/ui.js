@@ -3,12 +3,12 @@
 // 세 자리를 누르면 바로 자리가 정해지고 숫자가 화면을 꽉 채운다.
 // 화면을 다시 누르면 키패드로 돌아온다. 확정 버튼은 없다.
 
-import { assign, place, clear, laneOf, computeCutoff, DEFAULT_CUTOFF } from './assign.js?v=202609090618';
-import { YARD12 } from './yard12-data.js?v=202609090618';
-import { load, save, rows, toCsv, COLORS } from './session.js?v=202609090618';
-import { sourceDate, fetchSource } from './source.js?v=202609090618';
-import { toKoreanSino } from '../plate.js?v=202609090618';
-import { speak, beep, primeAudio } from '../voice.js?v=202609090618';
+import { assign, place, clear, laneOf, computeCutoff, DEFAULT_CUTOFF } from './assign.js?v=202609092159';
+import { YARD12 } from './yard12-data.js?v=202609092159';
+import { load, save, rows, toCsv, COLORS } from './session.js?v=202609092159';
+import { sourceDate, fetchSource } from './source.js?v=202609092159';
+import { toKoreanSino } from '../plate.js?v=202609092159';
+import { speak, beep, primeAudio } from '../voice.js?v=202609092159';
 import { BUILD } from '../build.js?v=202609090547';
 
 const Y1 = YARD12.yard1;
@@ -114,9 +114,9 @@ function sheet(title, body, buttons) {
 // ---- 한 대 넣기 --------------------------------------------------------
 function commit(plate) {
   const known = (S.cars || {})[plate];
-  // 소스가 있으면 휴차·출차시각을 알아서 채운다. `휴차` 키를 눌렀으면 그쪽이 이긴다.
+  // 소스가 있으면 알아서 채운다. `휴차` 키를 눌렀으면 그쪽이 이긴다.
   const car = known
-    ? { plate, rest: restOn || known.rest, out: restOn ? null : known.out }
+    ? { plate, rest: restOn || known.rest, out: restOn ? null : known.out, band: known.band }
     : { plate, rest: restOn, out: null };
 
   if (round) return putRound(car);
@@ -147,13 +147,14 @@ function commit(plate) {
 function putAt(car, spot, reason, from = null) {
   S.entries = place(S.entries, car, spot, { from });
   S.entries[spot].reason = reason;
+  if (car.band) S.entries[spot].band = car.band;
   save(S);
   last = spot;
   pickAt = null;
   restOn = false;
   typed = [];
   const lane = laneOf(spot);
-  const tail = car.rest ? '휴차' : (car.out || '');
+  const tail = car.rest ? '휴차' : (car.band || car.out || '');
   if (lane) {
     showBig(lane, `${car.plate} · ${spot}${tail ? ' · ' + tail : ''}`);
     if (S.voice) speak(`${toKoreanSino(car.plate)}, ${lane}열`);
@@ -254,7 +255,7 @@ function renderLog() {
     const d = document.createElement('div');
     d.className = 'lrow';
     d.innerHTML = `<span class="s">${r.spot}</span><span class="v">${r.plate}</span>`
-      + `<span class="o">${r.rest ? '휴차' : (r.out || '')}</span>`
+      + `<span class="o">${r.rest ? '휴차' : (r.band || r.out || '')}</span>`
       + `<span class="w">${r.reason || ''}</span>`;
     d.onclick = () => tapCell(r.spot);
     box.append(d);

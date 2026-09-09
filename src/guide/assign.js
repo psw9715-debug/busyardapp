@@ -6,7 +6,7 @@
 // entries 는 `{ "1-1": { plate, rest, out }, … }` 꼴이고 키가 자리번호라
 // 한 자리에 두 대가 들어가는 일이 구조적으로 생기지 않는다.
 
-import { YARD12 } from './yard12-data.js?v=202609090618';
+import { YARD12 } from './yard12-data.js?v=202609092159';
 
 const Y1 = YARD12.yard1;
 const Y2 = YARD12.yard2;
@@ -20,6 +20,13 @@ export const DEFAULT_CUTOFF = '06:15';
 
 /** 2열 정원 — 9칸 + 예비 2-27 */
 const LANE2_ROOM = Y2.lanes[2].length + (Y2.spare[2] ? 1 : 0);
+
+/**
+ * 1차고지 끝의 회차 공간. 차들이 여기서 돌아 나가야 해서 채우면 복잡해진다.
+ * 다른 자리가 다 찼을 때만 마지막으로 쓴다.
+ */
+const TURN_AREA = ['1-27', '1-28', '1-29'];
+const notTurn = (spot) => !TURN_AREA.includes(spot);
 
 const num = (spot) => Number(spot.split('-')[1]);
 const isOdd = (spot) => num(spot) % 2 === 1;
@@ -35,7 +42,16 @@ export function yardOf(plate) {
 
 /** 내일 아침에 안 나가는 차 — 휴차이거나 낮에 나간다 */
 export function staysPut(car) {
-  return Boolean(car.rest) || (Boolean(car.out) && car.out >= DAY_OUT);
+  if (car.rest) return true;
+  if (car.out === 'early' || car.out === 'late') return false;   // 소스가 이미 갈라 놓았다
+  return Boolean(car.out) && car.out >= DAY_OUT;
+}
+
+/** 늦은 차인가 — 시각이 있으면 컷오프로, 소스가 갈라 놓았으면 그대로 */
+function isLate(car, cutoff) {
+  if (car.out === 'late') return true;
+  if (car.out === 'early') return false;
+  return car.out >= cutoff;
 }
 
 /** 자리번호로 기사님께 보여줄 숫자를 정한다 */
@@ -75,14 +91,18 @@ function placeYard1(entries, car) {
     // 맨 뒷열을 뒤에서부터 — 순번 넘침분은 앞에서 오므로 가운데서 만난다
     const back = firstFree(entries, [...Y1.rear].reverse());
     if (back) return { spot: back, reason: car.rest ? '휴차 → 맨 뒷열' : '낮 출차 → 맨 뒷열' };
-    const front = firstFree(entries, Y1.seq.filter(isOdd));
-    return front ? { spot: front, reason: '맨 뒷열 만차 → 앞줄' } : null;
+    const front = firstFree(entries, Y1.seq.filter(isOdd).filter(notTurn));
+    if (front) return { spot: front, reason: '맨 뒷열 만차 → 앞줄' };
+    const turn = firstFree(entries, TURN_AREA);
+    return turn ? { spot: turn, reason: '다 차서 회차 공간까지' } : null;
   }
 
-  const seq = firstFree(entries, Y1.seq);
+  const seq = firstFree(entries, Y1.seq.filter(notTurn));
   if (seq) return { spot: seq, reason: '순번' };
   const over = firstFree(entries, Y1.rear);
-  return over ? { spot: over, reason: '순번행 만차 → 맨 뒷열' } : null;
+  if (over) return { spot: over, reason: '순번행 만차 → 맨 뒷열' };
+  const turn = firstFree(entries, TURN_AREA);
+  return turn ? { spot: turn, reason: '다 차서 회차 공간까지' } : null;
 }
 
 /**
@@ -111,7 +131,7 @@ function placeYard2(entries, car, cutoff) {
     return seq && { spot: seq[0], reason: seq[1] };
   }
 
-  if (staysPut(car) || car.out >= cutoff) {
+  if (staysPut(car) || isLate(car, cutoff)) {
     const late = first([lane(2), car.rest ? '휴차 → 2열' : `${cutoff} 이후 → 2열`],
                        [spare(2), '2열 만차 → 예비'],
                        [lane(3), '2열 만차 → 3열'], [spare(3), '예비']);
@@ -170,6 +190,8 @@ export function computeCutoff(cars) {
   const stay = target.filter(staysPut).length;
   const room = LANE2_ROOM - stay;
   if (room <= 0) return DEFAULT_CUTOFF;
-  const outs = target.filter((c) => !staysPut(c)).map((c) => c.out).sort().reverse();
+  const outs = target
+    .filter((c) => !staysPut(c) && c.out !== 'early' && c.out !== 'late')
+    .map((c) => c.out).sort().reverse();
   return room <= outs.length ? outs[room - 1] : DEFAULT_CUTOFF;
 }

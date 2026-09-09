@@ -146,6 +146,26 @@ group('1차고지 — 넘칠 때');
      { ok: false, kind: 'full', yard: 1 });
 }
 
+group('1차고지 — 끝의 회차 공간은 비워 둔다');
+{
+  // 1-27·1-28·1-29 는 차들이 돌아 나가는 자리다. 다 차기 전에는 안 쓴다.
+  const upTo26 = fill({}, Y1.seq.filter((s) => Number(s.split('-')[1]) <= 26));
+  const r = assign(upTo26, car(1154, '07:10'));
+  ok('1-26 까지 찼으면 1-27 이 아니라 맨 뒷열로', [r.spot, r.reason],
+     ['1-30', '순번행 만차 → 맨 뒷열']);
+
+  const rearToo = fill(upTo26, Y1.rear);
+  ok('맨 뒷열까지 차야 회차 공간을 쓴다', assign(rearToo, car(1154, '07:10')).spot, '1-27');
+
+  const rearFull = fill({}, Y1.rear);
+  const odd = Y1.seq.filter((s) => Number(s.split('-')[1]) % 2 && Number(s.split('-')[1]) <= 25);
+  const r2 = assign(fill(rearFull, odd), car(1163, '휴차'));
+  ok('휴차도 앞줄 홀수를 다 쓰고 나서야 회차 공간', r2.spot, '1-27');
+
+  const all = fill({}, [...Y1.seq, ...Y1.rear]);
+  ok('42칸이 다 차야 멈춘다', assign(all, car(1154, '07:10')).kind, 'full');
+}
+
 group('1차고지 — 지운 자리가 다음 차례');
 {
   let e = board([car(1154, '07:10'), car(1156, '05:20'), car(1170, '05:20')]);
