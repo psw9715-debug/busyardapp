@@ -2,7 +2,7 @@
 //
 // 순회 앱과 같은 오전 9시 기준 날짜 전환을 쓴다. 새벽 00:40 에 넣어도 같은 날 근무다.
 
-import { workDate } from '../store.js?v=202609092159';
+import { workDate } from '../store.js?v=202609092223';
 
 const PREFIX = 'busyard:guide:v1';
 const key = (date) => `${PREFIX}:${date}`;
@@ -35,6 +35,44 @@ export function rows(entries) {
       return ay - by || an - bn;
     })
     .map((spot) => ({ spot, ...entries[spot] }));
+}
+
+// ---- 보관 -------------------------------------------------------------
+// 그날 판을 날짜별로 남긴다. 나중에 불러와서 인쇄할 수 있다.
+
+const LOG = `${PREFIX}:log`;
+
+export function saveLog(session) {
+  const rec = {
+    date: session.date,
+    savedAt: new Date().toISOString(),
+    sourceDate: session.sourceDate || null,
+    cutoff: session.cutoff || null,
+    entries: session.entries,
+  };
+  localStorage.setItem(`${LOG}:${session.date}`, JSON.stringify(rec));
+  return rec;
+}
+
+export function listLogs() {
+  const out = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k || !k.startsWith(LOG + ':')) continue;
+    try {
+      const r = JSON.parse(localStorage.getItem(k));
+      out.push({ date: r.date, savedAt: r.savedAt, count: Object.keys(r.entries || {}).length });
+    } catch (_) { /* 깨진 것은 건너뛴다 */ }
+  }
+  return out.sort((a, b) => (a.date < b.date ? 1 : -1));
+}
+
+export function readLog(date) {
+  try { return JSON.parse(localStorage.getItem(`${LOG}:${date}`)); } catch (_) { return null; }
+}
+
+export function deleteLog(date) {
+  localStorage.removeItem(`${LOG}:${date}`);
 }
 
 export function toCsv(entries) {

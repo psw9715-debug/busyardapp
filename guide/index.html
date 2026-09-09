@@ -9,7 +9,7 @@
 <title>차고지 안내</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="../icons/icon-180.png">
-<link rel="stylesheet" href="../src/guide/guide.css?v=202609092159">
+<link rel="stylesheet" href="../src/guide/guide.css?v=202609092223">
 </head>
 <body>
 
@@ -18,11 +18,16 @@
   <span id="barCount">0대</span>
   <span class="grow"></span>
   <button id="btnRound" type="button">순회</button>
-  <button id="btnVoice" type="button">음성</button>
+  <button id="btnPrint" type="button">인쇄</button>
 </div>
 
+<!-- 배치도 — 메인 -->
+<section class="view" id="viewMap">
+  <div id="map"><div id="zoomWrap"><div class="board" id="board"></div></div></div>
+</section>
+
 <!-- 키패드 -->
-<section class="view" id="viewPad">
+<section class="view" id="viewPad" hidden>
   <div id="entry">
     <div id="slots"><span class="fix">1</span><i></i><i></i><i></i></div>
     <div id="hint"></div>
@@ -31,35 +36,22 @@
     <button type="button" data-k="1">1</button>
     <button type="button" data-k="2">2</button>
     <button type="button" data-k="3">3</button>
-    <button type="button" class="fn del" data-k="del">⌫</button>
-
     <button type="button" data-k="4">4</button>
     <button type="button" data-k="5">5</button>
     <button type="button" data-k="6">6</button>
-    <button type="button" class="fn" id="btnRest">휴차</button>
-
     <button type="button" data-k="7">7</button>
     <button type="button" data-k="8">8</button>
     <button type="button" data-k="9">9</button>
-    <button type="button" class="fn" id="btnLast">직전<br>취소</button>
-
-    <button type="button" class="fn" id="btnClearKey">지움</button>
-    <button type="button" data-k="0">0</button>
     <button type="button" class="fn" id="btnSkip">건너뛰기</button>
-    <button type="button" class="fn" id="btnToMap">배치도</button>
+    <button type="button" data-k="0">0</button>
+    <button type="button" class="fn" id="btnClearKey">지움</button>
   </div>
 </section>
-
-<!-- 배치도 -->
-<section class="view" id="viewMap" hidden><div id="map"></div></section>
 
 <!-- 기록 -->
 <section class="view" id="viewLog" hidden>
   <div id="log"></div>
-  <div id="logfoot">
-    <button type="button" id="btnCsv">엑셀용으로 복사</button>
-    <button type="button" id="btnPrint" class="ghost">인쇄</button>
-  </div>
+  <div id="logfoot"><button type="button" id="btnCsv">엑셀용으로 복사</button></div>
 </section>
 
 <!-- 관리 -->
@@ -72,27 +64,31 @@
     <p class="ahint">깃허브에 올라간 새 버전을 강제로 받아온다. 적어 둔 차량번호는 지워지지 않는다.</p>
     <button type="button" id="btnReload" class="abtn">그날 자료 다시 받기</button>
     <button type="button" id="btnVoice2" class="abtn">안내 음성 켜기 / 끄기</button>
+
+    <h3 class="ahead">보관</h3>
+    <button type="button" id="btnSave" class="abtn go">오늘 판 저장</button>
+    <p class="ahint">날짜별로 남는다. 나중에 불러와서 인쇄할 수 있다.</p>
+    <div id="saves"></div>
     <button type="button" id="btnWipe" class="abtn danger">오늘 입력 전부 지우기</button>
     <p class="ahint">두 번 눌러야 지워진다.</p>
   </div>
 </section>
 
 <div id="tabs">
-  <button type="button" class="on" data-v="Pad">키패드</button>
-  <button type="button" data-v="Map">배치도</button>
+  <button type="button" class="on" data-v="Map">배치도</button>
+  <button type="button" data-v="Pad">키패드</button>
   <button type="button" data-v="Log">기록</button>
   <button type="button" data-v="Admin">관리</button>
 </div>
 
 <!-- 전체화면 숫자 -->
-<div id="big" class="wr" hidden>
+<div id="big" hidden>
   <span class="tag" id="bigTag"></span>
-  <svg id="bigSvg" viewBox="-50 -75 100 100" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
+  <svg id="bigSvg" viewBox="-50 -75 100 100" preserveAspectRatio="none" aria-hidden="true">
     <text class="g" id="bigText" x="0" y="0"
           font-family="-apple-system, Helvetica Neue, Arial, sans-serif"
           font-weight="900" font-size="100">1</text>
   </svg>
-  <button type="button" id="swap" aria-label="색 바꾸기"><i></i><i></i></button>
 </div>
 
 <!-- 시트 -->
@@ -108,6 +104,6 @@
   <div class="p-map" id="pMap"></div>
 </div>
 
-<script type="module" src="../src/guide/ui.js?v=202609092159"></script>
+<script type="module" src="../src/guide/ui.js?v=202609092223"></script>
 </body>
 </html>
