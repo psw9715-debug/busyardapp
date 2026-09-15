@@ -3,13 +3,13 @@
 // 세 자리를 누르면 바로 자리가 정해지고 숫자가 화면을 꽉 채운다.
 // 화면을 다시 누르면 키패드로 돌아온다. 확정 버튼은 없다.
 
-import { assign, place, clear, laneOf, computeCutoff, DEFAULT_CUTOFF } from './assign.js?v=202609092223';
-import { YARD12 } from './yard12-data.js?v=202609092223';
+import { assign, place, clear, laneOf, computeCutoff, DEFAULT_CUTOFF } from './assign.js?v=202609152140';
+import { YARD12 } from './yard12-data.js?v=202609152140';
 import { load, save, rows, toCsv, saveLog, listLogs, readLog, deleteLog }
-  from './session.js?v=202609092223';
-import { sourceDate, fetchSource } from './source.js?v=202609092223';
-import { toKoreanSino } from '../plate.js?v=202609092223';
-import { speak, beep, primeAudio } from '../voice.js?v=202609092223';
+  from './session.js?v=202609152140';
+import { sourceDate, fetchSource } from './source.js?v=202609152140';
+import { toKoreanSino } from '../plate.js?v=202609152140';
+import { speak, beep, primeAudio } from '../voice.js?v=202609152140';
 import { BUILD } from '../build.js?v=202609090547';
 
 const Y1 = YARD12.yard1;
@@ -46,7 +46,8 @@ function renderEntry() {
     el.textContent = typed[i] === undefined ? '_' : typed[i];
     el.classList.toggle('on', typed[i] !== undefined);
   });
-  $('btnSkip').disabled = !round;
+  const target = pickAt || (round ? cursor : null);
+  $('btnCarPark').disabled = !target;
   $('hint').innerHTML =
     pickAt ? `<b>${pickAt}</b> 에 넣습니다`
     : round ? `순회 · 다음 자리 <b>${cursor || '없음'}</b>`
@@ -198,13 +199,14 @@ function cellEl(c) {
   const e = S.entries[spot];
   const d = document.createElement('div');
   d.className = 'mc'
-    + (e ? (e.rest ? ' rest' : ' fill') : '')
+    + (e ? (e.car ? ' car' : (e.rest ? ' rest' : ' fill')) : '')
     + (Y1.reserved[e && e.plate] === spot ? ' own' : '')
     + (spot === cursor && round ? ' cursor' : '')
     + (spot === last ? ' just' : '');
   d.style.gridColumn = `${c.col} / span ${c.colspan}`;
   d.style.gridRow = `${c.row} / span ${c.rowspan}`;
-  d.innerHTML = `<span class="n">${spot}</span>` + (e ? `<span class="p">${e.plate}</span>` : '');
+  d.innerHTML = `<span class="n">${spot}</span>`
+    + (e ? `<span class="p">${e.car ? '승용차' : e.plate}</span>` : '');
   d.onclick = () => tapCell(spot);
   return d;
 }
@@ -229,7 +231,8 @@ function tapCell(spot) {
   const e = S.entries[spot];
   if (round) { cursor = spot; show('Pad'); renderMap(); renderEntry(); return; }
   if (e) {
-    return sheet(`${spot} · ${e.plate}`, e.rest ? '휴차' : (e.band || e.out || ''), [
+    return sheet(`${spot} · ${e.car ? '승용차' : e.plate}`,
+      e.car ? '버스 자리에 선 승용차' : (e.rest ? '휴차' : (e.band || e.out || '')), [
       ['비우기', 'warn', () => {
         S.entries = clear(S.entries, spot);
         if (last === spot) last = null;
@@ -304,8 +307,8 @@ function renderLog() {
   for (const r of rows(S.entries)) {
     const d = document.createElement('div');
     d.className = 'lrow';
-    d.innerHTML = `<span class="s">${r.spot}</span><span class="v">${r.plate}</span>`
-      + `<span class="o">${r.rest ? '휴차' : (r.band || r.out || '')}</span>`
+    d.innerHTML = `<span class="s">${r.spot}</span><span class="v">${r.car ? '승용차' : r.plate}</span>`
+      + `<span class="o">${r.car ? '' : (r.rest ? '휴차' : (r.band || r.out || ''))}</span>`
       + `<span class="w">${r.reason || ''}</span>`;
     d.onclick = () => tapCell(r.spot);
     box.append(d);
@@ -428,7 +431,20 @@ $('pad').addEventListener('click', (ev) => {
   if (k) key(k);
 });
 $('btnClearKey').onclick = () => { typed = []; renderEntry(); };
-$('btnSkip').onclick = () => { nextCursor(); renderEntry(); renderMap(); };
+
+// 기사님이 버스 자리에 승용차를 대 놓는 일이 있다. 그 칸은 비워 두고 지나가야 한다.
+$('btnCarPark').onclick = () => {
+  const spot = pickAt || (round ? cursor : null);
+  if (!spot) return beep('warn');
+  S.entries = { ...S.entries, [spot]: { plate: null, car: true, rest: false, out: null, reason: '승용차' } };
+  save(S);
+  last = spot;
+  typed = [];
+  pickAt = null;
+  if (round) nextCursor(spot); else show('Map');
+  beep('ok');
+  renderBar(); renderEntry(); renderMap(); renderLog();
+};
 $('btnRound').onclick = () => {
   round = !round;
   if (round && !cursor) nextCursor('1-0');
@@ -449,7 +465,16 @@ $('btnCsv').onclick = async () => {
     sheet('복사가 막혔습니다', text, [['확인', 'go', null]]);
   }
 };
-$('btnPrint').onclick = () => { renderPaper(); window.print(); };
+// 인쇄는 사무실 PC 가 원본 엑셀에 적어서 기본 프린터로 뽑는 것이 제일 정확하다.
+// 폰에서는 그 내용을 복사해 PC 로 보낸다 (PC 에서 인쇄.bat 실행).
+$('btnPrint').onclick = () => sheet('인쇄', 'PC 에서 인쇄.bat 을 실행하면 구차고지 엑셀 그대로 나온다.', [
+  ['PC 로 보낼 내용 복사', 'go', async () => {
+    try { await navigator.clipboard.writeText(toCsv(S.entries)); beep('ok'); }
+    catch (_) { sheet('복사가 막혔습니다', toCsv(S.entries), [['확인', 'go', null]]); }
+  }],
+  ['폰에서 바로 인쇄', '', () => { renderPaper(); window.print(); }],
+  ['닫기', '', null],
+]);
 $('btnUpdate').onclick = forceUpdate;
 $('btnSave').onclick = () => {
   saveLog(S);

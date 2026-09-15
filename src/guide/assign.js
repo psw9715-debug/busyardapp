@@ -6,7 +6,7 @@
 // entries 는 `{ "1-1": { plate, rest, out }, … }` 꼴이고 키가 자리번호라
 // 한 자리에 두 대가 들어가는 일이 구조적으로 생기지 않는다.
 
-import { YARD12 } from './yard12-data.js?v=202609092223';
+import { YARD12 } from './yard12-data.js?v=202609152140';
 
 const Y1 = YARD12.yard1;
 const Y2 = YARD12.yard2;
@@ -27,6 +27,9 @@ const LANE2_ROOM = Y2.lanes[2].length + (Y2.spare[2] ? 1 : 0);
  */
 const TURN_AREA = ['1-27', '1-28', '1-29'];
 const notTurn = (spot) => !TURN_AREA.includes(spot);
+
+/** 61번 전용칸 — 다른 차로 먼저 메우지 않는다 */
+const RESERVED_SPOTS = Object.values(Y1.reserved);
 
 const num = (spot) => Number(spot.split('-')[1]);
 const isOdd = (spot) => num(spot) % 2 === 1;
@@ -88,20 +91,21 @@ function placeYard1(entries, car) {
   }
 
   if (staysPut(car)) {
-    // 맨 뒷열을 뒤에서부터 — 순번 넘침분은 앞에서 오므로 가운데서 만난다
-    const back = firstFree(entries, [...Y1.rear].reverse());
+    // 맨 뒷열을 왼쪽(1-30)부터. 전용칸은 비켜 두고, 순번 넘침분은 오른쪽에서
+    // 오므로 가운데서 만난다.
+    const back = firstFree(entries, Y1.rear.filter((s) => !RESERVED_SPOTS.includes(s)));
     if (back) return { spot: back, reason: car.rest ? '휴차 → 맨 뒷열' : '낮 출차 → 맨 뒷열' };
     const front = firstFree(entries, Y1.seq.filter(isOdd).filter(notTurn));
     if (front) return { spot: front, reason: '맨 뒷열 만차 → 앞줄' };
-    const turn = firstFree(entries, TURN_AREA);
-    return turn ? { spot: turn, reason: '다 차서 회차 공간까지' } : null;
+    const rest = firstFree(entries, [...Y1.rear, ...TURN_AREA]);
+    return rest ? { spot: rest, reason: '다 차서 남은 자리로' } : null;
   }
 
   const seq = firstFree(entries, Y1.seq.filter(notTurn));
   if (seq) return { spot: seq, reason: '순번' };
-  const over = firstFree(entries, Y1.rear);
+  const over = firstFree(entries, [...Y1.rear].reverse().filter((s) => !RESERVED_SPOTS.includes(s)));
   if (over) return { spot: over, reason: '순번행 만차 → 맨 뒷열' };
-  const turn = firstFree(entries, TURN_AREA);
+  const turn = firstFree(entries, [...TURN_AREA, ...Y1.rear]);
   return turn ? { spot: turn, reason: '다 차서 회차 공간까지' } : null;
 }
 
@@ -153,7 +157,7 @@ function placeYard2(entries, car, cutoff) {
  *   'full'      빈 자리가 없다. 억지로 만들지 않는다
  */
 export function assign(entries, car, { cutoff = DEFAULT_CUTOFF } = {}) {
-  const from = Object.keys(entries).find((s) => entries[s].plate === car.plate) || null;
+  const from = Object.keys(entries).find((s) => entries[s].plate === car.plate) || null;   // 승용차는 plate 가 없어 안 걸린다
   const board = from ? { ...entries } : entries;
   if (from) delete board[from];
 

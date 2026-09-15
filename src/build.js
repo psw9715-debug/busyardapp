@@ -1,2 +1,2 @@
 // 자동 생성 파일 — `python tools/stamp_build.py` 로 갱신.
-export const BUILD = '2026-09-09 22:23';
+export const BUILD = '2026-09-15 21:40';
