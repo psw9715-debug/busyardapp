@@ -19,6 +19,7 @@ const COMMANDS = [
   ['스킵', 'skip'], ['없음', 'skip'], ['비었음', 'skip'], ['비어있음', 'skip'],
   ['이전', 'back'], ['정정', 'back'], ['뒤로', 'back'], ['취소', 'back'],
   ['잘못', 'back'], ['백스페이스', 'back'],
+  ['다음', 'next'],
 ];
 
 const isDigitChar = (ch) => ch >= '0' && ch <= '9';

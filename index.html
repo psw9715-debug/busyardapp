@@ -10,7 +10,7 @@
 <title>차고지 순회</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="src/app.css?v=202609152140">
+<link rel="stylesheet" href="src/app.css?v=202609160702">
 </head>
 <body>
 
@@ -56,6 +56,7 @@
     <div class="ctl-row">
       <button class="ctl back" id="btnBack">◀ 이전</button>
       <button class="ctl vacant" id="btnVacant">공차</button>
+      <button class="ctl next" id="btnNext">다음 ▶</button>
       <button class="ctl pad" id="btnPad">키패드</button>
     </div>
     <button class="mic" id="btnMic">
@@ -75,7 +76,7 @@
     <div class="pad-display" id="padDisplay">
       <span class="fixed">1</span><span class="slot" data-i="0">_</span><span class="slot" data-i="1">_</span><span class="slot" data-i="2">_</span>
     </div>
-    <div class="pad-hint">앞자리 1은 자동입니다. 나머지 세 자리만 누르세요.</div>
+    <div class="pad-hint">앞자리 1은 자동입니다. 나머지 세 자리만 누르세요. 다음 구역 = 남은 칸 공차</div>
     <div class="pad-keys">
       <button data-k="1">1</button><button data-k="2">2</button><button data-k="3">3</button>
       <button data-k="4">4</button><button data-k="5">5</button><button data-k="6">6</button>
@@ -83,6 +84,8 @@
       <button data-k="vacant" class="alt">공차</button>
       <button data-k="0">0</button>
       <button data-k="del" class="alt">지움</button>
+      <button data-k="back" class="alt">◀ 이전</button>
+      <button data-k="next" class="alt wide">다음 구역 ▶</button>
     </div>
   </div>
 </div>
@@ -231,6 +234,6 @@
 <!-- 인쇄 전용 레이아웃 -->
 <div id="printArea"></div>
 
-<script type="module" src="src/app.js?v=202609152140"></script>
+<script type="module" src="src/app.js?v=202609160702"></script>
 </body>
 </html>

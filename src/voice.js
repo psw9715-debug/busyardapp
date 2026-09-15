@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202609152140';
+import { extractSequence } from './plate.js?v=202609160702';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -152,7 +152,7 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
     } catch (err) {
       // 아직 완전히 종료되지 않은 상태에서 start 하면 InvalidStateError
       clearTimeout(restartTimer);
-      restartTimer = setTimeout(safeStart, 250);
+      restartTimer = setTimeout(safeStart, 60);
     }
   }
 
@@ -209,11 +209,16 @@ export function beep(kind) {
     warn:    [[520, 0.09], [430, 0.11]],
     error:   [[300, 0.16]],
     back:    [[660, 0.06], [520, 0.08]],
+    // 공차 — 번호 입력음과 헷갈리지 않게 크고 길게
+    vacant:  [[660, 0.1], [520, 0.14]],
+    // 다음 구역으로 — 올라가는 두 음
+    next:    [[520, 0.07], [780, 0.12]],
     done:    [[880, 0.08], [1170, 0.14]],
     // 찾던 차량 — 다른 소리와 확실히 구분되게 세 번 튄다
     alert:   [[1320, 0.09], [990, 0.07], [1320, 0.09], [990, 0.07], [1320, 0.14]],
   }[kind] || [[880, 0.06]];
 
+  const peak = kind === 'vacant' ? 0.8 : 0.25;
   let t = c.currentTime;
   for (const [freq, dur] of tones) {
     const osc = c.createOscillator();
@@ -221,7 +226,7 @@ export function beep(kind) {
     osc.type = 'sine';
     osc.frequency.value = freq;
     gain.gain.setValueAtTime(0.0001, t);
-    gain.gain.exponentialRampToValueAtTime(0.25, t + 0.01);
+    gain.gain.exponentialRampToValueAtTime(peak, t + 0.01);
     gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     osc.connect(gain).connect(c.destination);
     osc.start(t);

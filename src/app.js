@@ -1,24 +1,34 @@
-import { YARD } from './yard-data.js?v=202609152140';
-import { BUILD } from './build.js?v=202609152140';
-import { toKoreanSino } from './plate.js?v=202609152140';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609152140';
+import { YARD } from './yard-data.js?v=202609160702';
+import { BUILD } from './build.js?v=202609160702';
+import { toKoreanSino } from './plate.js?v=202609160702';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609160702';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
-  countRound, ROUNDS,
-} from './store.js?v=202609152140';
+  countRound, ROUNDS, upgradeSession,
+} from './store.js?v=202609160702';
 
 // ---------------------------------------------------------------- 상태
 
 const spots = YARD.cells.filter((c) => c.kind === 'spot').sort((a, b) => a.spot - b.spot);
-const TOTAL = spots.length;
+const ALL = spots.length;
+// 걷는 순서에 든 자리 수. 그 뒤 번호는 예비 칸 — 눌러서 손으로만 적는다.
+const TOTAL = spots.filter((c) => !c.extra).length;
+const routeFilled = () => Object.keys(session.entries).filter((n) => Number(n) <= TOTAL).length;
+const SPOT = new Map(spots.map((c) => [c.spot, c]));
+const SPOT_BY_XL = Object.fromEntries(spots.map((c) => [c.xl, c.spot]));
+
+/** 순회 순번 -> 엑셀에 적힌 이름 ("B5-10") */
+const spotName = (n) => (SPOT.get(n) ? SPOT.get(n).label : String(n));
+/** 안내 음성용 — "B5-10" 을 "B5 10번" 으로 읽힌다 */
+const spotSay = (n) => `${spotName(n).replace('-', ' ')}번`;
 
 // 회차는 "지금 무엇으로 적는가" 일 뿐이다. 순회 판은 하루에 하나이고
 // 입력마다 회차 표시가 붙는다. 2회차는 1회차에 비어 있던 자리를 채우러 가는 것이라
 // 기존 입력이 지워지면 안 된다.
 let round = ROUNDS.includes(Number(localStorage.getItem('busyard:round')))
   ? Number(localStorage.getItem('busyard:round')) : 1;
-let session = mergeLegacyRound2(loadSession(YARD.id, workDate(), 1));
+let session = upgradeSession(mergeLegacyRound2(loadSession(YARD.id, workDate(), 1)), SPOT_BY_XL);
 let cursor = firstEmptySpot();
 let voice = null;
 let wakeLock = null;
@@ -67,9 +77,16 @@ function buildMap(container, cls) {
       el.dataset.spot = c.spot;
       // 순회 번호는 화면에서만 쓴다. 인쇄물은 지금 쓰는 종이와 똑같이
       // 번호 없는 빈 칸에 차량번호만 찍혀야 한다 (CSS에서 숨김).
-      el.innerHTML = `<span class="no">${c.spot}</span><span class="plate"></span>`;
+      // 칸이 좁아 "에디슨-13" 이 다 안 들어간다. 한글 구역은 첫 글자만 남긴다 (에13).
+      // 예비 칸은 번호를 찍지 않는다.
+      const short = c.extra ? '' : c.label.replace(/^([가-힣])[가-힣]*-/, '$1');
+      el.innerHTML = `<span class="no">${short}</span><span class="plate"></span>`;
       if (cls === 'live') {
-        el.addEventListener('click', () => openSpotSheet(c.spot));
+        // 두 번 톡(확대)의 첫 번째 톡일 수 있으므로 잠깐 기다렸다 연다
+        el.addEventListener('click', () => {
+          clearTimeout(tapTimer);
+          tapTimer = setTimeout(() => openSpotSheet(c.spot), DOUBLE_TAP_MS);
+        });
         cellEls.set(c.spot, el);
       }
     } else if (c.kind === 'label' || c.kind === 'paint') {
@@ -105,7 +122,7 @@ function paintSpot(n) {
 }
 
 function repaintAll() {
-  for (let n = 1; n <= TOTAL; n++) paintSpot(n);
+  for (const n of SPOT.keys()) paintSpot(n);
 }
 
 // ---------------------------------------------------------------- 배치도 확대
@@ -114,6 +131,9 @@ function repaintAll() {
 // transform 대신 폭을 늘리는 방식이라, 커진 만큼 스크롤도 그대로 따라온다.
 const ZOOM_MIN = 1;
 const ZOOM_MAX = 4;
+const TAP_ZOOM = 2.5;        // 두 번 톡 쳤을 때 배율
+const DOUBLE_TAP_MS = 300;
+let tapTimer = null;         // 칸 한 번 톡 — 두 번째 톡이 오면 취소
 let zoom = Number(localStorage.getItem('busyard:zoom')) || 1;
 
 // 확대하지 않았을 때의 배치도 크기. 폭만 늘리면 세로가 따라오지 않아
@@ -167,7 +187,12 @@ function setupZoom() {
   let start = null;
   const gap = (t) => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
 
+  // 두 번 톡 — 대략 짚은 곳을 가운데로 크게, 커진 상태면 원래대로
+  let tap = null;       // 손가락 하나로 짚고 움직이지 않은 톡
+  let lastTap = null;
+
   wrap.addEventListener('touchstart', (e) => {
+    tap = e.touches.length === 1 ? { x: e.touches[0].clientX, y: e.touches[0].clientY } : null;
     if (e.touches.length !== 2) { start = null; return; }
     const r = wrap.getBoundingClientRect();
     start = {
@@ -181,12 +206,32 @@ function setupZoom() {
   }, { passive: true });
 
   wrap.addEventListener('touchmove', (e) => {
+    if (tap && Math.hypot(e.touches[0].clientX - tap.x, e.touches[0].clientY - tap.y) > 10) tap = null;
     if (e.touches.length !== 2 || !start) return;
     e.preventDefault();                       // 사파리가 페이지째 확대하는 것을 막는다
     applyZoom(start.z * (gap(e.touches) / start.d), start.anchor);
   }, { passive: false });
 
-  wrap.addEventListener('touchend', () => { start = null; }, { passive: true });
+  wrap.addEventListener('touchend', (e) => {
+    start = null;
+    if (!tap || e.touches.length) { lastTap = null; return; }
+    const now = Date.now();
+    const t = { at: now, x: tap.x, y: tap.y };
+    tap = null;
+    if (!lastTap || now - lastTap.at > DOUBLE_TAP_MS || Math.hypot(t.x - lastTap.x, t.y - lastTap.y) > 40) {
+      lastTap = t;
+      return;
+    }
+    lastTap = null;
+    e.preventDefault();                       // 두 번째 톡이 칸을 누른 것으로 가지 않게
+    clearTimeout(tapTimer);
+    const r = wrap.getBoundingClientRect();
+    const a = { x: t.x - r.left, y: t.y - r.top };
+    if (zoom > 1.001) { applyZoom(1, a); return; }
+    applyZoom(TAP_ZOOM, a);
+    wrap.scrollLeft += a.x - wrap.clientWidth / 2;
+    wrap.scrollTop += a.y - wrap.clientHeight / 2;
+  }, { passive: false });
 
   $('zoomChip').addEventListener('click', () => applyZoom(1));
 
@@ -205,8 +250,8 @@ function setupZoom() {
 // ---------------------------------------------------------------- 안내판
 
 function renderHud(flash) {
-  $('hudSpot').textContent = cursor;
-  const done = countFilled(session);
+  $('hudSpot').textContent = spotName(cursor);
+  const done = routeFilled();
   $('hudCount').textContent = `${done} / ${TOTAL}`;
   $('progressFill').style.width = `${(done / TOTAL) * 100}%`;
 
@@ -247,8 +292,9 @@ function commit(spot, entry, { announce = true } = {}) {
   setEntry(session, spot, { ...entry, round });
   paintSpot(spot);
 
-  const isLast = spot >= TOTAL;
-  cursor = isLast ? TOTAL : nextSpotAfter(spot);
+  // 예비 칸은 걷는 순서 밖이라 커서를 움직이지 않는다
+  const isLast = spot === TOTAL;
+  if (spot <= TOTAL) cursor = isLast ? TOTAL : nextSpotAfter(spot);
   paintSpot(spot);
   paintSpot(cursor);
   renderHud(entry);
@@ -261,7 +307,7 @@ function commit(spot, entry, { announce = true } = {}) {
     beep('warn');
   } else if (entry.status === 'vacant') {
     note('공차 처리');
-    beep('back');
+    beep('vacant');
   } else {
     note('');
     beep('ok');
@@ -276,13 +322,13 @@ function commit(spot, entry, { announce = true } = {}) {
     return;
   }
 
-  if (isLast && countFilled(session) >= TOTAL) {
+  if (isLast && routeFilled() >= TOTAL) {
     note(`${TOTAL}자리 전부 입력 완료`, 'warn');
     beep('done');
     if (announce) announceSpeak('순회 완료');
     return;
   }
-  if (announce) announceSpeak(`${cursor}번`);
+  if (announce) announceSpeak(spotSay(cursor));
 }
 
 function goBack() {
@@ -298,18 +344,65 @@ function goBack() {
   }
   if (n < 1) n = 1;
 
+  // "다음" 으로 한꺼번에 공차 처리한 칸은 한꺼번에 되돌린다
+  const e = session.entries[n];
+  if (e && e.method === 'next') {
+    for (let k = e.from; k <= TOTAL; k++) {
+      if (session.entries[k] && session.entries[k].from === e.from) setEntry(session, k, null);
+      else if (k > n) break;
+    }
+    n = e.from;
+  } else {
+    setEntry(session, n, null);
+  }
+
   cursor = n;
-  setEntry(session, cursor, null);
   repaintAll();
   renderHud();
-  note(`${cursor}번 자리로 되돌렸습니다`);
+  note(`${spotName(cursor)}번 자리로 되돌렸습니다`);
   beep('back');
   if (voice) voice.reset();
-  announceSpeak(`${cursor}번 다시`);
+  announceSpeak(`${spotSay(cursor)} 다시`);
 }
 
 function markVacant() {
   commit(cursor, { plate: null, status: 'vacant', confidence: 'high', method: 'manual' });
+}
+
+/**
+ * 이 구역에 더 볼 차가 없을 때 다음 구역 첫 자리로 건너뛴다 (B0-10 에서 B2-1 로).
+ * 1회차는 남은 칸을 공차로 채운다 — 차가 없어 넘어간 것이니 공차가 맞고,
+ * 그래야 2회차에 다시 들를 자리로 남는다. 2회차는 빈 자리만 찾아갈 뿐 적지 않는다.
+ */
+function goNext() {
+  const seg = SPOT.get(cursor).seg;
+  let to = cursor;
+  while (to <= TOTAL && SPOT.get(to).seg === seg) to += 1;
+  if (round === 2) while (to <= TOTAL && !isOpen(to)) to += 1;
+
+  if (round === 1) {
+    const from = cursor;
+    for (let n = from; n < to; n++) {
+      if (session.entries[n]) continue;
+      setEntry(session, n, { plate: null, status: 'vacant', confidence: 'high', method: 'next', from, round });
+    }
+  }
+  if (to > TOTAL) {
+    if (round === 1) cursor = TOTAL;
+    repaintAll();
+    renderHud();
+    note(round === 1 ? '마지막 구역입니다 — 남은 칸을 공차로 채웠습니다' : '뒤에 남은 빈 자리가 없습니다', 'warn');
+    beep('done');
+    return;
+  }
+
+  cursor = to;
+  repaintAll();
+  renderHud();
+  note(`다음 구역 — ${spotName(cursor)}번 자리`);
+  beep('next');
+  if (voice) voice.reset();
+  announceSpeak(spotSay(cursor));
 }
 
 /** 안내 음성. 말하는 동안 자기 목소리가 다시 인식되지 않게 막는다. */
@@ -357,6 +450,8 @@ function handleToken(t) {
     commit(cursor, { plate: null, status: 'vacant', confidence: 'high', method: 'voice' });
   } else if (t.type === 'back') {
     goBack();
+  } else if (t.type === 'next') {
+    goNext();
   }
 }
 
@@ -436,9 +531,16 @@ function openPad(spot) {
   if (voice && voice.isOn()) { voice.stop(); releaseWakeLock(); }
 
   padSpot = spot; padDigits = '';
-  $('padTitle').textContent = `${spot}번 자리`;
+  $('padTitle').textContent = `${spotName(spot)}번 자리`;
   renderPad();
   $('padSheet').hidden = false;
+}
+
+/** 입력·이전·다음 뒤에 커서가 간 자리를 이어서 받는다 */
+function padFollowCursor() {
+  padSpot = cursor; padDigits = '';
+  $('padTitle').textContent = `${spotName(padSpot)}번 자리`;
+  renderPad();
 }
 
 function closePad() {
@@ -461,9 +563,14 @@ function padKey(k) {
   }
   if (k === 'vacant') {
     commit(padSpot, { plate: null, status: 'vacant', confidence: 'high', method: 'keypad' }, { announce: false });
-    padSpot = cursor; padDigits = '';
-    $('padTitle').textContent = `${padSpot}번 자리`;
-    renderPad();
+    padFollowCursor();
+    return;
+  }
+  if (k === 'back' || k === 'next') {
+    // 시트를 자리 탭으로 연 경우도 있으니 커서를 그 자리에 맞춘 뒤 움직인다
+    if (padSpot <= TOTAL) cursor = padSpot;
+    if (k === 'back') goBack(); else goNext();
+    padFollowCursor();
     return;
   }
   if (padDigits.length >= 3) return;
@@ -475,9 +582,7 @@ function padKey(k) {
     commit(padSpot, { plate, status: 'filled', confidence: 'high', method: 'keypad' }, { announce: false });
     readBackPlate(plate);
     // 이어서 다음 자리를 계속 찍을 수 있게 시트를 열어 둔다
-    padSpot = cursor; padDigits = '';
-    $('padTitle').textContent = `${padSpot}번 자리`;
-    renderPad();
+    padFollowCursor();
   }
 }
 
@@ -487,8 +592,9 @@ let sheetSpot = null;
 function openSpotSheet(spot) {
   sheetSpot = spot;
   const e = session.entries[spot];
-  $('spotTitle').textContent = `${spot}번 자리` + (e ? ` — ${e.status === 'vacant' ? '공차' : e.plate}` : '');
+  $('spotTitle').textContent = `${spotName(spot)}번 자리` + (e ? ` — ${e.status === 'vacant' ? '공차' : e.plate}` : '');
   $('spotClear').hidden = !e;
+  $('spotGoto').hidden = spot > TOTAL;
   $('spotSheet').hidden = false;
 }
 
@@ -543,9 +649,9 @@ function renderTargetBadge() {
 function announceTarget(plate, spot, kind) {
   const k = KINDS[kind] || KINDS.cctv;
   beep('alert');
-  const ms = speak(`${k.say}, ${toKoreanSino(plate)}, ${spot}번 자리`, { rate: 1.1 });
+  const ms = speak(`${k.say}, ${toKoreanSino(plate)}, ${spotSay(spot)} 자리`, { rate: 1.1 });
   if (voice) voice.muteFor(ms + 300);
-  note(`★ ${k.label} ${plate} — ${spot}번 자리`, 'warn');
+  note(`★ ${k.label} ${plate} — ${spotName(spot)}번 자리`, 'warn');
 }
 
 function renderTargetList() {
@@ -557,7 +663,7 @@ function renderTargetList() {
   }
   ul.innerHTML = targets.map((t) => {
     const spot = Object.keys(session.entries).find((n) => session.entries[n].plate === t.plate);
-    const where = spot ? `<span class="target-at">${spot}번 자리</span>` : '<span class="target-wait">아직</span>';
+    const where = spot ? `<span class="target-at">${spotName(Number(spot))}번 자리</span>` : '<span class="target-wait">아직</span>';
     return `<li class="k-${t.kind}"><span class="target-kind">${KINDS[t.kind].label}</span>`
       + `<b>${t.plate}</b>${where}<button data-plate="${t.plate}" aria-label="빼기">✕</button></li>`;
   }).join('');
@@ -611,7 +717,7 @@ function switchRound(next) {
   renderHud();
 
   note(round === 2
-    ? `2회차 — 빈 자리·공차 ${openCount()}칸을 채웁니다 (${cursor}번부터)`
+    ? `2회차 — 빈 자리·공차 ${openCount()}칸을 채웁니다 (${spotName(cursor)}번부터)`
     : `1회차로 돌아왔습니다`);
   beep('back');
 }
@@ -656,7 +762,7 @@ function doLoadLog(date) {
   const rec = readLog(date);
   if (!rec) return;
 
-  restoreLog(rec, session);
+  restoreLog(rec, session, SPOT_BY_XL);
   targets = (rec.targets || []).map((t) =>
     (typeof t === 'string' ? { plate: t, kind: 'cctv' } : t));
   saveTargets();
@@ -762,7 +868,7 @@ function askPrint() {
   const r2 = countRound(session.entries, 2);
   $('printCount').textContent = r2 > 0
     ? `모두 ${done}자리 — 2회차 ${r2}자리는 진하게, 1회차는 흐리게`
-    : `${done}자리 입력됨 · ${TOTAL - done}자리 비어 있음`;
+    : `${done}자리 입력됨 · ${ALL - done}자리 비어 있음`;
   $('printSsid').textContent = PRINTER_SSID;
   $('printSheet').hidden = false;
 }
@@ -780,7 +886,7 @@ function doPrint() {
   const area = $('printArea');
   area.innerHTML =
     `<div class="p-title">${YARD.name}</div>` +
-    `<div class="p-meta">${session.date} · ${hasRound2 ? '1·2회차' : '1회차'} · ${done}/${TOTAL} 입력</div>` +
+    `<div class="p-meta">${session.date} · ${hasRound2 ? '1·2회차' : '1회차'} · ${done}/${ALL} 입력</div>` +
     `<div class="p-map" id="pMap"></div>`;
   const pMap = $('pMap');
   buildMap(pMap, 'print');
@@ -808,7 +914,7 @@ function init() {
   repaintAll();
   renderHud();
   renderTargetBadge();
-  if (countFilled(session) > 0) note(`이어서 ${cursor}번부터 입력합니다`);
+  if (countFilled(session) > 0) note(`이어서 ${spotName(cursor)}번부터 입력합니다`);
 
   $('btnRound').addEventListener('click', () => {
     primeAudio();
@@ -817,6 +923,7 @@ function init() {
   $('btnMic').addEventListener('click', toggleMic);
   $('btnBack').addEventListener('click', () => { primeAudio(); goBack(); });
   $('btnVacant').addEventListener('click', () => { primeAudio(); markVacant(); });
+  $('btnNext').addEventListener('click', () => { primeAudio(); goNext(); });
   $('btnPad').addEventListener('click', () => openPad(cursor));
   $('btnPrint').addEventListener('click', askPrint);
   $('btnDiag').addEventListener('click', openDiag);
@@ -835,7 +942,7 @@ function init() {
     }
     const hits = findSpots(findDigits);
     box.innerHTML = hits.length
-      ? hits.map((h) => `<button class="find-hit" data-spot="${h.spot}"><b>${h.plate}</b><span>${h.spot}번 자리</span></button>`).join('')
+      ? hits.map((h) => `<button class="find-hit" data-spot="${h.spot}"><b>${h.plate}</b><span>${spotName(h.spot)}번 자리</span></button>`).join('')
       : '<div class="find-none">입력된 차량 중에 없습니다</div>';
   };
   $('btnFind').addEventListener('click', () => {
@@ -859,7 +966,7 @@ function init() {
     const n = Number(btn.dataset.spot);
     $('findSheet').hidden = true;
     highlightSpot(n);
-    note(`${n}번 자리 — ${session.entries[n].plate}`);
+    note(`${spotName(n)}번 자리 — ${session.entries[n].plate}`);
   });
 
   // ---- 일지 보관 ----
@@ -967,15 +1074,17 @@ function init() {
 
   $('padClose').addEventListener('click', closePad);
   // 찾기·대상 시트도 같은 .pad-keys 를 쓰므로 반드시 이 시트 안으로 한정한다
+  // click 은 손을 뗄 때 오고, 빨리 연달아 치면 사파리가 두 번 톡으로 묶어 삼키기도 한다.
+  // 닿는 순간 받아야 한 자리도 빠지지 않는다.
   document.querySelectorAll('#padSheet .pad-keys button').forEach((b) =>
-    b.addEventListener('click', () => padKey(b.dataset.k)));
+    b.addEventListener('pointerdown', (ev) => { ev.preventDefault(); padKey(b.dataset.k); }));
 
   $('spotClose').addEventListener('click', () => { $('spotSheet').hidden = true; });
   $('spotGoto').addEventListener('click', () => {
     cursor = sheetSpot; repaintAll(); renderHud();
     $('spotSheet').hidden = true;
     if (voice) voice.reset();
-    note(`${cursor}번 자리부터 입력합니다`);
+    note(`${spotName(cursor)}번 자리부터 입력합니다`);
   });
   $('spotPad').addEventListener('click', () => { $('spotSheet').hidden = true; openPad(sheetSpot); });
   $('spotVacant').addEventListener('click', () => {
@@ -1017,7 +1126,7 @@ function init() {
     $('diagClear').textContent = '오늘 입력·대상 전부 지우기';
     $('diagClear').classList.remove('armed');
     $('diagSheet').hidden = true;
-    note('입력과 찾을 차량을 전부 지웠습니다. 1번 자리부터 시작합니다.');
+    note(`입력과 찾을 차량을 전부 지웠습니다. ${spotName(1)}번 자리부터 시작합니다.`);
     beep('back');
   });
   $('diagBody').addEventListener('click', (ev) => {

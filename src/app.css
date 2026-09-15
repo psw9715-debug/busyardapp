@@ -295,6 +295,9 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
 }
 .pad-keys button:active { background: var(--amber); color: var(--amber-ink); }
 .pad-keys button.alt { font-size: 15px; color: var(--ink-dim); }
+.pad-keys button.wide { grid-column: span 2; }
+/* 연달아 빠르게 치므로 사파리의 두 번 톡 판정이 끼어들지 않게 한다 */
+#padSheet .pad-keys button { touch-action: manipulation; }
 
 .sheet-actions { display: flex; flex-direction: column; gap: 8px; }
 .sheet-actions button {

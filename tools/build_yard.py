@@ -2,8 +2,8 @@
 """차고지 프린트.xlsx -> src/yard-data.js
 
 두 시트를 합쳐 배치도 하나를 만든다.
-- `신차고지-순서` : 자리마다 순회 번호가 적힌 시트. 앱의 입력 순서 기준.
-                    자리 수는 이 시트가 정한다 (번호가 1부터 연속이기만 하면 된다).
+- `신차고지-순서` : 자리마다 "구역-번호"(B5-10) 가 적힌 시트. 걷는 순서는
+                    아래 ROUTE 가 정하고, 엑셀 칸과 ROUTE 가 한 번씩 맞아야 한다.
 - `신차고지`      : 실제로 손으로 적는 인쇄용 시트. 주차장 바닥에 칠해진
                     고정번호가 L열(위 7칸)·M열(아래 13칸)에 따로 적혀 있다.
 
@@ -12,6 +12,7 @@
   그리드 열 = 엑셀 열 번호            (1..15, A..O)
 """
 import json
+import re
 import openpyxl
 from openpyxl.utils import get_column_letter as col_letter
 
@@ -24,6 +25,24 @@ ORDER_SHEET = "신차고지-순서"
 PRINT_SHEET = "신차고지"
 
 COL_L, COL_M = 12, 13
+
+# 실제로 걸어 다니는 순서. 칸마다 "구역-번호"(B5-10, 에디슨-3) 가 적혀 있고,
+# 이 목록의 구간 하나가 "다음" 으로 건너뛰는 단위다.
+ROUTE = [
+    ("B5", 1, 7), ("B0", 1, 13), ("B2", 1, 18), ("화단", 1, 9),
+    ("마을", 1, 13), ("에디슨", 1, 13), ("수소", 1, 17), ("정비", 1, 20),
+    ("B5", 8, 14), ("B0", 14, 26), ("휴게실", 1, 3), ("B2", 19, 21),
+]
+SPOT_LABEL = re.compile(r"^(.+)-(\d+)$")
+
+# 순서 시트에서 이름이 빠졌지만 차가 설 수 있는 칸. 걷는 순서에는 넣지 않되
+# 눌러서 손으로 적을 수 있어야 한다. 화면에 번호는 찍지 않고 "예비-N" 으로 부른다.
+EXTRA = (
+    "F12 H39 I39 J39 K39 H42 I42 J42 K42 H45 I45 J45 K45 H48 I48 J48 K48 "
+    "H51 I51 J51 K51 H54 I54 J54 H57 I57 J57 H60 I60 J60 "
+    "J6 J9 J12 J15 J18 J21 J24 J27 J30 J33 K6 K9 K12 K15 K18 K21 K24 K27 K30 K33 "
+    "C9 C12 C15 C18 C21 D9 D12 D15 D18 D21"
+).split()
 
 
 def grid_row(excel_row):
@@ -50,6 +69,11 @@ def main():
 
     theme = load_theme(XLSX)
 
+    order = {}   # "B5-10" -> (순회 순번, 구간 번호)
+    for seg, (zone, first, last) in enumerate(ROUTE):
+        for num in range(first, last + 1):
+            order[f"{zone}-{num}"] = (len(order) + 1, seg)
+
     cells = []
     for rng in ws.merged_cells.ranges:
         if rng.min_row < 3:
@@ -68,9 +92,18 @@ def main():
             cell["bg"] = bg
         cell["b"] = border_weights(wp, rng.min_row, rng.min_col, rng.max_row, rng.max_col)
 
-        if isinstance(value, int):
+        label = str(value).strip() if value is not None else ""
+        if SPOT_LABEL.match(label):
+            assert label in order, f"{cell['xl']} '{label}' 이(가) ROUTE 에 없다"
             cell["kind"] = "spot"
-            cell["spot"] = value
+            cell["spot"], cell["seg"] = order[label]
+            cell["label"] = label
+        elif value is None and cell["xl"] in EXTRA:
+            i = EXTRA.index(cell["xl"])
+            cell["kind"] = "spot"
+            cell["spot"] = len(order) + 1 + i
+            cell["label"] = f"예비-{i + 1}"
+            cell["extra"] = True
         elif value is not None:
             cell["kind"] = "label"
             cell["text"] = join_label(str(value))
@@ -119,11 +152,10 @@ def main():
     cells.sort(key=lambda c: (c["row"], c["col"]))
     spots = sorted(c["spot"] for c in cells if c["kind"] == "spot")
 
-    # 자리 수는 엑셀이 정한다. 나중에 구역이 더 늘어도 이 파일은 그대로 둔다.
-    assert spots, "순회 번호가 하나도 없다"
-    assert spots == list(range(1, len(spots) + 1)), (
-        f"순회 번호가 1부터 연속이 아님 — 빠지거나 겹친 번호가 있다: "
-        f"{spots[:5]}...{spots[-5:]}")
+    # 엑셀의 칸과 ROUTE 가 정확히 한 번씩 맞아야 한다
+    assert spots == list(range(1, len(order) + len(EXTRA) + 1)), (
+        f"엑셀에 없거나 두 번 적힌 자리가 있다: "
+        f"{sorted(set(order) - {c['label'] for c in cells if c['kind'] == 'spot'})}")
 
     # 같은 칸을 두 번 그리지 않는지 확인
     seen = set()

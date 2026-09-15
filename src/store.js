@@ -15,12 +15,49 @@ export function workDate(now = new Date()) {
 
 const key = (yard, date, round) => `${PREFIX}:${yard}:${date}:${round}`;
 
+// ---- 배치도 번호 바꿈 -------------------------------------------------
+// 예전에는 자리를 순회 순번(1~184)으로만 불렀고, 지금은 엑셀의 "구역-번호" 칸을
+// 걷는 순서대로 센다. 같은 순번이라도 가리키는 칸이 달라졌으므로, 예전에 적은
+// 기록은 엑셀 칸 위치를 거쳐 지금 번호로 옮긴다. 아래는 예전 순번 1~184 의 칸.
+export const LAYOUT = 2;
+const LEGACY_XL = (
+  'N3 N6 N9 N12 N15 N18 N21 N24 N27 N30 N33 N36 N39 N42 N45 N48 N51 N54 N57 N60 ' +
+  'E60 E57 E54 E51 E48 E45 E42 E39 E36 E33 E30 E27 E24 E21 E18 E15 E12 E9 C3 C6 ' +
+  'D3 D6 E3 F3 G3 F6 F9 F12 D60 D57 D54 D51 D48 D45 D42 D39 D36 D33 D30 D27 ' +
+  'D24 C24 C27 C30 C33 C36 A51 A48 A45 A42 A39 A33 A30 A27 A24 A21 A18 A15 A12 A9 ' +
+  'A6 A3 H6 I6 H9 I9 H12 I12 H15 I15 H18 I18 H21 I21 H24 I24 H27 I27 H30 I30 ' +
+  'H33 I33 M21 M18 M15 M12 M9 M6 M3 H39 I39 J39 K39 H42 I42 J42 K42 H45 I45 J45 ' +
+  'K45 H48 I48 J48 K48 H51 I51 J51 K51 H54 I54 J54 K54 H57 I57 J57 K57 H60 I60 J60 ' +
+  'K60 J6 J9 J12 J15 J18 J21 J24 J27 J30 J33 K6 K9 K12 K15 K18 K21 K24 K27 K30 ' +
+  'K33 C9 C12 C15 C18 C21 D9 D12 D15 D18 D21 L24 L27 L30 L33 L36 L39 L42 L45 L48 ' +
+  'L51 L54 L57 L60'
+).split(' ');
+
+/** 예전 순번으로 적힌 기록을 지금 번호로 옮긴다. 순회에서 빠진 칸의 기록은 버린다. */
+function migrateEntries(entries, spotByXl) {
+  const out = {};
+  for (const [n, e] of Object.entries(entries || {})) {
+    const to = spotByXl[LEGACY_XL[Number(n) - 1]];
+    if (to) out[to] = e;
+  }
+  return out;
+}
+
+/** 예전 번호로 저장된 오늘 순회를 한 번만 옮긴다 */
+export function upgradeSession(session, spotByXl) {
+  if (session.layout === LAYOUT) return session;
+  session.entries = migrateEntries(session.entries, spotByXl);
+  session.layout = LAYOUT;
+  saveSession(session);
+  return session;
+}
+
 export function loadSession(yard, date = workDate(), round = 1) {
   const raw = localStorage.getItem(key(yard, date, round));
   if (raw) {
     try { return JSON.parse(raw); } catch (_) { /* 깨졌으면 새로 시작 */ }
   }
-  return { yard, date, round, entries: {}, updatedAt: null };
+  return { yard, date, round, layout: LAYOUT, entries: {}, updatedAt: null };
 }
 
 export function saveSession(session) {
@@ -66,6 +103,7 @@ export function saveLog(session, targets, date = workDate()) {
     date,
     yard: session.yard,
     savedAt: new Date().toISOString(),
+    layout: LAYOUT,
     entries: session.entries,
     targets,
   };
@@ -91,8 +129,10 @@ export function countRound(entries, round) {
 }
 
 /** 저장해 둔 일지를 지금 순회로 되돌려 놓는다 */
-export function restoreLog(rec, session) {
-  session.entries = logEntries(rec);
+export function restoreLog(rec, session, spotByXl) {
+  const entries = logEntries(rec);
+  session.entries = rec.layout === LAYOUT ? entries : migrateEntries(entries, spotByXl);
+  session.layout = LAYOUT;
   saveSession(session);
   return session;
 }
