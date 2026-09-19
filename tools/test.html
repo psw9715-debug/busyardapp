@@ -156,6 +156,27 @@ log('<h2>▶ 왕복 검사 — 1000~1999 전 구간</h2>');
   eq(broken.slice(0, 5), [], `1000개 전부 읽어주고 다시 알아듣기 (실패 ${broken.length}건)`);
 }
 
+log('<h2>▶ 걷는 순서 — B0-13 다음에 휴게실-1</h2>');
+const { YARD } = await import(`../src/yard-data.js?t=${Date.now()}`);
+const { upgradeSession, restoreLog, LAYOUT } = await import(`../src/store.js?t=${Date.now()}`);
+const cellOf = new Map(YARD.cells.filter(c => c.kind === 'spot').map(c => [c.spot, c]));
+eq([20, 21, 22].map(n => cellOf.get(n).label), ['B0-13', '휴게실-1', 'B2-1'], '1차 순찰 순서');
+eq([131, 132, 133, 134].map(n => cellOf.get(n).label), ['B0-26', '휴게실-2', '휴게실-3', 'B2-19'], '휴게실 2·3은 제자리');
+{
+  const byXl = Object.fromEntries([...cellOf.values()].map(c => [c.xl, c.spot]));
+  const car = (p) => ({ plate: p, status: 'filled' });
+  // 이전 배치(2)에서 21=B2-1, 131=휴게실-1, 132=휴게실-2, 140=예비-4
+  const old = { 21: car('1021'), 130: car('1130'), 131: car('1131'), 132: car('1132'), 140: car('1140') };
+  const want = { 21: '1131', 22: '1021', 131: '1130', 132: '1132', 140: '1140' };
+  const plates = (s) => Object.fromEntries(Object.entries(s.entries).map(([n, e]) => [n, e.plate]));
+  const s = upgradeSession({ yard: 'test', date: 'test', round: 1, layout: 2, entries: { ...old } }, byXl);
+  eq(plates(s), want, '저장된 오늘 판을 새 번호로 옮긴다');
+  const r = restoreLog({ layout: 2, entries: { ...old } }, { yard: 'test', date: 'test', round: 1, entries: {} }, byXl);
+  eq(plates(r), want, '이전 배치 일지를 되돌릴 때도 옮긴다');
+  eq(r.layout, LAYOUT, '옮긴 뒤엔 지금 배치로 표시');
+  localStorage.removeItem('busyard:v1:test:test:1');
+}
+
 log(`통과 ${pass} / 실패 ${fail}`, `sum ${fail === 0 ? 'ok' : 'no'}`);
 document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
 </script>

@@ -19,7 +19,7 @@ const key = (yard, date, round) => `${PREFIX}:${yard}:${date}:${round}`;
 // 예전에는 자리를 순회 순번(1~184)으로만 불렀고, 지금은 엑셀의 "구역-번호" 칸을
 // 걷는 순서대로 센다. 같은 순번이라도 가리키는 칸이 달라졌으므로, 예전에 적은
 // 기록은 엑셀 칸 위치를 거쳐 지금 번호로 옮긴다. 아래는 예전 순번 1~184 의 칸.
-export const LAYOUT = 2;
+export const LAYOUT = 3;
 const LEGACY_XL = (
   'N3 N6 N9 N12 N15 N18 N21 N24 N27 N30 N33 N36 N39 N42 N45 N48 N51 N54 N57 N60 ' +
   'E60 E57 E54 E51 E48 E45 E42 E39 E36 E33 E30 E27 E24 E21 E18 E15 E12 E9 C3 C6 ' +
@@ -33,11 +33,25 @@ const LEGACY_XL = (
   'L51 L54 L57 L60'
 ).split(' ');
 
-/** 예전 순번으로 적힌 기록을 지금 번호로 옮긴다. 순회에서 빠진 칸의 기록은 버린다. */
-function migrateEntries(entries, spotByXl) {
+// 배치 2 — 휴게실-1 을 B0 둘째 줄 뒤에 들르던 때의 걷는 순서 1~136 칸.
+// 예비 칸(137~)은 번호가 그대로다.
+const LAYOUT2_XL = (
+  'N3 N6 N9 N12 N15 N18 N21 N24 N27 N30 N33 N36 N39 N42 N45 N48 N51 N54 N57 N60 ' +
+  'E60 E57 E54 E51 E48 E45 E42 E39 E36 E33 E30 E27 E24 E21 E18 E15 E12 E9 C3 C6 ' +
+  'D3 D6 E3 F3 G3 F6 F9 D60 D57 D54 D51 D48 D45 D42 D39 D36 D33 D30 D27 D24 ' +
+  'C24 C27 C30 C33 C36 C39 C42 C45 C48 C51 C54 C57 C60 A54 A51 A48 A45 A42 A39 A33 ' +
+  'A30 A27 A24 A21 A18 A15 A12 A9 A6 A3 H6 I6 H9 I9 H12 I12 H15 I15 H18 I18 ' +
+  'H21 I21 H24 I24 H27 I27 H30 I30 H33 I33 M21 M18 M15 M12 M9 M6 M3 L60 L57 L54 ' +
+  'L51 L48 L45 L42 L39 L36 L33 L30 L27 L24 K60 K57 K54 F60 F57 F54'
+).split(' ');
+
+/** 예전 번호로 적힌 기록을 지금 번호로 옮긴다. 순회에서 빠진 칸의 기록은 버린다. */
+function migrateEntries(entries, layout, spotByXl) {
   const out = {};
   for (const [n, e] of Object.entries(entries || {})) {
-    const to = spotByXl[LEGACY_XL[Number(n) - 1]];
+    const to = layout === 2
+      ? (Number(n) > LAYOUT2_XL.length ? Number(n) : spotByXl[LAYOUT2_XL[Number(n) - 1]])
+      : spotByXl[LEGACY_XL[Number(n) - 1]];
     if (to) out[to] = e;
   }
   return out;
@@ -46,7 +60,7 @@ function migrateEntries(entries, spotByXl) {
 /** 예전 번호로 저장된 오늘 순회를 한 번만 옮긴다 */
 export function upgradeSession(session, spotByXl) {
   if (session.layout === LAYOUT) return session;
-  session.entries = migrateEntries(session.entries, spotByXl);
+  session.entries = migrateEntries(session.entries, session.layout, spotByXl);
   session.layout = LAYOUT;
   saveSession(session);
   return session;
@@ -131,7 +145,7 @@ export function countRound(entries, round) {
 /** 저장해 둔 일지를 지금 순회로 되돌려 놓는다 */
 export function restoreLog(rec, session, spotByXl) {
   const entries = logEntries(rec);
-  session.entries = rec.layout === LAYOUT ? entries : migrateEntries(entries, spotByXl);
+  session.entries = rec.layout === LAYOUT ? entries : migrateEntries(entries, rec.layout, spotByXl);
   session.layout = LAYOUT;
   saveSession(session);
   return session;
