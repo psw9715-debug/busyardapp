@@ -15,10 +15,10 @@
   --grey:      #4a4738;
   --red:       #d9714a;
   --blue:      #5b8fd4;
-  /* 2회차 — 1회차 초록과 같은 계열이되 확실히 밝다 */
-  --r2-bg:     #14403a;
-  --r2-line:   #2f7d6d;
-  --r2-ink:    #6fe3c4;
+  /* 2회차 — 1회차 초록과 한눈에 갈리게 보라. 파랑(KEY)·빨강(CCTV)·주황(커서)과도 겹치지 않는다 */
+  --r2-bg:     #3a2458;
+  --r2-line:   #8a5cc9;
+  --r2-ink:    #d9bcff;
   --pad:       env(safe-area-inset-bottom, 0px);
 }
 
@@ -55,7 +55,11 @@ html, body {
   background: var(--panel-2); color: var(--ink-dim);
   border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px;
 }
-.round.r2 { background: var(--r2-bg); color: var(--r2-ink); border-color: var(--r2-line); }
+.round.r2 { background: var(--r2-bg); color: var(--r2-ink); border-color: var(--r2-line); font-weight: 700; }
+/* 2회차 모드는 윗부분 전체를 보라로 물들여, 지금 몇 회차로 적는지 헷갈리지 않게 한다 */
+body.round2 .bar,
+body.round2 .hud { background: var(--r2-bg); }
+body.round2 .hud { border-bottom: 2px solid var(--r2-line); }
 .bar-right { display: flex; gap: 5px; flex: none; }
 .icon-btn {
   position: relative;

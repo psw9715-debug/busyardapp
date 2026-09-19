@@ -1,12 +1,12 @@
-import { YARD } from './yard-data.js?v=202609200057';
-import { BUILD } from './build.js?v=202609200057';
-import { toKoreanSino } from './plate.js?v=202609200057';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609200057';
+import { YARD } from './yard-data.js?v=202609200229';
+import { BUILD } from './build.js?v=202609200229';
+import { toKoreanSino } from './plate.js?v=202609200229';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609200229';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession,
-} from './store.js?v=202609200057';
+} from './store.js?v=202609200229';
 
 // ---------------------------------------------------------------- 상태
 
@@ -26,7 +26,9 @@ const spotSay = (n) => `${spotName(n).replace('-', ' ')}번`;
 // 회차는 "지금 무엇으로 적는가" 일 뿐이다. 순회 판은 하루에 하나이고
 // 입력마다 회차 표시가 붙는다. 2회차는 1회차에 비어 있던 자리를 채우러 가는 것이라
 // 기존 입력이 지워지면 안 된다.
+// 회차는 그날 판에만 딸린다. 어제 2회차로 끝냈다고 오늘 첫 순찰이 2회차로 적히면 안 된다.
 let round = ROUNDS.includes(Number(localStorage.getItem('busyard:round')))
+  && localStorage.getItem('busyard:roundDate') === workDate()
   ? Number(localStorage.getItem('busyard:round')) : 1;
 let session = upgradeSession(mergeLegacyRound2(loadSession(YARD.id, workDate(), 1)), SPOT_BY_XL);
 let cursor = firstEmptySpot();
@@ -710,6 +712,7 @@ function switchRound(next) {
 
   round = next;
   localStorage.setItem('busyard:round', String(round));
+  localStorage.setItem('busyard:roundDate', workDate());
   cursor = firstEmptySpot();
 
   renderRound();
