@@ -3,7 +3,7 @@
 // 사무실 PC 가 `tools/push_source.py` 로 만들어 올려둔 파일을 받아 온다.
 // 한 번 받으면 폰 안에 남으므로 차고지에서 전파가 없어도 그날 내내 돈다.
 
-import { workDate } from '../store.js?v=202609160702';
+import { workDate } from '../store.js?v=202609192215';
 
 /** 읽을 날짜 = 근무일 + 1일. 밤에 들어오는 차는 다음날 아침 나가는 차다. */
 export function sourceDate(date = workDate()) {

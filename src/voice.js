@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202609160702';
+import { extractSequence } from './plate.js?v=202609192215';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -198,8 +198,21 @@ function ctx() {
   return audioCtx;
 }
 
-/** 사용자 제스처 안에서 한 번 불러 오디오를 깨워둔다 (iOS 필수) */
-export function primeAudio() { ctx(); }
+let speechPrimed = false;
+
+/**
+ * 사용자 제스처 안에서 한 번 불러 오디오를 깨워둔다 (iOS 필수)
+ * 안내 음성도 제스처 안에서 한 번은 말해야 풀린다. 키패드는 닿는 순간(pointerdown)
+ * 받는데, 손가락 pointerdown 은 제스처로 쳐주지 않아 숫자 읽기가 막힌다.
+ * 그래서 키패드를 여는 탭(click)에서 빈 말을 한 번 해 미리 풀어 둔다.
+ */
+export function primeAudio() {
+  ctx();
+  if (speechPrimed || !window.speechSynthesis) return;
+  if (navigator.userActivation && !navigator.userActivation.isActive) return;
+  window.speechSynthesis.speak(new SpeechSynthesisUtterance(''));
+  speechPrimed = true;
+}
 
 export function beep(kind) {
   const c = ctx();
