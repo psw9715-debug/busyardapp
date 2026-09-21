@@ -418,145 +418,15 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
   text-align: center; font-size: 15px; font-weight: 700;
   padding: 4px 0 14px; color: var(--ink);
 }
-.print-wifi {
-  background: var(--panel-2); border: 1px solid var(--line);
-  border-radius: 10px; padding: 12px 14px;
-  display: flex; flex-direction: column; gap: 6px;
+.print-msg {
+  text-align: center; font-size: 15px; line-height: 1.6;
+  padding: 14px 8px 18px; color: var(--ink-dim);
 }
-.print-wifi-label {
-  font-size: 11px; color: var(--ink-dim); letter-spacing: .05em;
-}
-.print-wifi-ssid {
-  font-size: 15px; font-weight: 700; word-break: break-all;
-  font-family: ui-monospace, Menlo, monospace; color: var(--amber);
-  -webkit-user-select: text; user-select: text;
-}
-.print-copy {
-  align-self: flex-start; margin-top: 2px;
-  background: none; border: 1px solid var(--line); border-radius: 7px;
-  color: var(--ink-dim); font-size: 12px; font-family: inherit; padding: 5px 12px;
-}
-.print-copy:active { background: var(--line); }
-.print-help {
-  font-size: 13px; color: var(--ink-dim); line-height: 1.6;
-  margin: 12px 2px 16px;
-}
-.print-help b { color: var(--ink); }
-.print-go {
-  width: 100%; padding: 16px; border: none; border-radius: 12px;
-  background: var(--amber); color: var(--amber-ink);
-  font-size: 16px; font-weight: 700; font-family: inherit;
-}
+.print-msg.ok { color: var(--green); font-weight: 700; }
+.print-msg.no { color: var(--red); }
 
-/* ---------- 진단 ---------- */
-.diag { font-size: 13px; }
-.diag-row {
-  display: flex; justify-content: space-between; gap: 12px;
-  padding: 9px 0; border-bottom: 1px solid var(--line);
-}
-.diag-row b { font-weight: 600; color: var(--ink-dim); }
-.diag-row span.ok  { color: var(--green); }
-.diag-row span.no  { color: var(--red); }
-/* 눌러서 켜고 끄는 항목 */
-.diag-row.toggle { cursor: pointer; }
-.diag-row.toggle:active { background: var(--panel-2); }
-.diag-row.toggle span.no { color: var(--ink-dim); }
-.diag-log { margin-top: 16px; }
-.diag-log-head { font-size: 12px; color: var(--ink-dim); margin-bottom: 6px; }
-.diag-log ol {
-  margin: 0; padding-left: 20px; font-size: 12px; color: var(--ink-dim);
-  font-family: ui-monospace, Menlo, monospace;
-}
-.diag-log li { padding: 2px 0; word-break: break-all; }
-
-.diag-build {
-  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line);
-  display: flex; align-items: center; justify-content: space-between; gap: 12px;
-}
-.diag-build-label { font-size: 11px; color: var(--ink-dim); }
-.diag-build-val {
-  font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--ink);
-  -webkit-user-select: text; user-select: text;
-}
-#diagUpdate {
-  flex: none; padding: 11px 16px; border-radius: 9px;
-  background: var(--panel-2); color: var(--amber);
-  border: 1px solid var(--amber); font-size: 13px; font-weight: 700; font-family: inherit;
-}
-#diagUpdate:active { background: var(--amber); color: var(--amber-ink); }
-#diagUpdate:disabled { opacity: .5; color: var(--ink-dim); border-color: var(--line); }
-.diag-build-help {
-  font-size: 12px; color: var(--ink-dim); line-height: 1.6; margin: 10px 2px 0;
-}
-
-.diag-danger {
-  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line);
-}
-#diagClear {
-  width: 100%; padding: 14px; border-radius: 10px;
-  background: var(--panel-2); color: var(--red);
-  border: 1px solid var(--line); font-size: 14px; font-weight: 700; font-family: inherit;
-}
 #diagClear.armed { background: var(--red); color: #fff; border-color: var(--red); }
 .diag-danger-help {
   font-size: 12px; color: var(--ink-dim); line-height: 1.6; margin: 10px 2px 0;
 }
 
-/* ---------- 인쇄 ---------- */
-#printArea { display: none; }
-
-@media print {
-  /* 반드시 A4 한 장에 들어가야 한다. 사파리가 자체 여백을 더 잡거나
-     머리말/꼬리말을 켜 두는 경우까지 감안해 세로를 넉넉히 남긴다. */
-  @page { size: A4 portrait; margin: 6mm; }
-  html, body { overflow: visible; height: auto; background: #fff; color: #000; }
-  #app, .sheet-bg { display: none !important; }
-  /* break-inside: avoid 를 걸면 사파리가 배치도를 통째로 못 그린다.
-     한 장에 담는 것은 높이(249mm)로 맞춘다. */
-  #printArea { display: block; }
-
-  /* 인수인계용 출력물이라 원본 엑셀 그대로 나와야 한다.
-     구역 색과 테두리 굵기는 yard-data.js 에 담아 인라인으로 입힌다. */
-  .p-title {
-    font-size: 15pt; font-weight: 700; text-align: center;
-    border: .1pt solid #666; padding: .8mm 0; margin-bottom: 0;
-  }
-  .p-meta {
-    font-size: 7pt; color: #444; text-align: right;
-    margin: .8mm 0 1.2mm;
-  }
-  /* 제목·머리글 약 12mm + 20행 × 11.4mm = 240mm.
-     A4 세로 297mm 에서 사파리가 여백을 넉넉히 잡아도 한 장에 들어간다. */
-  .p-map {
-    display: grid;
-    grid-template-columns: 2.1fr repeat(14, 1fr);
-    grid-auto-rows: 11.4mm;
-    gap: 0;
-  }
-  /* 화면용 다크 배경이 새어나가지 않도록 인쇄 색을 전부 다시 지정한다 */
-  .p-map .cell {
-    background: #fff; color: #000;
-    border: .1pt solid #666;          /* 전부 같은 선. 0.15pt 아래는 프린터가
-                                         1픽셀로 그리므로 색을 옅게 해 가늘어 보이게 한다 */
-    border-radius: 0;
-    display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
-    font-size: 4.2pt; line-height: 1.15; overflow: hidden;
-    -webkit-print-color-adjust: exact; print-color-adjust: exact;
-  }
-  .p-map .cell.void { border: none !important; background: transparent !important; }
-
-  /* 순회 순번은 앱에서 걸어갈 때만 쓴다. 인쇄물은 지금 쓰는 종이와 똑같이
-     번호 없는 빈 칸에 차량번호만 찍힌다. */
-  .p-map .cell .no { display: none; }
-  .p-map .cell .plate {
-    font-size: 8pt; font-weight: 700; color: #000;
-    letter-spacing: -.01em; white-space: nowrap;
-  }
-  /* 지난 회차에 적힌 번호 — 이번 회차 것과 구분되게 흐리게 */
-  .p-map .cell .plate.prev { color: #8f8f8f; font-weight: 400; }
-  .p-map .cell.label { font-size: 12pt; font-weight: 700; color: #000; }
-  .p-map .cell.label.tall { writing-mode: vertical-rl; letter-spacing: .1em; }
-  /* 바닥 고정번호는 표지일 뿐이라 작은 회색 글씨 */
-  .p-map .cell.paint { font-size: 10pt; font-weight: 600; color: #808080; }
-}

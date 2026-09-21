@@ -1,5 +1,5 @@
-// 그날 판을 GitHub 저장소의 inbox 가지에 올려 둔다. 사무실 PC(tools/inbox.py)가
-// 인쇄할 때 받아간다.
+// 그날 판을 GitHub 저장소의 inbox 가지에 올려 둔다. 사무실 PC(tools/inbox.py, sctc-copy 안에서
+// 돈다)가 받아간다. [인쇄] 를 누르면 인쇄 요청도 함께 올리고, PC 가 남긴 결과를 읽어 온다.
 //
 // 폰(LTE)과 PC(사내 유선)는 서로 직접 닿을 수 없어서, 둘 다 닿는 GitHub 에 놓고 간다.
 // 앱이 배포되는 main 이 아니라 inbox 가지에 쓰므로 올려도 앱이 다시 배포되지 않는다.
@@ -34,42 +34,48 @@ export function toBase64(text) {
 
 /**
  * getSession: 올릴 판을 돌려주는 함수
- * onStatus({ state: 'ok'|'fail'|'notoken', at, detail })
+ * onStatus({ state: 'ok'|'fail'|'notoken', at, detail }) — 판 자동 올리기 결과
  */
 export function createSync({ getSession, onStatus }) {
   let timer = null;
-  const shaByDate = {};   // 같은 파일을 덮어쓰려면 지금 파일의 sha 가 필요하다
+  const shaByName = {};   // 같은 파일을 덮어쓰려면 지금 파일의 sha 가 필요하다
 
-  async function currentSha(date, headers) {
-    const res = await fetch(`${API}/${date}.json?ref=${BRANCH}`, { headers, cache: 'no-store' });
+  const headers = () => ({ Authorization: `Bearer ${getToken()}`, Accept: 'application/vnd.github+json' });
+
+  async function currentSha(name) {
+    const res = await fetch(`${API}/${name}?ref=${BRANCH}`, { headers: headers(), cache: 'no-store' });
     if (res.status === 404) return undefined;
-    if (!res.ok) throw new Error(`확인 실패 ${res.status}`);
+    if (!res.ok) throw new Error(res.status === 401 ? '토큰이 맞지 않음' : `확인 실패 ${res.status}`);
     return (await res.json()).sha;
+  }
+
+  /** inbox/<name> 에 obj 를 JSON 으로 쓴다 */
+  async function put(name, obj, message) {
+    if (!getToken()) throw new Error('토큰 없음');
+    const body = (sha) => JSON.stringify({
+      message, branch: BRANCH, content: toBase64(JSON.stringify(obj)), ...(sha ? { sha } : {}),
+    });
+    if (!(name in shaByName)) shaByName[name] = await currentSha(name);
+    let res = await fetch(`${API}/${name}`, { method: 'PUT', headers: headers(), body: body(shaByName[name]) });
+    if (res.status === 409 || res.status === 422) {
+      // 다른 곳(PC)에서 먼저 바뀌었다 — 지금 sha 로 한 번만 다시
+      shaByName[name] = await currentSha(name);
+      res = await fetch(`${API}/${name}`, { method: 'PUT', headers: headers(), body: body(shaByName[name]) });
+    }
+    if (!res.ok) throw new Error(res.status === 401 ? '토큰이 맞지 않음' : `올리기 실패 ${res.status}`);
+    shaByName[name] = (await res.json()).content.sha;
+  }
+
+  async function putBoard() {
+    const session = getSession();
+    await put(`${session.date}.json`, boardPayload(session), `${session.date} 순회판`);
   }
 
   async function upload() {
     timer = null;
-    const token = getToken();
-    if (!token) { onStatus({ state: 'notoken' }); return; }
-    const session = getSession();
-    const date = session.date;
-    const headers = { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json' };
-    const body = (sha) => JSON.stringify({
-      message: `${date} 순회판`,
-      content: toBase64(JSON.stringify(boardPayload(session))),
-      branch: BRANCH,
-      ...(sha ? { sha } : {}),
-    });
+    if (!getToken()) { onStatus({ state: 'notoken' }); return; }
     try {
-      if (!(date in shaByDate)) shaByDate[date] = await currentSha(date, headers);
-      let res = await fetch(`${API}/${date}.json`, { method: 'PUT', headers, body: body(shaByDate[date]) });
-      if (res.status === 409 || res.status === 422) {
-        // 다른 곳에서 먼저 바뀌었다 — 지금 sha 로 한 번만 다시
-        shaByDate[date] = await currentSha(date, headers);
-        res = await fetch(`${API}/${date}.json`, { method: 'PUT', headers, body: body(shaByDate[date]) });
-      }
-      if (!res.ok) throw new Error(res.status === 401 ? '토큰이 맞지 않음' : `올리기 실패 ${res.status}`);
-      shaByDate[date] = (await res.json()).content.sha;
+      await putBoard();
       onStatus({ state: 'ok', at: new Date() });
     } catch (err) {
       onStatus({ state: 'fail', detail: err.message || String(err) });
@@ -89,5 +95,27 @@ export function createSync({ getSession, onStatus }) {
     },
     /** 올릴 것이 남아 있는가 (앱이 가려질 때 바로 올리려고) */
     pending: () => timer !== null,
+
+    /** 지금 판을 올리고 PC 에 인쇄를 부탁한다. 요청 id 를 돌려준다. 실패하면 throw. */
+    async requestPrint() {
+      clearTimeout(timer);
+      timer = null;
+      await putBoard();
+      onStatus({ state: 'ok', at: new Date() });
+      const session = getSession();
+      const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      await put('print.json', { id, date: session.date, at: new Date().toISOString() }, `${session.date} 인쇄 요청`);
+      return id;
+    },
+
+    /** PC 가 남긴 인쇄 결과 {id, state, msg, at}. 아직 없으면 null */
+    async readStatus() {
+      const res = await fetch(`${API}/status.json?ref=${BRANCH}`, {
+        headers: { ...headers(), Accept: 'application/vnd.github.raw+json' }, cache: 'no-store',
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`결과 확인 실패 ${res.status}`);
+      return res.json();
+    },
   };
 }

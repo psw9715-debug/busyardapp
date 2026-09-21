@@ -3,13 +3,13 @@
 // 세 자리를 누르면 바로 자리가 정해지고 숫자가 화면을 꽉 채운다.
 // 화면을 다시 누르면 키패드로 돌아온다. 확정 버튼은 없다.
 
-import { assign, place, clear, laneOf, computeCutoff, DEFAULT_CUTOFF } from './assign.js?v=202609212214';
-import { YARD12 } from './yard12-data.js?v=202609212214';
+import { assign, place, clear, laneOf, computeCutoff, DEFAULT_CUTOFF } from './assign.js?v=202609212237';
+import { YARD12 } from './yard12-data.js?v=202609212237';
 import { load, save, rows, toCsv, saveLog, listLogs, readLog, deleteLog }
-  from './session.js?v=202609212214';
-import { sourceDate, fetchSource } from './source.js?v=202609212214';
-import { toKoreanSino } from '../plate.js?v=202609212214';
-import { speak, beep, primeAudio } from '../voice.js?v=202609212214';
+  from './session.js?v=202609212237';
+import { sourceDate, fetchSource } from './source.js?v=202609212237';
+import { toKoreanSino } from '../plate.js?v=202609212237';
+import { speak, beep, primeAudio } from '../voice.js?v=202609212237';
 import { BUILD } from '../build.js?v=202609090547';
 
 const Y1 = YARD12.yard1;

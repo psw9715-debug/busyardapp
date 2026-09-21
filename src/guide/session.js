@@ -2,7 +2,7 @@
 //
 // 순회 앱과 같은 오전 9시 기준 날짜 전환을 쓴다. 새벽 00:40 에 넣어도 같은 날 근무다.
 
-import { workDate } from '../store.js?v=202609212214';
+import { workDate } from '../store.js?v=202609212237';
 
 const PREFIX = 'busyard:guide:v1';
 const key = (date) => `${PREFIX}:${date}`;

@@ -30,6 +30,28 @@ class WorkDate(unittest.TestCase):
         self.assertEqual(inbox.work_date(datetime.datetime(2026, 9, 21, 9, 0)), "2026-09-21")
 
 
+class Decide(unittest.TestCase):
+    """폰이 보낸 인쇄 요청을 PC 가 어떻게 다룰지"""
+    NOW = datetime.datetime(2026, 9, 21, 13, 0, 0, tzinfo=datetime.timezone.utc)
+
+    def req(self, id_, minutes_ago):
+        at = (self.NOW - datetime.timedelta(minutes=minutes_ago)).isoformat().replace("+00:00", "Z")
+        return {"id": id_, "date": "2026-09-21", "at": at}
+
+    def test_new_fresh_request_prints(self):
+        self.assertEqual(inbox.decide(self.req("a", 0.1), "old", self.NOW), "print")
+
+    def test_same_request_is_not_printed_twice(self):
+        self.assertEqual(inbox.decide(self.req("a", 0.1), "a", self.NOW), "skip")
+
+    def test_old_request_is_not_printed(self):
+        # PC 가 꺼져 있던 동안 쌓인 요청이 나중에 켜질 때 느닷없이 뽑히면 안 된다
+        self.assertEqual(inbox.decide(self.req("a", 11), None, self.NOW), "stale")
+
+    def test_no_request(self):
+        self.assertEqual(inbox.decide(None, None, self.NOW), "skip")
+
+
 class Fill(unittest.TestCase):
     def setUp(self):
         self.cells = inbox.spot_cells()

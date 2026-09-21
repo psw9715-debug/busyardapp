@@ -1,13 +1,13 @@
-import { YARD } from './yard-data.js?v=202609212214';
-import { BUILD } from './build.js?v=202609212214';
-import { toKoreanSino } from './plate.js?v=202609212214';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609212214';
+import { YARD } from './yard-data.js?v=202609212237';
+import { BUILD } from './build.js?v=202609212237';
+import { toKoreanSino } from './plate.js?v=202609212237';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609212237';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609212214';
-import { createSync, getToken, setToken } from './sync.js?v=202609212214';
+} from './store.js?v=202609212237';
+import { createSync, getToken, setToken } from './sync.js?v=202609212237';
 
 // ---------------------------------------------------------------- 상태
 
@@ -80,9 +80,7 @@ function buildMap(container, cls) {
     el.style.gridColumn = `${c.col} / span ${c.colspan}`;
     el.style.gridRow = `${c.row} / span ${c.rowspan}`;
 
-    // 구역 색은 인쇄물에만 입힌다. 화면은 야간 순회용이라 어두운 채로 둔다.
     // 테두리는 원본의 굵기 차이를 따르지 않고 전부 같은 얇은 선으로 긋는다.
-    if (cls === 'print' && c.bg) el.style.background = c.bg;
 
     if (c.kind === 'spot') {
       el.dataset.spot = c.spot;
@@ -883,49 +881,64 @@ async function forceUpdate() {
 
 // ---------------------------------------------------------------- 인쇄
 
-// 프린터 전용 와이파이 이름. iOS는 웹에서든 앱에서든 특정 와이파이에 자동
-// 접속시킬 방법이 없으므로, 어느 것을 골라야 하는지 보여주는 데까지만 한다.
-const PRINTER_SSID = 'DIRECT-s0-EPSON-WF-C579R Series';
+// 인쇄는 사무실 PC 가 한다. 폰은 판과 인쇄 요청을 GitHub 에 올리고, PC(sctc-copy 안의
+// tools/inbox.py)가 받아 원본 엑셀에 채워 뽑은 뒤 결과를 남긴다. 폰은 그 결과를 읽어 보여 준다.
+const PRINT_WAIT_MS = 90000;
+let printing = false;   // 보낸 요청의 결과를 기다리는 중
 
-function askPrint() {
+function printMsg(text, kind) {
+  $('printMsg').textContent = text;
+  $('printMsg').className = 'print-msg' + (kind ? ' ' + kind : '');
+}
+
+async function doPrint() {
   const done = countFilled(session);
   if (done === 0) { note('입력된 자리가 없습니다', 'warn'); beep('error'); return; }
   const r2 = countRound(session.entries, 2);
   $('printCount').textContent = r2 > 0
     ? `모두 ${done}자리 — 2회차 ${r2}자리는 진하게, 1회차는 흐리게`
     : `${done}자리 입력됨 · ${ALL - done}자리 비어 있음`;
-  $('printSsid').textContent = PRINTER_SSID;
   $('printSheet').hidden = false;
-}
+  if (printing) return;   // 이미 보낸 것을 기다리는 중 — 다시 눌러도 두 번 뽑지 않는다
+  if (!getToken()) {
+    printMsg('토큰이 없습니다 — [진단] → PC 전송에서 넣으세요', 'no');
+    beep('error');
+    return;
+  }
 
-function doPrint() {
-  const done = countFilled(session);
-  if (done === 0) return;
-  $('printSheet').hidden = true;
+  printing = true;
+  printMsg('PC로 보내는 중…');
+  let id;
+  try {
+    id = await sync.requestPrint();
+  } catch (err) {
+    printing = false;
+    printMsg(`보내지 못했습니다: ${err.message} — 다시 누르세요`, 'no');
+    beep('error');
+    return;
+  }
+  printMsg('PC가 인쇄하기를 기다리는 중…');
 
-  // 2회차 기록이 하나라도 있으면 1회차 것을 흐리게 깔고 2회차 것만 진하게 찍는다.
-  // 판단 기준은 "지금 어느 회차 모드인가" 가 아니라 판에 적힌 내용이다.
-  // 모드로 정하면 1회차로 되돌려 놓고 인쇄했을 때 구분이 통째로 사라진다.
-  const hasRound2 = countRound(session.entries, 2) > 0;
-
-  const area = $('printArea');
-  area.innerHTML =
-    `<div class="p-title">${YARD.name}</div>` +
-    `<div class="p-meta">${session.date} · ${hasRound2 ? '1·2회차' : '1회차'} · ${done}/${ALL} 입력</div>` +
-    `<div class="p-map" id="pMap"></div>`;
-  const pMap = $('pMap');
-  buildMap(pMap, 'print');
-
-  // 공차는 찍지 않는다. 종이에서는 빈 칸이 곧 공차이고, 글자가 있으면 지저분하다.
-  pMap.querySelectorAll('.cell.spot').forEach((el) => {
-    const e = session.entries[Number(el.dataset.spot)];
-    if (!e || e.status !== 'filled') return;
-
-    const plateEl = el.querySelector('.plate');
-    plateEl.textContent = e.plate;
-    if (hasRound2 && (e.round || 1) === 1) plateEl.classList.add('prev');
-  });
-  window.print();
+  const until = Date.now() + PRINT_WAIT_MS;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 3000));
+    let st = null;
+    try { st = await sync.readStatus(); } catch (_) { continue; }   // 전파가 잠깐 끊겨도 계속 기다린다
+    if (!st || st.id !== id) continue;
+    printing = false;
+    if (st.state === 'done') {
+      printMsg(`인쇄했습니다 — ${st.msg}`, 'ok');
+      beep('done');
+    } else {
+      printMsg(`PC가 인쇄하지 못했습니다: ${st.msg}`, 'no');
+      beep('error');
+    }
+    return;
+  }
+  printing = false;
+  printMsg('PC 응답이 없습니다 — PC의 sctc-copy 가 켜져 있는지 확인하세요. '
+    + '10분 안에 켜지면 그때 인쇄됩니다.', 'no');
+  beep('warn');
 }
 
 // ---------------------------------------------------------------- 시작
@@ -950,7 +963,7 @@ function init() {
   $('btnVacant').addEventListener('click', () => { primeAudio(); markVacant(); });
   $('btnNext').addEventListener('click', () => { primeAudio(); goNext(); });
   $('btnPad').addEventListener('click', () => openPad(cursor));
-  $('btnPrint').addEventListener('click', askPrint);
+  $('btnPrint').addEventListener('click', doPrint);
   $('btnDiag').addEventListener('click', openDiag);
 
   // ---- 차량번호 찾기 ----
@@ -1086,16 +1099,6 @@ function init() {
   });
 
   $('printClose').addEventListener('click', () => { $('printSheet').hidden = true; });
-  $('printGo').addEventListener('click', doPrint);
-  $('printCopySsid').addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText(PRINTER_SSID);
-      $('printCopySsid').textContent = '복사됨';
-      setTimeout(() => { $('printCopySsid').textContent = '이름 복사'; }, 1500);
-    } catch (_) {
-      $('printCopySsid').textContent = '복사 실패';
-    }
-  });
 
   $('padClose').addEventListener('click', closePad);
   // 찾기·대상 시트도 같은 .pad-keys 를 쓰므로 반드시 이 시트 안으로 한정한다
