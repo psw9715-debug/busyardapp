@@ -177,6 +177,29 @@ eq([131, 132, 133, 134].map(n => cellOf.get(n).label), ['B0-26', '휴게실-2', 
   localStorage.removeItem('busyard:v1:test:test:1');
 }
 
+log('<h2>▶ PC 로 보낼 판 — 인쇄에 쓰는 것만 추린다</h2>');
+{
+  const { boardPayload, toBase64 } = await import(`../src/sync.js?t=${Date.now()}`);
+  const s = {
+    yard: 'new', date: '2026-09-21', round: 1, layout: 3, updatedAt: '2026-09-21T01:02:03.000Z',
+    entries: {
+      1: { plate: '1001', status: 'filled', confidence: 'high', method: 'keypad', round: 1, at: 1 },
+      2: { plate: null, status: 'vacant', confidence: 'high', method: 'next', from: 1, round: 2, at: 2 },
+      3: { plate: '1003', status: 'filled', confidence: 'assumed', method: 'voice', at: 3 },
+    },
+  };
+  eq(boardPayload(s), {
+    date: '2026-09-21', yard: 'new', layout: 3, updatedAt: '2026-09-21T01:02:03.000Z',
+    entries: {
+      1: { plate: '1001', status: 'filled', round: 1 },
+      2: { plate: null, status: 'vacant', round: 2 },
+      3: { plate: '1003', status: 'filled', round: 1 },
+    },
+  }, '회차가 빠진 옛 기록은 1회차로');
+  eq(atob(toBase64('abc')), 'abc', 'base64 — 영문');
+  eq(new TextDecoder().decode(Uint8Array.from(atob(toBase64('휴게실-1')), (c) => c.charCodeAt(0))), '휴게실-1', 'base64 — 한글');
+}
+
 log(`통과 ${pass} / 실패 ${fail}`, `sum ${fail === 0 ? 'ok' : 'no'}`);
 document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
 </script>

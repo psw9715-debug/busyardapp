@@ -19,3 +19,6 @@ reference/
 
 # 인쇄용으로 채운 엑셀
 out/
+
+# PC 가 받아 둔 날짜별 순회판 (tools/inbox.py)
+기록/

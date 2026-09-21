@@ -1,7 +1,7 @@
 // 오프라인 캐싱 — 차고지에서 전파가 약해도 앱 자체는 뜨게 한다.
 // 버전을 올리면 다음 실행 때 새 파일을 받아간다.
 
-const CACHE = 'busyard-202609200229';
+const CACHE = 'busyard-202609212214';
 const ASSETS = [
   './',
   './index.html',
@@ -12,6 +12,7 @@ const ASSETS = [
   './src/plate.js',
   './src/voice.js',
   './src/store.js',
+  './src/sync.js',
   './src/yard-data.js',
   './src/build.js',
   './guide/index.html',
@@ -42,6 +43,7 @@ self.addEventListener('activate', (e) => {
 // 네트워크 우선, 실패하면 캐시 (배포 직후 새 버전을 바로 받도록)
 self.addEventListener('fetch', (e) => {
   if (e.request.method !== 'GET') return;
+  if (new URL(e.request.url).origin !== self.location.origin) return;   // GitHub 올리기 등은 건드리지 않는다
   e.respondWith(
     fetch(e.request)
       .then((res) => {

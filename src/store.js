@@ -74,9 +74,14 @@ export function loadSession(yard, date = workDate(), round = 1) {
   return { yard, date, round, layout: LAYOUT, entries: {}, updatedAt: null };
 }
 
+const saveListeners = [];
+/** 판이 저장될 때마다 불린다 (PC 로 올리기 예약용) */
+export function onSave(fn) { saveListeners.push(fn); }
+
 export function saveSession(session) {
   session.updatedAt = new Date().toISOString();
   localStorage.setItem(key(session.yard, session.date, session.round), JSON.stringify(session));
+  saveListeners.forEach((fn) => fn(session));
 }
 
 /** entries[spot] = { plate, status, confidence, method, at } */

@@ -1,12 +1,13 @@
-import { YARD } from './yard-data.js?v=202609200229';
-import { BUILD } from './build.js?v=202609200229';
-import { toKoreanSino } from './plate.js?v=202609200229';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609200229';
+import { YARD } from './yard-data.js?v=202609212214';
+import { BUILD } from './build.js?v=202609212214';
+import { toKoreanSino } from './plate.js?v=202609212214';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609212214';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
-  countRound, ROUNDS, upgradeSession,
-} from './store.js?v=202609200229';
+  countRound, ROUNDS, upgradeSession, onSave,
+} from './store.js?v=202609212214';
+import { createSync, getToken, setToken } from './sync.js?v=202609212214';
 
 // ---------------------------------------------------------------- 상태
 
@@ -33,6 +34,14 @@ let round = ROUNDS.includes(Number(localStorage.getItem('busyard:round')))
 let session = upgradeSession(mergeLegacyRound2(loadSession(YARD.id, workDate(), 1)), SPOT_BY_XL);
 let cursor = firstEmptySpot();
 let voice = null;
+
+// 판이 바뀌면 입력이 멎고 30초 뒤 GitHub 에 올려 둔다. 사무실 PC 가 받아서 인쇄한다.
+let syncState = { state: getToken() ? 'idle' : 'notoken' };
+const sync = createSync({
+  getSession: () => session,
+  onStatus: (st) => { syncState = st; if (!$('diagSheet').hidden) openDiag(); },
+});
+onSave(() => sync.schedule());
 let wakeLock = null;
 const heardLog = [];
 
@@ -754,6 +763,7 @@ function doSaveLog() {
     return;
   }
   saveLog(session, targets);
+  sync.flush();
   $('logSaveNote').textContent =
     `${workDate()} 저장 완료 — 1회차 ${counts[0]}대 · 2회차 ${counts[1]}대 · 대상 ${targets.length}대`;
   renderLogList();
@@ -781,6 +791,17 @@ function doLoadLog(date) {
 
 // ---------------------------------------------------------------- 진단
 
+function syncText() {
+  const st = syncState;
+  if (st.state === 'notoken') return '토큰 없음 — 눌러서 넣기';
+  if (st.state === 'fail') return `실패: ${st.detail} — 눌러서 다시`;
+  if (st.state === 'ok') {
+    const t = `${String(st.at.getHours()).padStart(2, '0')}:${String(st.at.getMinutes()).padStart(2, '0')}`;
+    return `${t} 올림 — 눌러서 지금 올리기`;
+  }
+  return '아직 안 올림 — 눌러서 지금 올리기';
+}
+
 function openDiag() {
   const rows = [
     ['음성 인식 지원', isSupported(), isSupported() ? '사용 가능' : '미지원'],
@@ -792,8 +813,9 @@ function openDiag() {
     ['화면 꺼짐 방지', 'wakeLock' in navigator, 'wakeLock' in navigator ? '지원' : '미지원'],
     ['홈화면 설치 상태', window.navigator.standalone === true, window.navigator.standalone ? '설치됨' : '사파리 탭'],
     ['네트워크', navigator.onLine, navigator.onLine ? '온라인' : '오프라인 — 음성 불가'],
+    ['PC 전송', syncState.state === 'ok' || syncState.state === 'idle', syncText()],
   ];
-  const TOGGLES = ['안내 음성', '되읽기', '숫자 읽기', '넘어가는 속도'];
+  const TOGGLES = ['안내 음성', '되읽기', '숫자 읽기', '넘어가는 속도', 'PC 전송'];
   $('diagBody').innerHTML = rows.map(([k, ok, v]) => {
     const toggle = TOGGLES.some((t) => k.includes(t)) ? ' toggle' : '';
     return `<div class="diag-row${toggle}"><b>${k}</b><span class="${ok ? 'ok' : 'no'}">${v}</span></div>`;
@@ -1158,7 +1180,21 @@ function init() {
       localStorage.setItem('busyard:settlems', String(SETTLE[settleIdx].ms));
       if (voice) voice.setSettle(SETTLE[settleIdx].ms);
       openDiag();
+    } else if (name.includes('PC 전송')) {
+      if (!getToken() || (syncState.detail || '').includes('토큰')) {
+        const t = prompt('GitHub 토큰을 붙여 넣으세요 (PC 인쇄용 판 올리기)', '');
+        if (t === null) return;
+        setToken(t);
+      }
+      syncState = { state: 'idle' };
+      openDiag();
+      sync.flush();
     }
+  });
+
+  // 주머니에 넣느라 화면이 꺼지면 30초를 기다리지 않고 바로 올린다
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && sync.pending()) sync.flush();
   });
 
   [$('padSheet'), $('spotSheet'), $('diagSheet')].forEach((bg) =>
