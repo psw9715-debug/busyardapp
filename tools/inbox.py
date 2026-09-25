@@ -35,6 +35,7 @@ import tempfile
 import time
 
 import openpyxl
+from openpyxl.worksheet.properties import PageSetupProperties
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE = os.path.join(ROOT, "reference", "차고지 프린트.xlsx")
@@ -108,10 +109,16 @@ def read(path):
     return json.loads(r.stdout) if r.returncode == 0 else None
 
 
-def fetch(date):
-    """그날 판. 아직 안 올라왔으면 None"""
+def fetch(date, yard="new"):
+    """그날 그 차고지의 판. 아직 안 올라왔으면 None
+
+    차고지별로 이름이 나뉘기 전에 올라온 판은 날짜만 있는 이름이라 그것도 본다.
+    """
     pull()
-    return read(f"inbox/{date}.json")
+    board = read(f"inbox/{date}-{yard}.json")
+    if board is None and yard == "new":
+        board = read(f"inbox/{date}.json")
+    return board
 
 
 def write_status(status):
@@ -158,6 +165,13 @@ def fill(board, out_path):
             wb.remove(wb[name])                 # 인쇄할 시트만 남긴다
     ws = wb[sheet]
 
+    # 종이 한 장에 맞춰 나오게 못을 박는다 — 구차고지는 A1:O34 가로 한 장이다.
+    ws.print_area = {"old": "A1:O34", "new": "A1:O62"}[yard if yard in ("old", "new") else "new"]
+    ws.page_setup.orientation = "landscape" if yard == "old" else "portrait"
+    ws.page_setup.fitToWidth = 1
+    ws.page_setup.fitToHeight = 1
+    ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
+
     n = 0
     for spot, e in entries.items():
         xl = cells.get(int(spot))
@@ -171,6 +185,10 @@ def fill(board, out_path):
             align = copy.copy(cell.alignment)
             align.wrapText = True          # 스타일은 통째로 갈아 끼워야 한다
             cell.alignment = align
+            # 차량번호 크기 그대로면 세 줄이 칸을 넘어 마지막 줄이 잘린다
+            font = copy.copy(cell.font)
+            font.sz = (cell.font.sz or 20) * 0.45
+            cell.font = font
         elif e.get("status") == "filled" and e.get("plate"):
             cell.value = e["plate"]
         else:
@@ -196,9 +214,9 @@ def print_xlsx(path):
     return print_file(path)
 
 
-def save_and_print(date, do_print=True):
+def save_and_print(date, do_print=True, yard="new"):
     """그날 판을 받아 저장하고 (인쇄하고) 한 줄 요약을 돌려준다. 판이 없으면 None"""
-    board = fetch(date)
+    board = fetch(date, yard)
     if board is None:
         return None
     os.makedirs(OUT_DIR, exist_ok=True)
@@ -252,9 +270,10 @@ def handle(req, log, notify=None):
             state, msg = "done", f"{len(entries)}대 가져옴"
         elif kind == "excel":
             import ops_fill
-            state, msg = "done", ops_fill.run(board_date=req["date"], log=log)
+            state, msg = "done", ops_fill.run(board_date=req["date"], log=log,
+                                              yard=req.get("yard", "new"))
         else:
-            summary = save_and_print(req["date"])
+            summary = save_and_print(req["date"], yard=req.get("yard", "new"))
             state, msg = ("nodata", f"{req['date']} 판이 GitHub 에 없습니다") if summary is None else ("done", summary)
     except Exception as e:                    # 프린터·엑셀 오류도 폰에 그대로 알린다
         state, msg = "fail", str(e)

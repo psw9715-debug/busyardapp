@@ -259,7 +259,7 @@ def _label_of(spot, yard="new"):
     return _labels(yard).get(spot)
 
 
-def run(board_date=None, date=None, log=print):
+def run(board_date=None, date=None, log=print, yard="new"):
     """폰이 올린 판을 엑셀에 넣는다. 한 줄 요약을 돌려준다.
 
     board_date 는 순찰한 근무일, date 는 넣을 엑셀의 날짜(기본 근무일+1)다.
@@ -269,7 +269,7 @@ def run(board_date=None, date=None, log=print):
     board_date = board_date or inbox.work_date()
     if date is None:
         date = datetime.date.fromisoformat(board_date) + datetime.timedelta(days=1)
-    board = inbox.fetch(board_date)
+    board = inbox.fetch(board_date, yard)
     if board is None:
         raise FileNotFoundError(f"폰이 올린 {board_date} 판이 없습니다 — 폰 [진단] → PC 전송 확인")
 
@@ -327,13 +327,13 @@ def read_board(yard="old", date=None, log=print):
     return entries
 
 
-def run_original(board_date=None, date=None, log=print):
+def run_original(board_date=None, date=None, log=print, yard="new"):
     """원본에만 넣는다 (트레이에서 나중에 다시 누를 때)."""
     import inbox
     board_date = board_date or inbox.work_date()
     if date is None:
         date = datetime.date.fromisoformat(board_date) + datetime.timedelta(days=1)
-    board = inbox.fetch(board_date)
+    board = inbox.fetch(board_date, yard)
     if board is None:
         raise FileNotFoundError(f"폰이 올린 {board_date} 판이 없습니다")
     return f"{date:%m/%d} " + fill_original(board, date=date, log=log)

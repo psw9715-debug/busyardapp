@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202609260602';
-import { YARD_OLD } from './yard-old-data.js?v=202609260602';
-import { BUILD } from './build.js?v=202609260602';
-import { toKoreanSino, walkSay } from './plate.js?v=202609260602';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609260602';
+import { YARD as YARD_NEW } from './yard-data.js?v=202609260608';
+import { YARD_OLD } from './yard-old-data.js?v=202609260608';
+import { BUILD } from './build.js?v=202609260608';
+import { toKoreanSino, walkSay } from './plate.js?v=202609260608';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609260608';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609260602';
-import { createSync, getToken, setToken } from './sync.js?v=202609260602';
+} from './store.js?v=202609260608';
+import { createSync, getToken, setToken } from './sync.js?v=202609260608';
 
 // ---------------------------------------------------------------- 상태
 

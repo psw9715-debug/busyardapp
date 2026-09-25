@@ -66,9 +66,12 @@ export function createSync({ getSession, onStatus }) {
     shaByName[name] = (await res.json()).content.sha;
   }
 
+  // 차고지마다 판이 따로다. 이름에 차고지를 넣지 않으면 서로 덮어쓴다.
+  const boardName = (session) => `${session.date}-${session.yard}.json`;
+
   async function putBoard() {
     const session = getSession();
-    await put(`${session.date}.json`, boardPayload(session), `${session.date} 순회판`);
+    await put(boardName(session), boardPayload(session), `${session.date} ${session.yard} 순회판`);
   }
 
   async function upload() {
