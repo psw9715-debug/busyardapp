@@ -35,10 +35,9 @@ ROW_OFFSET = FIRST_ROW - 3           # 인쇄 양식 3행 = 이 시트 38행
 # 한 자리는 세 줄이다 — 1행 차량번호(수식 없음), 2행 이름, 3행 출근시각.
 # 2·3행은 차량번호를 보고 끌어오는 수식이라 절대 건드리지 않는다. 우리는 1행만 쓴다.
 #
-# 시험 중에는 원본 옆에 복사본을 만들어 거기에 쓴다. 기록/시험모드.txt 를 지우면
-# 그다음부터 원본에 쓴다.
-TEST_FLAG = os.path.join(ROOT, "기록", "시험모드.txt")
-TEST_SUFFIX = " (순회판 시험)"
+# 넣을 때마다 원본 옆에 보기용 복사본을 새로 뜬다 — 이름은 차고지입력_MMDD.xlsx.
+# 원본이 열려 있어 손을 못 댈 때도 이 복사본은 늘 남는다.
+COPY_NAME = "차고지입력_{:%m%d}.xlsx"
 
 
 def target_date(now=None):
@@ -74,24 +73,16 @@ def find_excel(date, base=BASE):
     return os.path.join(day, hits[0])
 
 
-def test_mode():
-    return os.path.exists(TEST_FLAG)
-
-
-def test_copy(path):
-    """원본 옆(같은 폴더)에 시험용 복사본을 만든다. 이미 있으면 그것을 쓴다.
+def make_copy(orig, date):
+    """원본 옆에 차고지입력_MMDD.xlsx 를 새로 뜬다.
 
     시트를 덜어내지 않고 통째로 복사한다 — 이름·시각 수식이 `출근순서`, `일요일DATA`
     시트를 보고 있어서, 차고지 시트만 떼면 이름과 시각이 #REF! 로 깨진다.
+    대신 열었을 때 차고지 시트가 바로 보이도록 맨 뒤로 옮겨 놓는다(fill 에서).
     """
-    folder, name = os.path.split(path)
-    base, ext = os.path.splitext(name)
-    if base.endswith(TEST_SUFFIX):
-        return path                       # 이미 복사본이면 그대로 쓴다
-    copy = os.path.join(folder, base + TEST_SUFFIX + ext)
-    if not os.path.exists(copy):
-        shutil.copy2(path, copy)
-    return copy
+    dst = os.path.join(os.path.dirname(orig), COPY_NAME.format(date))
+    shutil.copy2(orig, dst)
+    return dst
 
 
 def block_cells():
@@ -174,7 +165,7 @@ def _name_in(raw):
             return name
     return None
 
-def fill(path, board, cells=None):
+def fill(path, board, cells=None, show_sheet=False):
     """6차고지 칸을 싹 비우고 판대로 써 넣는다. (넣은 대수, 빈 칸 수) 를 돌려준다."""
     cells = cells or block_cells()
     import pythoncom
@@ -211,11 +202,20 @@ def fill(path, board, cells=None):
         # 가로로 이어진 칸은 한 번에 넘긴다 (자리 칸은 병합된 적이 없어 안전하다).
         for row, col, run in _runs(want):
             ws.Range(ws.Cells(row, col), ws.Cells(row, col + len(run) - 1)).Value = (tuple(run),)
+        if show_sheet:
+            # 열었을 때 차고지 칸이 바로 보이게 이 시트를 펴 둔 채로 저장한다.
+            # (시트를 '옮기면' 엑셀이 다른 통합문서로 떼어 내 버린다 — 옮기지 않는다.)
+            try:
+                excel.Visible = True      # 창이 있어야 시트를 펴 둘 수 있다
+                ws.Activate()
+            except Exception:
+                pass
         excel.Calculation = -4105  # xlCalculationAutomatic — 저장 전에 수식을 채운다
         wb.Save()
     finally:
         wb.Close(SaveChanges=False)
         excel.ScreenUpdating = True
+        excel.Visible = False
         excel.Quit()
     return written, len(cells) - written
 
@@ -252,14 +252,42 @@ def run(board_date=None, date=None, log=print):
     if board is None:
         raise FileNotFoundError(f"폰이 올린 {board_date} 판이 없습니다 — 폰 [진단] → PC 전송 확인")
 
-    path = find_excel(date)
-    if test_mode():
-        path = test_copy(path)
-        log("🧪 [엑셀] 시험용 복사본에 넣습니다 — 원본은 건드리지 않습니다")
-    log(f"📋 [엑셀] {os.path.basename(path)}")
-    written, empty = fill(path, board)
-    where = "시험용 복사본" if test_mode() else "운영관리"
-    return f"{date:%m/%d} {where}에 {written}대 넣음 (빈 칸 {empty})"
+    orig = find_excel(date)
+    log(f"📋 [엑셀] {os.path.basename(orig)}")
+
+    dst = make_copy(orig, date)
+    written, _ = fill(dst, board, show_sheet=True)
+    log(f"📄 [엑셀] {os.path.basename(dst)} — {written}대")
+
+    return f"{date:%m/%d} {written}대 — {os.path.basename(dst)} / " + fill_original(board, orig, log=log)
+
+
+def fill_original(board, orig=None, date=None, log=print):
+    """원본에도 넣는다. 누가 열어 두었으면 건드리지 않고 그 사실만 알린다."""
+    orig = orig or find_excel(date or target_date())
+    who = opened_by(orig)
+    if who:
+        log(f"🔒 [엑셀] 원본은 {who} 님이 열어 두어 건너뜀")
+        return f"원본은 {who} 님이 열어 두어 그대로 둠 (닫은 뒤 트레이에서 다시)"
+    try:
+        written, _ = fill(orig, board)
+    except PermissionError as e:
+        log(f"🔒 [엑셀] {e}")
+        return str(e)
+    log(f"✅ [엑셀] 원본에 {written}대 넣음")
+    return f"원본에 {written}대 넣음"
+
+
+def run_original(board_date=None, date=None, log=print):
+    """원본에만 넣는다 (트레이에서 나중에 다시 누를 때)."""
+    import inbox
+    board_date = board_date or inbox.work_date()
+    if date is None:
+        date = datetime.date.fromisoformat(board_date) + datetime.timedelta(days=1)
+    board = inbox.fetch(board_date)
+    if board is None:
+        raise FileNotFoundError(f"폰이 올린 {board_date} 판이 없습니다")
+    return f"{date:%m/%d} " + fill_original(board, date=date, log=log)
 
 
 def main(argv):
