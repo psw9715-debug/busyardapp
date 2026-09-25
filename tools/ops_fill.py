@@ -22,6 +22,7 @@ import datetime
 import json
 import os
 import re
+import shutil
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -30,6 +31,14 @@ KEYWORD = "입출차 운영관리"          # 그날 폴더에 있는 다른 엑
 SHEET = "고정차고지_입력"
 FIRST_ROW, LAST_ROW = 38, 97         # 6차고지 블록
 ROW_OFFSET = FIRST_ROW - 3           # 인쇄 양식 3행 = 이 시트 38행
+
+# 한 자리는 세 줄이다 — 1행 차량번호(수식 없음), 2행 이름, 3행 출근시각.
+# 2·3행은 차량번호를 보고 끌어오는 수식이라 절대 건드리지 않는다. 우리는 1행만 쓴다.
+#
+# 시험 중에는 원본 옆에 복사본을 만들어 거기에 쓴다. 기록/시험모드.txt 를 지우면
+# 그다음부터 원본에 쓴다.
+TEST_FLAG = os.path.join(ROOT, "기록", "시험모드.txt")
+TEST_SUFFIX = " (순회판 시험)"
 
 
 def target_date(now=None):
@@ -63,6 +72,26 @@ def find_excel(date, base=BASE):
     # '복사본 …' 같은 것보다 그날 날짜로 시작하는 파일을 먼저 본다
     hits.sort(key=lambda f: (not f.startswith(f"{date:%m%d}"), f))
     return os.path.join(day, hits[0])
+
+
+def test_mode():
+    return os.path.exists(TEST_FLAG)
+
+
+def test_copy(path):
+    """원본 옆(같은 폴더)에 시험용 복사본을 만든다. 이미 있으면 그것을 쓴다.
+
+    시트를 덜어내지 않고 통째로 복사한다 — 이름·시각 수식이 `출근순서`, `일요일DATA`
+    시트를 보고 있어서, 차고지 시트만 떼면 이름과 시각이 #REF! 로 깨진다.
+    """
+    folder, name = os.path.split(path)
+    base, ext = os.path.splitext(name)
+    if base.endswith(TEST_SUFFIX):
+        return path                       # 이미 복사본이면 그대로 쓴다
+    copy = os.path.join(folder, base + TEST_SUFFIX + ext)
+    if not os.path.exists(copy):
+        shutil.copy2(path, copy)
+    return copy
 
 
 def block_cells():
@@ -224,9 +253,13 @@ def run(board_date=None, date=None, log=print):
         raise FileNotFoundError(f"폰이 올린 {board_date} 판이 없습니다 — 폰 [진단] → PC 전송 확인")
 
     path = find_excel(date)
+    if test_mode():
+        path = test_copy(path)
+        log("🧪 [엑셀] 시험용 복사본에 넣습니다 — 원본은 건드리지 않습니다")
     log(f"📋 [엑셀] {os.path.basename(path)}")
     written, empty = fill(path, board)
-    return f"{date:%m/%d} 운영관리에 {written}대 넣음 (빈 칸 {empty})"
+    where = "시험용 복사본" if test_mode() else "운영관리"
+    return f"{date:%m/%d} {where}에 {written}대 넣음 (빈 칸 {empty})"
 
 
 def main(argv):
