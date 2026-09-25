@@ -20,6 +20,8 @@ const COMMANDS = [
   ['이전', 'back'], ['정정', 'back'], ['뒤로', 'back'], ['취소', 'back'],
   ['잘못', 'back'], ['백스페이스', 'back'],
   ['다음', 'next'],
+  // 2회차 확인 순찰 — 적힌 번호가 눈앞의 차와 같을 때. 한 단어만 받는다.
+  ['확인', 'confirm'],
 ];
 
 const isDigitChar = (ch) => ch >= '0' && ch <= '9';
@@ -202,4 +204,19 @@ export function extractSequence(text) {
   }
 
   return tokens;
+}
+
+
+/**
+ * 2회차 확인 순찰에서 한 칸마다 읽어 줄 말.
+ *
+ * 조깅하듯 도는 속도라 자리 이름까지 매번 읽으면 소리가 걸음을 못 따라온다.
+ * 구역 안에서는 번호만 읽고, 구역이 바뀐 첫 칸에서만 자리를 먼저 읽어
+ * "프로그램도 구역이 바뀐 걸 알고 있다" 는 것을 귀로 확인시켜 준다.
+ */
+export function walkSay(spotSay, entry, newSeg) {
+  const what = !entry ? '빈칸'
+    : entry.status === 'vacant' ? '공차'
+    : toKoreanSino(entry.plate);
+  return newSeg ? `${spotSay}, ${what}` : what;
 }

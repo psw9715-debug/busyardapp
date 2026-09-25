@@ -425,6 +425,80 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
 .print-msg.ok { color: var(--green); font-weight: 700; }
 .print-msg.no { color: var(--red); }
 
+.diag { font-size: 13px; }
+.diag-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 9px 0; border-bottom: 1px solid var(--line);
+}
+.diag-row b { font-weight: 600; color: var(--ink-dim); }
+.diag-row span.ok  { color: var(--green); }
+.diag-row span.no  { color: var(--red); }
+/* 눌러서 켜고 끄는 항목 */
+/* 눌러서 바꾸는 줄은 누를 수 있게 생겨야 한다 — 테두리를 두르고 눌리는 느낌을 준다 */
+.diag-row.toggle {
+  cursor: pointer; background: var(--panel-2);
+  border: 1px solid var(--line); border-radius: 9px;
+  padding: 11px 12px; margin: 5px 0;
+}
+.diag-row.toggle:active { background: var(--line); border-color: var(--amber); }
+.diag-row.toggle b::after { content: ' ▸'; color: var(--amber); font-weight: 400; }
+.diag-row.toggle b { color: var(--ink); }
+.diag-row.toggle span.no { color: var(--ink-dim); }
+.diag-log { margin-top: 16px; }
+.diag-log-head { font-size: 12px; color: var(--ink-dim); margin-bottom: 6px; }
+.diag-log ol {
+  margin: 0; padding-left: 20px; font-size: 12px; color: var(--ink-dim);
+  font-family: ui-monospace, Menlo, monospace;
+}
+.diag-log li { padding: 2px 0; word-break: break-all; }
+
+.diag-build {
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.diag-build-label { font-size: 11px; color: var(--ink-dim); }
+.diag-build-val {
+  font-family: ui-monospace, Menlo, monospace; font-size: 13px; color: var(--ink);
+  -webkit-user-select: text; user-select: text;
+}
+#diagUpdate {
+  flex: none; padding: 11px 16px; border-radius: 9px;
+  background: var(--panel-2); color: var(--amber);
+  border: 1px solid var(--amber); font-size: 13px; font-weight: 700; font-family: inherit;
+}
+#diagUpdate:active { background: var(--amber); color: var(--amber-ink); }
+#diagUpdate:disabled { opacity: .5; color: var(--ink-dim); border-color: var(--line); }
+.diag-build-help {
+  font-size: 12px; color: var(--ink-dim); line-height: 1.6; margin: 10px 2px 0;
+}
+
+.diag-danger {
+  margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line);
+}
+#diagClear {
+  width: 100%; padding: 14px; border-radius: 10px;
+  background: var(--panel-2); color: var(--red);
+  border: 1px solid var(--line); font-size: 14px; font-weight: 700; font-family: inherit;
+}
+/* 적혀 있는 번호 — 2회차에 눈앞의 차와 맞춰 보는 자리 */
+.pad-display .kept {
+  display: none; font-size: 44px; font-weight: 800; color: var(--ink);
+  letter-spacing: .02em;
+}
+.pad-display.kept .kept { display: inline; }
+.pad-display.kept .fixed,
+.pad-display.kept .slot { display: none; }
+
+/* 확인 — 2회차에만. 맨 아래, 가장 크게 (엄지가 닿는 자리) */
+.pad-keys .ok {
+  display: none; grid-column: 1 / -1; background: var(--green-bg); border-color: #3c5a2c;
+  color: #bcd9a6; font-size: 20px; padding: 20px 0;
+}
+body.round2 .pad-keys .ok { display: block; }
+.pad-keys .seg { grid-column: 1 / -1; }
+/* 구역 건너뛰기는 2회차에 드물게 쓴다 — 자리는 두되 낮게 */
+body.round2 .pad-keys .seg { font-size: 14px; padding: 10px 0; }
+
 #diagClear.armed { background: var(--red); color: #fff; border-color: var(--red); }
 .diag-danger-help {
   font-size: 12px; color: var(--ink-dim); line-height: 1.6; margin: 10px 2px 0;

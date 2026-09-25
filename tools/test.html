@@ -177,6 +177,22 @@ eq([131, 132, 133, 134].map(n => cellOf.get(n).label), ['B0-26', '휴게실-2', 
   localStorage.removeItem('busyard:v1:test:test:1');
 }
 
+log('<h2>▶ 2회차 확인 — "확인" 한 마디</h2>');
+eq(seq('확인'), ['<confirm>'], '확인');
+eq(seq('천사십이 확인'), ['1042', '<confirm>'], '번호를 고치고 이어서 확인');
+eq(seq('확인확인'), ['<confirm>', '<confirm>'], '연달아 두 칸');
+eq(seq('이전'), ['<back>'], '"이전" 은 그대로 되돌리기');
+eq(seq('다음'), ['<next>'], '"다음" 은 그대로 다음 구역');
+
+log('<h2>▶ 2회차에 읽어 줄 말 — 구역 안에서는 번호만</h2>');
+{
+  const { walkSay } = await import(`../src/plate.js?t=${Date.now()}`);
+  eq(walkSay('비 이 일번', { plate: '1355', status: 'filled' }, false), '천삼백오십오', '구역 안 — 번호만');
+  eq(walkSay('비 이 일번', { plate: '1355', status: 'filled' }, true), '비 이 일번, 천삼백오십오', '구역이 바뀌면 자리부터');
+  eq(walkSay('비 이 일번', { plate: null, status: 'vacant' }, false), '공차', '공차');
+  eq(walkSay('비 이 일번', null, true), '비 이 일번, 빈칸', '아직 안 적은 칸');
+}
+
 log('<h2>▶ PC 로 보낼 판 — 인쇄에 쓰는 것만 추린다</h2>');
 {
   const { boardPayload, toBase64 } = await import(`../src/sync.js?t=${Date.now()}`);

@@ -1,13 +1,13 @@
-import { YARD } from './yard-data.js?v=202609212237';
-import { BUILD } from './build.js?v=202609212237';
-import { toKoreanSino } from './plate.js?v=202609212237';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609212237';
+import { YARD } from './yard-data.js?v=202609252255';
+import { BUILD } from './build.js?v=202609252255';
+import { toKoreanSino, walkSay } from './plate.js?v=202609252255';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609252255';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609212237';
-import { createSync, getToken, setToken } from './sync.js?v=202609212237';
+} from './store.js?v=202609252255';
+import { createSync, getToken, setToken } from './sync.js?v=202609252255';
 
 // ---------------------------------------------------------------- 상태
 
@@ -32,7 +32,7 @@ let round = ROUNDS.includes(Number(localStorage.getItem('busyard:round')))
   && localStorage.getItem('busyard:roundDate') === workDate()
   ? Number(localStorage.getItem('busyard:round')) : 1;
 let session = upgradeSession(mergeLegacyRound2(loadSession(YARD.id, workDate(), 1)), SPOT_BY_XL);
-let cursor = firstEmptySpot();
+let cursor = startSpot();
 let voice = null;
 
 // 판이 바뀌면 입력이 멎고 30초 뒤 GitHub 에 올려 둔다. 사무실 PC 가 받아서 인쇄한다.
@@ -57,6 +57,23 @@ function isOpen(n) {
   const e = session.entries[n];
   if (!e) return true;
   return round === 2 && e.status === 'vacant';
+}
+
+/**
+ * 앱을 다시 열었을 때 시작할 자리.
+ * 2회차 확인은 걷는 순서 첫 자리부터 한 칸씩 도는 것이라 1번에서 시작하고,
+ * 돌던 중에 껐으면 그 자리에서 이어받는다.
+ */
+function startSpot() {
+  try {
+    const c = JSON.parse(localStorage.getItem('busyard:cursor') || 'null');
+    if (c && c.date === session.date && c.round === round && c.spot >= 1 && c.spot <= TOTAL) return c.spot;
+  } catch (_) { /* 깨졌으면 처음부터 */ }
+  return round === 2 ? 1 : firstEmptySpot();
+}
+
+function saveCursor() {
+  localStorage.setItem('busyard:cursor', JSON.stringify({ date: session.date, round, spot: cursor }));
 }
 
 function firstEmptySpot() {
@@ -288,17 +305,36 @@ function note(text, kind) {
 // ---------------------------------------------------------------- 입력 반영
 
 /**
- * 다음에 갈 자리.
- * 2회차는 비어 있는 자리만 채우러 다니므로 이미 적힌 칸은 건너뛴다.
+ * 다음에 갈 자리 — 걷는 순서 그대로 한 칸.
+ * 2회차도 모든 칸을 지나간다. 적힌 번호가 눈앞의 차와 같으면 "확인" 한 번으로
+ * 바로 넘어가고, 차가 바뀌었거나 빠진 칸에만 손을 댄다.
  */
 function nextSpotAfter(spot) {
-  if (round === 1) return Math.min(spot + 1, TOTAL);
-  for (let n = spot + 1; n <= TOTAL; n++) if (isOpen(n)) return n;
   return Math.min(spot + 1, TOTAL);
+}
+
+/** 2회차 확인 — 적힌 그대로 두고 다음 칸으로 */
+function confirmSpot() {
+  if (cursor >= TOTAL) {
+    note('마지막 자리입니다', 'warn');
+    beep('done');
+    return;
+  }
+  beep('ok');
+  const from = cursor;
+  cursor = nextSpotAfter(cursor);
+  saveCursor();
+  paintSpot(from);
+  paintSpot(cursor);
+  renderHud();
+  note('');
+  if (!$('padSheet').hidden) padFollowCursor();
+  announceCursor();
 }
 
 function commit(spot, entry, { announce = true } = {}) {
   setEntry(session, spot, { ...entry, round });
+  saveCursor();
   paintSpot(spot);
 
   // 예비 칸은 걷는 순서 밖이라 커서를 움직이지 않는다
@@ -337,7 +373,7 @@ function commit(spot, entry, { announce = true } = {}) {
     if (announce) announceSpeak('순회 완료');
     return;
   }
-  if (announce) announceSpeak(spotSay(cursor));
+  if (announce) announceCursor();
 }
 
 function goBack() {
@@ -370,8 +406,10 @@ function goBack() {
   renderHud();
   note(`${spotName(cursor)}번 자리로 되돌렸습니다`);
   beep('back');
+  saveCursor();
   if (voice) voice.reset();
-  announceSpeak(`${spotSay(cursor)} 다시`);
+  saidSeg = null;   // 되돌아온 자리가 어느 구역인지 다시 알려 준다
+  announceCursor();
 }
 
 function markVacant() {
@@ -387,7 +425,6 @@ function goNext() {
   const seg = SPOT.get(cursor).seg;
   let to = cursor;
   while (to <= TOTAL && SPOT.get(to).seg === seg) to += 1;
-  if (round === 2) while (to <= TOTAL && !isOpen(to)) to += 1;
 
   if (round === 1) {
     const from = cursor;
@@ -410,18 +447,37 @@ function goNext() {
   renderHud();
   note(`다음 구역 — ${spotName(cursor)}번 자리`);
   beep('next');
+  saveCursor();
   if (voice) voice.reset();
-  announceSpeak(spotSay(cursor));
+  saidSeg = null;   // 구역이 바뀌었으니 자리 이름부터 읽는다
+  announceCursor();
 }
 
 /** 안내 음성. 말하는 동안 자기 목소리가 다시 인식되지 않게 막는다. */
 function announceSpeak(text) {
   if (!ttsOn) return;
-  const ms = speak(text);
+  const ms = speak(text, { rate: SAY_RATE[rateIdx] });
   if (voice) voice.muteFor(ms + 250);
 }
 
-let ttsOn = localStorage.getItem('busyard:tts') === '1';
+// 방금 읽어 준 자리의 구역. 구역이 바뀐 첫 칸에서만 자리 이름을 읽는다.
+let saidSeg = null;
+
+/**
+ * 커서가 선 자리를 읽어 준다.
+ * 1회차는 갈 자리를 불러 주면 되고, 2회차 확인은 눈앞의 차와 맞춰 볼
+ * "적혀 있는 번호" 를 불러 줘야 한다.
+ */
+function announceCursor() {
+  const cell = SPOT.get(cursor);
+  const newSeg = !cell || cell.seg !== saidSeg;
+  saidSeg = cell ? cell.seg : null;
+  if (round === 2) announceSpeak(walkSay(spotSay(cursor), session.entries[cursor], newSeg));
+  else announceSpeak(spotSay(cursor));
+}
+
+// 2회차 확인은 적힌 번호를 귀로 듣는 것이 핵심이라 기본 켜짐
+let ttsOn = localStorage.getItem('busyard:tts') !== '0';
 // 키패드로 넣은 번호를 한국식으로 되읽어 확인시켜 준다 ("734" -> "천칠백삼십사")
 let padTtsOn = localStorage.getItem('busyard:padtts') === '1';
 // 키패드에서 누른 숫자를 바로 읽어준다 ("7" -> "칠"). 기본 켜짐.
@@ -437,6 +493,12 @@ const SETTLE = [
   { ms: 450, label: '보통' },
   { ms: 700, label: '느림' },
 ];
+// 안내 음성 속도. 2회차에 조깅하듯 돌 때는 번호가 짧게 끝나야 걸음을 따라온다.
+const SAY_RATE = [1.25, 1.6, 2];
+const savedRate = Number(localStorage.getItem('busyard:sayrate'));
+let rateIdx = SAY_RATE.indexOf(savedRate);
+if (rateIdx < 0) rateIdx = 1;
+
 const savedSettle = Number(localStorage.getItem('busyard:settlems'));
 let settleIdx = SETTLE.findIndex((s) => s.ms === savedSettle);
 if (settleIdx < 0) settleIdx = 1;   // 기본 아주 빠름
@@ -461,6 +523,9 @@ function handleToken(t) {
     goBack();
   } else if (t.type === 'next') {
     goNext();
+  } else if (t.type === 'confirm') {
+    if (round === 2) confirmSpot();
+    else beep('warn');   // 1회차에는 확인할 것이 없다
   }
 }
 
@@ -535,9 +600,10 @@ let padDigits = '';
 
 function openPad(spot) {
   primeAudio();
-  // 키패드를 쓰는 동안 마이크가 켜져 있으면 숫자 읽는 소리까지 받아 적는다.
+  // 1회차에 키패드를 쓰는 동안 마이크가 켜져 있으면 숫자 읽는 소리까지 받아 적는다.
   // 닫아도 다시 켜지 않는다 — 음성으로 돌아갈 때 직접 누르면 된다.
-  if (voice && voice.isOn()) { voice.stop(); releaseWakeLock(); }
+  // 2회차 확인은 이 화면을 켜 둔 채 "확인" 이라고 말하며 도는 것이라 마이크를 끄지 않는다.
+  if (round === 1 && voice && voice.isOn()) { voice.stop(); releaseWakeLock(); }
 
   padSpot = spot; padDigits = '';
   $('padTitle').textContent = `${spotName(spot)}번 자리`;
@@ -556,6 +622,11 @@ function closePad() {
   $('padSheet').hidden = true;
 }
 function renderPad() {
+  // 아직 아무것도 안 눌렀으면 이미 적혀 있는 번호를 크게 보여 준다.
+  // 2회차에 눈앞의 차와 맞춰 보는 것이 이 화면이 하는 일이다.
+  const e = padDigits ? null : session.entries[padSpot];
+  $('padDisplay').classList.toggle('kept', Boolean(e));
+  $('padKept').textContent = e ? (e.status === 'vacant' ? '공차' : e.plate) : '';
   document.querySelectorAll('#padDisplay .slot').forEach((el, i) => {
     const ch = padDigits[i];
     el.textContent = ch || '_';
@@ -564,7 +635,12 @@ function renderPad() {
 }
 function padKey(k) {
   primeAudio();
-  if (k === 'del') {
+  if (k === 'ok') {
+    confirmSpot();
+    return;
+  }
+  if (k === 'back' && padDigits) {
+    // 누르던 숫자가 있으면 그것부터 지운다. 없을 때만 앞 자리로 되돌린다.
     padDigits = padDigits.slice(0, -1);
     renderPad();
     beep('back');
@@ -720,14 +796,16 @@ function switchRound(next) {
   round = next;
   localStorage.setItem('busyard:round', String(round));
   localStorage.setItem('busyard:roundDate', workDate());
-  cursor = firstEmptySpot();
+  cursor = round === 2 ? 1 : firstEmptySpot();   // 확인은 걷는 순서 첫 자리부터
+  saveCursor();
+  saidSeg = null;
 
   renderRound();
   repaintAll();
   renderHud();
 
   note(round === 2
-    ? `2회차 — 빈 자리·공차 ${openCount()}칸을 채웁니다 (${spotName(cursor)}번부터)`
+    ? `2회차 확인 — ${spotName(cursor)}번부터 한 칸씩 (채울 칸 ${openCount()})`
     : `1회차로 돌아왔습니다`);
   beep('back');
 }
@@ -808,12 +886,13 @@ function openDiag() {
     ['키패드 숫자 읽기', keyTtsOn, keyTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
     ['다음 자리 안내 음성', ttsOn, ttsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
     ['키패드 입력 되읽기', padTtsOn, padTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
+    ['읽어주는 속도', true, `${SAY_RATE[rateIdx]}배 — 눌러서 바꾸기`],
     ['화면 꺼짐 방지', 'wakeLock' in navigator, 'wakeLock' in navigator ? '지원' : '미지원'],
     ['홈화면 설치 상태', window.navigator.standalone === true, window.navigator.standalone ? '설치됨' : '사파리 탭'],
     ['네트워크', navigator.onLine, navigator.onLine ? '온라인' : '오프라인 — 음성 불가'],
     ['PC 전송', syncState.state === 'ok' || syncState.state === 'idle', syncText()],
   ];
-  const TOGGLES = ['안내 음성', '되읽기', '숫자 읽기', '넘어가는 속도', 'PC 전송'];
+  const TOGGLES = ['안내 음성', '되읽기', '숫자 읽기', '넘어가는 속도', '읽어주는 속도', 'PC 전송'];
   $('diagBody').innerHTML = rows.map(([k, ok, v]) => {
     const toggle = TOGGLES.some((t) => k.includes(t)) ? ' toggle' : '';
     return `<div class="diag-row${toggle}"><b>${k}</b><span class="${ok ? 'ok' : 'no'}">${v}</span></div>`;
@@ -1178,6 +1257,11 @@ function init() {
       localStorage.setItem('busyard:keytts', keyTtsOn ? '1' : '0');
       openDiag();
       if (keyTtsOn) speakDigit('7');
+    } else if (name.includes('읽어주는 속도')) {
+      rateIdx = (rateIdx + 1) % SAY_RATE.length;
+      localStorage.setItem('busyard:sayrate', String(SAY_RATE[rateIdx]));
+      openDiag();
+      speak(toKoreanSino('1734'), { rate: SAY_RATE[rateIdx] });   // 실제 속도로 들려준다
     } else if (name.includes('넘어가는 속도')) {
       settleIdx = (settleIdx + 1) % SETTLE.length;
       localStorage.setItem('busyard:settlems', String(SETTLE[settleIdx].ms));
