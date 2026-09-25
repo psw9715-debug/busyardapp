@@ -5,8 +5,9 @@
 저장소의 inbox 가지를 우편함처럼 쓴다.
 
     폰  inbox/<날짜>.json   그날 판 (입력이 멎을 때마다 올린다)
-    폰  inbox/print.json    요청 {id, date, at, what} — what 은 'paper'(종이) 또는 'excel'
-    PC  inbox/status.json   인쇄 결과 {id, state, msg, at} — 폰이 이걸 보고 "인쇄 완료" 를 띄운다
+    폰  inbox/print.json    요청 {id, date, at, what} — 'paper'(종이) · 'excel'(넣기) · 'pull'(가져오기)
+    PC  inbox/status.json   결과 {id, state, msg, at} — 폰이 이걸 보고 결과를 띄운다
+    PC  inbox/pulled.json   가져온 판 {id, yard, date, entries} — 2차 순찰의 밑바탕
 
 PC 쪽은 전부 git 으로 주고받는다. 이 PC 의 git 은 이미 GitHub 에 로그인돼 있어 토큰이
 따로 필요 없고, GitHub API 의 시간당 60회 제한이나 사내망 인증서 문제도 없다.
@@ -37,7 +38,13 @@ import openpyxl
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATE = os.path.join(ROOT, "reference", "차고지 프린트.xlsx")
-SHEET = "신차고지"
+
+# 차고지마다 인쇄 시트와 자리 자료가 다르다. 판에 담겨 오는 yard 로 고른다.
+YARDS = {
+    "new": {"sheet": "신차고지", "data": "yard-data.js"},
+    "old": {"sheet": "구차고지", "data": "yard-old-data.js"},
+}
+SHEET = YARDS["new"]["sheet"]        # 옛 기록에 yard 가 없으면 신차고지로 본다
 OUT_DIR = os.path.join(ROOT, "기록")
 LAST_FILE = os.path.join(OUT_DIR, ".last_print")   # 이미 처리한 인쇄 요청 — 껐다 켜도 두 번 뽑지 않게
 INBOX_REF = "refs/remotes/origin/inbox"
@@ -60,12 +67,13 @@ def current_layout():
         return int(re.search(r"export const LAYOUT = (\d+)", f.read()).group(1))
 
 
-def spot_cells():
-    """순회 번호 -> 엑셀 칸 (src/yard-data.js 에서 읽는다)"""
-    with open(os.path.join(ROOT, "src", "yard-data.js"), encoding="utf-8") as f:
+def spot_cells(yard="new"):
+    """순회 번호 -> 엑셀 칸 (src/yard-data.js, yard-old-data.js 에서 읽는다)"""
+    name = YARDS.get(yard, YARDS["new"])["data"]
+    with open(os.path.join(ROOT, "src", name), encoding="utf-8") as f:
         text = f.read()
-    yard = json.loads(text[text.index("{"):text.rindex("}") + 1])
-    return {c["spot"]: c["xl"] for c in yard["cells"] if c["kind"] == "spot"}
+    data = json.loads(text[text.index("{"):text.rindex("}") + 1])
+    return {c["spot"]: c["xl"] for c in data["cells"] if c["kind"] == "spot"}
 
 
 # ---- GitHub inbox 가지 (git) -------------------------------------------
@@ -107,23 +115,28 @@ def fetch(date):
 
 
 def write_status(status):
-    """폰에 인쇄 결과를 알린다 — inbox/status.json 한 파일만 바꿔 inbox 가지에 올린다.
+    """폰에 결과를 알린다 (inbox/status.json)"""
+    write_file("inbox/status.json", status, f"PC 결과: {status['state']}")
+
+
+def write_file(path, obj, message):
+    """inbox 가지의 파일 하나만 바꿔 올린다.
 
     폰이 그 사이 판을 올렸으면 push 가 거절되므로 다시 받아서 그 위에 쌓는다.
     """
-    body = json.dumps(status, ensure_ascii=False)
+    body = json.dumps(obj, ensure_ascii=False)
     index = os.path.join(tempfile.gettempdir(), "busyard-inbox.index")
     env = {"GIT_INDEX_FILE": index}
     for _ in range(3):
         pull()
         blob = must(git("hash-object", "-w", "--stdin", stdin=body), "상태 파일 만들기")
         must(git("read-tree", INBOX_REF, env=env), "색인 읽기")
-        must(git("update-index", "--add", "--cacheinfo", f"100644,{blob},inbox/status.json", env=env), "색인 갱신")
+        must(git("update-index", "--add", "--cacheinfo", f"100644,{blob},{path}", env=env), "색인 갱신")
         tree = must(git("write-tree", env=env), "트리 만들기")
-        commit = must(git("commit-tree", tree, "-p", INBOX_REF, "-m", f"PC 인쇄 결과: {status['state']}"), "커밋")
+        commit = must(git("commit-tree", tree, "-p", INBOX_REF, "-m", message), "커밋")
         if git("push", "-q", "origin", f"{commit}:refs/heads/inbox").returncode == 0:
             return
-    raise RuntimeError("인쇄 결과를 GitHub 에 올리지 못했다")
+    raise RuntimeError(f"{path} 를 GitHub 에 올리지 못했다")
 
 
 # ---- 엑셀 ---------------------------------------------------------------
@@ -133,23 +146,35 @@ def fill(board, out_path):
     if board.get("layout") != current_layout():
         raise ValueError(f"자리 번호 체계가 다르다 (폰 {board.get('layout')}, PC {current_layout()}) — "
                          "폰 앱과 PC 의 busyardapp 을 둘 다 최신으로 맞출 것")
-    cells = spot_cells()
+    yard = board.get("yard", "new")
+    sheet = YARDS.get(yard, YARDS["new"])["sheet"]
+    cells = spot_cells(yard)
     entries = board["entries"]
     has_round2 = any(e.get("round", 1) == 2 for e in entries.values())
 
     wb = openpyxl.load_workbook(TEMPLATE)       # 서식이 살아 있어야 하므로 data_only 를 쓰지 않는다
     for name in wb.sheetnames:
-        if name != SHEET:
+        if name != sheet:
             wb.remove(wb[name])                 # 인쇄할 시트만 남긴다
-    ws = wb[SHEET]
+    ws = wb[sheet]
 
     n = 0
     for spot, e in entries.items():
         xl = cells.get(int(spot))
-        if not xl or e.get("status") != "filled" or not e.get("plate"):
-            continue                            # 공차는 종이에서 빈 칸
+        if not xl:
+            continue
         cell = ws[xl]
-        cell.value = e["plate"]
+        if e.get("status") == "car" and e.get("phone"):
+            # 버스 자리에 선 승용차 — 한 칸에 세 줄로 (010 / 1234 / 5678)
+            p = e["phone"]
+            cell.value = f"{p[:3]}\n{p[3:7]}\n{p[7:]}"
+            align = copy.copy(cell.alignment)
+            align.wrapText = True          # 스타일은 통째로 갈아 끼워야 한다
+            cell.alignment = align
+        elif e.get("status") == "filled" and e.get("plate"):
+            cell.value = e["plate"]
+        else:
+            continue                            # 공차는 종이에서 빈 칸
         if has_round2 and e.get("round", 1) == 1:
             font = copy.copy(cell.font)
             font.color = GREY
@@ -177,7 +202,8 @@ def save_and_print(date, do_print=True):
     if board is None:
         return None
     os.makedirs(OUT_DIR, exist_ok=True)
-    base = os.path.join(OUT_DIR, f"{date} 신차고지")
+    yard = "구차고지" if board.get("yard") == "old" else "신차고지"
+    base = os.path.join(OUT_DIR, f"{date} {yard}")
     with open(base + ".json", "w", encoding="utf-8") as f:
         json.dump(board, f, ensure_ascii=False, indent=1)
     n = fill(board, base + ".xlsx")
@@ -213,10 +239,18 @@ def _save_last(id_):
 def handle(req, log, notify=None):
     """폰이 보낸 요청 하나를 처리하고 결과를 폰에 알린다"""
     now = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
-    excel = req.get("what") == "excel"
-    what = "운영관리 엑셀" if excel else "종이 인쇄"
+    kind = req.get("what", "paper")
+    what = {"excel": "운영관리 엑셀", "pull": "엑셀에서 가져오기"}.get(kind, "종이 인쇄")
     try:
-        if excel:
+        if kind == "pull":
+            import ops_fill
+            yard = req.get("yard", "old")
+            entries = ops_fill.read_board(yard, log=log)
+            write_file("inbox/pulled.json", {
+                "id": req["id"], "yard": yard, "date": req["date"], "entries": entries,
+            }, f"{req['date']} 엑셀에서 가져온 판")
+            state, msg = "done", f"{len(entries)}대 가져옴"
+        elif kind == "excel":
             import ops_fill
             state, msg = "done", ops_fill.run(board_date=req["date"], log=log)
         else:

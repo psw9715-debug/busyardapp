@@ -10,7 +10,7 @@
 <title>차고지 순회</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="src/app.css?v=202609260048">
+<link rel="stylesheet" href="src/app.css?v=202609260602">
 </head>
 <body>
 
@@ -19,7 +19,7 @@
   <!-- 상단: 진행 상황 -->
   <header class="bar">
     <div class="bar-left">
-      <span class="yard" id="yardName">6차고지</span>
+      <button class="yard" id="yardName" aria-label="차고지 바꾸기">6차고지</button>
       <button class="round" id="btnRound" aria-label="회차 바꾸기">1회차</button>
     </div>
     <div class="bar-right">
@@ -36,7 +36,7 @@
   <section class="hud" id="hud">
     <div class="hud-spot">
       <span class="hud-spot-num" id="hudSpot">1</span>
-      <span class="hud-spot-unit">번 자리</span>
+      <span class="hud-spot-unit" id="hudUnit">번 자리</span>
       <span class="hud-count" id="hudCount"></span>
     </div>
     <div class="hud-plate" id="hudPlate">
@@ -75,6 +75,7 @@
     </div>
     <div class="pad-display" id="padDisplay">
       <span class="kept" id="padKept"></span>
+      <span class="phone" id="padPhone"></span>
       <span class="fixed">1</span><span class="slot" data-i="0">_</span><span class="slot" data-i="1">_</span><span class="slot" data-i="2">_</span>
     </div>
     <div class="pad-hint">앞자리 1은 자동입니다. 나머지 세 자리만 누르세요. 누르던 숫자는 이전으로 지웁니다.</div>
@@ -85,6 +86,7 @@
       <button data-k="back" class="alt">◀ 이전</button>
       <button data-k="0">0</button>
       <button data-k="vacant" class="alt">공차</button>
+      <button data-k="car" class="alt car">승용차</button>
       <button data-k="next" class="alt seg">다음 구역 ▶</button>
       <button data-k="ok" class="ok">확인 ▶</button>
     </div>
@@ -229,6 +231,6 @@
 
 <!-- 인쇄 전용 레이아웃 -->
 
-<script type="module" src="src/app.js?v=202609260048"></script>
+<script type="module" src="src/app.js?v=202609260602"></script>
 </body>
 </html>

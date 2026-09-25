@@ -4,6 +4,7 @@
     python -m unittest tools/test_ops.py
 """
 import datetime
+import io
 import os
 import sys
 import tempfile
@@ -86,6 +87,39 @@ class BlockCells(unittest.TestCase):
 
     def test_no_two_spots_share_a_cell(self):
         self.assertEqual(len(set(self.cells.values())), len(self.cells))
+
+
+class OldYardCells(unittest.TestCase):
+    """구차고지는 같은 시트 1~34행이고, 인쇄 양식과 행이 그대로 겹친다(밀림 0줄)"""
+
+    def setUp(self):
+        self.cells = ops_fill.block_cells("old")
+
+    def test_covers_every_spot(self):
+        self.assertEqual(len(self.cells), 90)      # 걷는 순서 89 + 예비 1
+
+    def test_inside_the_block(self):
+        rows = [r for r, _ in self.cells.values()]
+        self.assertGreaterEqual(min(rows), 1)
+        self.assertLessEqual(max(rows), 34)
+
+    def test_no_offset(self):
+        # 인쇄 양식(구차고지-순서)의 칸 주소가 그대로 쓰인다
+        import json
+        with io.open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  "src", "yard-old-data.js"), encoding="utf-8") as f:
+            text = f.read()
+        data = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        for c in data["cells"]:
+            if c["kind"] != "spot":
+                continue
+            row = int("".join(ch for ch in c["xl"] if ch.isdigit()))
+            self.assertEqual(self.cells[c["label"]][0], row, c["label"])
+
+    def test_two_yards_do_not_overlap(self):
+        new_rows = {r for r, _ in ops_fill.block_cells("new").values()}
+        old_rows = {r for r, _ in self.cells.values()}
+        self.assertFalse(new_rows & old_rows, "신차고지와 구차고지 칸이 겹치면 안 된다")
 
 
 if __name__ == '__main__':

@@ -1,15 +1,21 @@
-import { YARD } from './yard-data.js?v=202609260048';
-import { BUILD } from './build.js?v=202609260048';
-import { toKoreanSino, walkSay } from './plate.js?v=202609260048';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609260048';
+import { YARD as YARD_NEW } from './yard-data.js?v=202609260602';
+import { YARD_OLD } from './yard-old-data.js?v=202609260602';
+import { BUILD } from './build.js?v=202609260602';
+import { toKoreanSino, walkSay } from './plate.js?v=202609260602';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609260602';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609260048';
-import { createSync, getToken, setToken } from './sync.js?v=202609260048';
+} from './store.js?v=202609260602';
+import { createSync, getToken, setToken } from './sync.js?v=202609260602';
 
 // ---------------------------------------------------------------- 상태
+
+// 차고지는 둘이다. 바꾸면 판도 커서도 따로 간다(저장 키에 차고지가 들어 있다).
+// 바꿀 때는 화면을 다시 열어 처음부터 그 차고지로 세운다 — 반쯤 갈아 끼우다 어긋나지 않게.
+const YARD = localStorage.getItem('busyard:yard') === 'old' ? YARD_OLD : YARD_NEW;
+const OLD_YARD = YARD.id === 'old';
 
 const spots = YARD.cells.filter((c) => c.kind === 'spot').sort((a, b) => a.spot - b.spot);
 const ALL = spots.length;
@@ -19,10 +25,30 @@ const routeFilled = () => Object.keys(session.entries).filter((n) => Number(n) <
 const SPOT = new Map(spots.map((c) => [c.spot, c]));
 const SPOT_BY_XL = Object.fromEntries(spots.map((c) => [c.xl, c.spot]));
 
-/** 순회 순번 -> 엑셀에 적힌 이름 ("B5-10") */
+/** 순회 순번 -> 엑셀에 적힌 이름 ("B5-10", "1-3-1") */
 const spotName = (n) => (SPOT.get(n) ? SPOT.get(n).label : String(n));
-/** 안내 음성용 — "B5-10" 을 "B5 10번" 으로 읽힌다 */
-const spotSay = (n) => `${spotName(n).replace('-', ' ')}번`;
+
+// 구차고지는 적힌 이름과 부르는 이름이 다르다. 구두로 "1차고지 3열" 이라고 하므로
+// 화면과 음성 모두 그렇게 부른다.
+const ZONE = {
+  '1-1': '1차고지 1열', '1-2': '1차고지 2열', '1-3': '1차고지 3열',
+  '2-1': '2차고지 1열', '2-2': '2차고지 2열', '2-3': '2차고지 3열',
+  '조': '조신병', '한노': '한노', '예비': '예비',
+};
+
+/** 자리가 속한 구역의 부르는 이름 ("1차고지 3열", "B5") */
+function spotZone(n) {
+  const label = spotName(n);
+  const zone = label.slice(0, label.lastIndexOf('-'));
+  return ZONE[zone] || zone;
+}
+
+/** 안내 음성용 — "B5-10" 은 "B5 10번", "1-3-1" 은 "1차고지 3열 1번" */
+function spotSay(n) {
+  const label = spotName(n);
+  const num = label.slice(label.lastIndexOf('-') + 1);
+  return OLD_YARD ? `${spotZone(n)} ${num}번` : `${label.replace('-', ' ')}번`;
+}
 
 // 회차는 "지금 무엇으로 적는가" 일 뿐이다. 순회 판은 하루에 하나이고
 // 입력마다 회차 표시가 붙는다. 2회차는 1회차에 비어 있던 자리를 채우러 가는 것이라
@@ -105,7 +131,10 @@ function buildMap(container, cls) {
       // 번호 없는 빈 칸에 차량번호만 찍혀야 한다 (CSS에서 숨김).
       // 칸이 좁아 "에디슨-13" 이 다 안 들어간다. 한글 구역은 첫 글자만 남긴다 (에13).
       // 예비 칸은 번호를 찍지 않는다.
-      const short = c.extra ? '' : c.label.replace(/^([가-힣])[가-힣]*-/, '$1');
+      // 칸이 좁다. 신차고지는 구역 첫 글자만(에13), 구차고지는 번호만 남긴다(줄은 배치로 안다).
+      const short = c.extra ? ''
+        : OLD_YARD ? c.label.slice(c.label.lastIndexOf('-') + 1)
+          : c.label.replace(/^([가-힣])[가-힣]*-/, '$1');
       el.innerHTML = `<span class="no">${short}</span><span class="plate"></span>`;
       if (cls === 'live') {
         // 두 번 톡(확대)의 첫 번째 톡일 수 있으므로 잠깐 기다렸다 연다
@@ -129,8 +158,11 @@ function paintSpot(n) {
   const e = session.entries[n];
   const plateEl = el.querySelector('.plate');
 
-  el.classList.remove('filled', 'vacant', 'corrected', 'current', 'target', 'k-cctv', 'k-key', 'r1', 'r2');
-  if (e && e.status === 'vacant') {
+  el.classList.remove('filled', 'vacant', 'car', 'corrected', 'current', 'target', 'k-cctv', 'k-key', 'r1', 'r2');
+  if (e && e.status === 'car') {
+    el.classList.add('car');
+    plateEl.textContent = '승용차';
+  } else if (e && e.status === 'vacant') {
     el.classList.add('vacant');
     plateEl.textContent = '공차';
   } else if (e) {
@@ -277,6 +309,7 @@ function setupZoom() {
 
 function renderHud(flash) {
   $('hudSpot').textContent = spotName(cursor);
+  if (OLD_YARD) $('hudUnit').textContent = spotZone(cursor);
   const done = routeFilled();
   $('hudCount').textContent = `${done} / ${TOTAL}`;
   $('progressFill').style.width = `${(done / TOTAL) * 100}%`;
@@ -285,7 +318,10 @@ function renderHud(flash) {
   plateEl.className = 'hud-plate';
 
   const e = flash || session.entries[cursor];
-  if (flash) {
+  if (e && e.status === 'car') {
+    plateEl.textContent = phoneText(e.phone);
+    plateEl.classList.add('car');
+  } else if (flash) {
     if (flash.status === 'vacant') { plateEl.textContent = '공차'; plateEl.classList.add('vacant'); }
     else { plateEl.textContent = flash.plate; if (flash.confidence !== 'high') plateEl.classList.add('corrected'); }
   } else if (e) {
@@ -295,6 +331,9 @@ function renderHud(flash) {
     plateEl.innerHTML = '<span class="ph">– – – –</span>';
   }
 }
+
+/** 01012345678 -> 010-1234-5678 */
+const phoneText = (p) => (p ? `${p.slice(0, 3)}-${p.slice(3, 7)}-${p.slice(7)}` : '');
 
 function note(text, kind) {
   const el = $('hudNote');
@@ -541,6 +580,13 @@ function handleToken(t) {
     goBack();
   } else if (t.type === 'next') {
     goNext();
+  } else if (t.type === 'car') {
+    // 전화번호는 여덟 자리라 말로 받으면 한 자리만 틀려도 못 쓴다. 키패드로 받는다.
+    openPad(cursor);
+    padPhone = true;
+    padDigits = '';
+    renderPad();
+    beep('warn');
   } else if (t.type === 'confirm') {
     if (round === 2) confirmSpot();
     else beep('warn');   // 1회차에는 확인할 것이 없다
@@ -615,6 +661,8 @@ document.addEventListener('visibilitychange', () => {
 
 let padSpot = null;
 let padDigits = '';
+// 승용차 전화번호를 받는 중인가. 앞 010 은 고정이라 나머지 여덟 자리만 받는다.
+let padPhone = false;
 
 function openPad(spot) {
   primeAudio();
@@ -623,16 +671,16 @@ function openPad(spot) {
   // 2회차 확인은 이 화면을 켜 둔 채 "확인" 이라고 말하며 도는 것이라 마이크를 끄지 않는다.
   if (round === 1 && voice && voice.isOn()) { voice.stop(); releaseWakeLock(); }
 
-  padSpot = spot; padDigits = '';
-  $('padTitle').textContent = `${spotName(spot)}번 자리`;
+  padSpot = spot; padDigits = ''; padPhone = false;
+  $('padTitle').textContent = padTitleOf(spot);
   renderPad();
   $('padSheet').hidden = false;
 }
 
 /** 입력·이전·다음 뒤에 커서가 간 자리를 이어서 받는다 */
 function padFollowCursor() {
-  padSpot = cursor; padDigits = '';
-  $('padTitle').textContent = `${spotName(padSpot)}번 자리`;
+  padSpot = cursor; padDigits = ''; padPhone = false;
+  $('padTitle').textContent = padTitleOf(padSpot);
   renderPad();
 }
 
@@ -640,10 +688,16 @@ function closePad() {
   $('padSheet').hidden = true;
 }
 function renderPad() {
+  if (padPhone) {
+    $('padDisplay').className = 'pad-display phone';
+    const d = padDigits.padEnd(8, '_');
+    $('padPhone').textContent = `010-${d.slice(0, 4)}-${d.slice(4)}`;
+    return;
+  }
   // 아직 아무것도 안 눌렀으면 이미 적혀 있는 번호를 크게 보여 준다.
   // 2회차에 눈앞의 차와 맞춰 보는 것이 이 화면이 하는 일이다.
   const e = padDigits ? null : session.entries[padSpot];
-  $('padDisplay').classList.toggle('kept', Boolean(e));
+  $('padDisplay').className = 'pad-display' + (e ? ' kept' : '');
   $('padKept').textContent = e ? (e.status === 'vacant' ? '공차' : e.plate) : '';
   document.querySelectorAll('#padDisplay .slot').forEach((el, i) => {
     const ch = padDigits[i];
@@ -651,8 +705,20 @@ function renderPad() {
     el.classList.toggle('set', Boolean(ch));
   });
 }
+/** 키패드 머리에 쓰는 자리 이름 */
+const padTitleOf = (spot) => (OLD_YARD ? `${spotZone(spot)} ${spotName(spot).split('-').pop()}번 자리`
+  : `${spotName(spot)}번 자리`);
+
 function padKey(k) {
   primeAudio();
+  if (k === 'car') {
+    // 버스 자리에 승용차가 서 있다 — 그 차 주인의 전화번호를 받는다
+    padPhone = true;
+    padDigits = '';
+    renderPad();
+    beep('warn');
+    return;
+  }
   if (k === 'ok') {
     confirmSpot();
     return;
@@ -676,17 +742,25 @@ function padKey(k) {
     padFollowCursor();
     return;
   }
-  if (padDigits.length >= 3) return;
+  const room = padPhone ? 8 : 3;
+  if (padDigits.length >= room) return;
   padDigits += k;
   renderPad();
   if (keyTtsOn) speakDigit(k, rate.digit);   // 무엇을 눌렀는지 귀로 확인
-  if (padDigits.length === 3) {
+  if (padDigits.length < room) return;
+
+  if (padPhone) {
+    const phone = '010' + padDigits;
+    commit(padSpot, { plate: null, phone, status: 'car', confidence: 'high', method: 'keypad' },
+      { announce: false });
+    note(`승용차 ${phoneText(phone)}`);
+  } else {
     const plate = '1' + padDigits;
     commit(padSpot, { plate, status: 'filled', confidence: 'high', method: 'keypad' }, { announce: false });
     readBackPlate(plate);
-    // 이어서 다음 자리를 계속 찍을 수 있게 시트를 열어 둔다
-    padFollowCursor();
   }
+  // 이어서 다음 자리를 계속 찍을 수 있게 시트를 열어 둔다
+  padFollowCursor();
 }
 
 // ---------------------------------------------------------------- 자리 탭 시트
@@ -826,6 +900,51 @@ function switchRound(next) {
     ? `2회차 확인 — ${spotName(cursor)}번부터 한 칸씩 (채울 칸 ${openCount()})`
     : `1회차로 돌아왔습니다`);
   beep('back');
+
+  // 구차고지 2회차는 방향이 반대다. 1차 뒤에 들어온 차를 사무실에서 엑셀에 적어 두므로,
+  // 그 판을 받아다 깔고 그 위에서 고치고 더한다.
+  if (OLD_YARD && round === 2) pullFromExcel();
+}
+
+/** PC 에게 원본 엑셀의 지금 자리들을 받아다 판에 깐다 */
+async function pullFromExcel() {
+  if (!getToken()) {
+    note('토큰이 없습니다 — [진단] → PC 전송에서 넣으세요', 'warn');
+    return;
+  }
+  note('PC가 엑셀에서 가져오는 중…');
+  let id;
+  try {
+    id = await sync.requestPrint('pull');
+  } catch (err) {
+    note(`가져오기를 보내지 못했습니다: ${err.message}`, 'warn');
+    beep('error');
+    return;
+  }
+
+  const until = Date.now() + 300000;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, 3000));
+    let got = null;
+    try { got = await sync.readPulled(); } catch (_) { continue; }
+    if (!got || got.id !== id) continue;
+
+    // 받아 온 것은 밑바탕이다 — 1회차로 깔아 두면 인쇄물에서 흐리게 나오고,
+    // 지금부터 고치거나 더하는 것만 2회차로 진하게 나온다.
+    for (const [spot, e] of Object.entries(got.entries)) {
+      setEntry(session, spot, { ...e, round: 1, method: 'excel' });
+    }
+    cursor = 1;
+    saveCursor();
+    saidSeg = null;
+    repaintAll();
+    renderHud();
+    note(`엑셀에서 ${Object.keys(got.entries).length}대를 받았습니다 — ${spotName(cursor)}번부터`);
+    beep('done');
+    return;
+  }
+  note('PC 응답이 없습니다 — sctc-copy 가 켜져 있는지 확인하세요', 'warn');
+  beep('warn');
 }
 
 // ---------------------------------------------------------------- 일지 보관
@@ -1062,6 +1181,8 @@ async function doPrint(what) {
 
 function init() {
   $('yardName').textContent = YARD.name.replace(/\s*\(.*\)/, '');
+  document.body.classList.toggle('yard-old', OLD_YARD);
+  if (OLD_YARD) $('hudUnit').textContent = spotZone(cursor);
   renderRound();
 
   buildMap($('map'), 'live');
@@ -1084,6 +1205,12 @@ function init() {
   $('printPaper').addEventListener('click', () => doPrint('paper'));
   $('printExcel').addEventListener('click', () => doPrint('excel'));
   $('btnDiag').addEventListener('click', openDiag);
+  $('yardName').addEventListener('click', () => {
+    // 차고지를 바꾸면 판·커서·배치도가 전부 그 차고지 것으로 바뀐다.
+    // 반쯤 갈아 끼우다 어긋나지 않게 화면을 처음부터 다시 세운다.
+    localStorage.setItem('busyard:yard', OLD_YARD ? 'new' : 'old');
+    location.reload();
+  });
 
   // ---- 차량번호 찾기 ----
   let findDigits = '';

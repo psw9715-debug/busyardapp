@@ -107,9 +107,19 @@ export function createSync({ getSession, onStatus }) {
       onStatus({ state: 'ok', at: new Date() });
       const session = getSession();
       const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-      await put('print.json', { id, date: session.date, at: new Date().toISOString(), what },
-        `${session.date} ${what === 'excel' ? '엑셀 입력' : '인쇄'} 요청`);
+      await put('print.json', { id, date: session.date, at: new Date().toISOString(), what, yard: session.yard },
+        `${session.date} ${{ excel: '엑셀 입력', pull: '가져오기' }[what] || '인쇄'} 요청`);
       return id;
+    },
+
+    /** PC 가 엑셀에서 읽어 올려 둔 판 {id, yard, date, entries}. 아직 없으면 null */
+    async readPulled() {
+      const res = await fetch(`${API}/pulled.json?ref=${BRANCH}`, {
+        headers: { ...headers(), Accept: 'application/vnd.github.raw+json' }, cache: 'no-store',
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`가져오기 확인 실패 ${res.status}`);
+      return res.json();
     },
 
     /** PC 가 남긴 인쇄 결과 {id, state, msg, at}. 아직 없으면 null */

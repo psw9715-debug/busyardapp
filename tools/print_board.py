@@ -95,7 +95,8 @@ def print_file(path):
     except ImportError:
         os.startfile(path, "print")             # pywin32 가 없으면 셸에 맡긴다
         return "셸(기본 프린터)"
-    excel = win32com.client.Dispatch("Excel.Application")
+    # DispatchEx — 열어 둔 엑셀에 붙지 않는다. 붙으면 Quit 할 때 남의 문서까지 닫힌다.
+    excel = win32com.client.DispatchEx("Excel.Application")
     excel.Visible = False
     wb = excel.Workbooks.Open(path)
     try:

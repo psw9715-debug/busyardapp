@@ -14,7 +14,7 @@ from datetime import datetime, timezone, timedelta
 KST = timezone(timedelta(hours=9))
 
 
-MODULES = ['app.js', 'plate.js', 'voice.js', 'store.js', 'sync.js', 'yard-data.js', 'build.js']
+MODULES = ['app.js', 'plate.js', 'voice.js', 'store.js', 'sync.js', 'yard-data.js', 'yard-old-data.js', 'build.js']
 ASSETS = MODULES + ['app.css']
 
 # 진입 안내 앱(guide/) — 순회 앱과 같은 이유로 주소에 버전을 붙여야 한다.

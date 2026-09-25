@@ -49,7 +49,11 @@ html, body {
   display: flex; align-items: baseline; gap: 6px;
   min-width: 0; overflow: hidden;
 }
-.yard { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.yard {
+  font-size: 14px; font-weight: 700; white-space: nowrap; font-family: inherit;
+  background: none; border: none; color: var(--ink); padding: 2px 0;
+}
+.yard::after { content: ' ⇄'; color: var(--ink-dim); font-weight: 400; }
 .round {
   font-size: 11px; font-family: inherit; white-space: nowrap;
   background: var(--panel-2); color: var(--ink-dim);
@@ -178,6 +182,10 @@ body.round2 .cell.spot.filled.r1 .no    { color: #47513f; }
 /* 공차도 2회차에는 다시 들러야 할 자리다 */
 body.round2 .cell.spot.vacant        { border-style: dashed; border-color: #4a4738; }
 body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
+/* 승용차가 서 있는 칸 — 버스가 아니라는 것이 한눈에 보여야 한다 */
+.cell.spot.car             { background: #2b2436; border-color: var(--violet); }
+.cell.spot.car .plate      { color: var(--violet-ink); font-size: 9px; font-weight: 600; }
+.hud-plate.car             { font-size: 30px; color: var(--violet-ink); letter-spacing: .02em; }
 .cell.spot.vacant          { background: #201f18; }
 .cell.spot.vacant .plate   { color: var(--ink-dim); font-weight: 500; }
 .cell.spot.corrected       { border-color: var(--amber); }
@@ -489,6 +497,13 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
   letter-spacing: .02em;
 }
 .pad-display.kept .kept { display: inline; }
+.pad-display .phone { display: none; font-size: 34px; letter-spacing: .04em; color: var(--violet-ink); }
+.pad-display.phone .phone { display: inline; }
+.pad-display.phone .kept,
+.pad-display.phone .fixed,
+.pad-display.phone .slot { display: none; }
+.pad-keys .car { display: none; }
+body.yard-old .pad-keys .car { display: block; color: var(--violet-ink); }
 .pad-display.kept .fixed,
 .pad-display.kept .slot { display: none; }
 

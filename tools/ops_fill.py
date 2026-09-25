@@ -25,12 +25,21 @@ import re
 import shutil
 import sys
 
+import openpyxl
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = r"Z:\교통사업처_버스운영센터\상황실"
 KEYWORD = "입출차 운영관리"          # 그날 폴더에 있는 다른 엑셀과 가르는 말
 SHEET = "고정차고지_입력"
-FIRST_ROW, LAST_ROW = 38, 97         # 6차고지 블록
-ROW_OFFSET = FIRST_ROW - 3           # 인쇄 양식 3행 = 이 시트 38행
+# 차고지마다 이 시트 안의 자리가 다르다.
+#   신차고지(6차고지)   : 38~97행 — 인쇄 양식 3행이 38행이라 35줄 아래
+#   구차고지(1·2차고지) : 1~34행 — 인쇄 양식과 행이 그대로 겹친다
+YARDS = {
+    "new": {"data": "yard-data.js", "first": 38, "last": 97, "offset": 35},
+    "old": {"data": "yard-old-data.js", "first": 1, "last": 34, "offset": 0},
+}
+FIRST_ROW, LAST_ROW = YARDS["new"]["first"], YARDS["new"]["last"]
+ROW_OFFSET = YARDS["new"]["offset"]
 
 # 한 자리는 세 줄이다 — 1행 차량번호(수식 없음), 2행 이름, 3행 출근시각.
 # 2·3행은 차량번호를 보고 끌어오는 수식이라 절대 건드리지 않는다. 우리는 1행만 쓴다.
@@ -85,20 +94,21 @@ def make_copy(orig, date):
     return dst
 
 
-def block_cells():
-    """순회 자리 이름 -> 이 시트의 (행, 열). 인쇄 양식 칸을 35줄 내린 것이다."""
-    with open(os.path.join(ROOT, "src", "yard-data.js"), encoding="utf-8") as f:
+def block_cells(yard="new"):
+    """순회 자리 이름 -> 이 시트의 (행, 열). 인쇄 양식 칸을 차고지만큼 내린 것이다."""
+    cfg = YARDS.get(yard, YARDS["new"])
+    with open(os.path.join(ROOT, "src", cfg["data"]), encoding="utf-8") as f:
         text = f.read()
-    yard = json.loads(text[text.index("{"):text.rindex("}") + 1])
+    data = json.loads(text[text.index("{"):text.rindex("}") + 1])
     cells = {}
-    for c in yard["cells"]:
+    for c in data["cells"]:
         if c["kind"] != "spot":
             continue
         m = re.match(r"([A-Z]+)(\d+)", c["xl"])
         col = 0
         for ch in m.group(1):
             col = col * 26 + (ord(ch) - 64)
-        cells[c["label"]] = (int(m.group(2)) + ROW_OFFSET, col)
+        cells[c["label"]] = (int(m.group(2)) + cfg["offset"], col)
     return cells
 
 
@@ -166,16 +176,24 @@ def _name_in(raw):
     return None
 
 def fill(path, board, cells=None, show_sheet=False):
-    """6차고지 칸을 싹 비우고 판대로 써 넣는다. (넣은 대수, 빈 칸 수) 를 돌려준다."""
-    cells = cells or block_cells()
+    """그 차고지 칸을 싹 비우고 판대로 써 넣는다. (넣은 대수, 빈 칸 수) 를 돌려준다.
+
+    승용차는 넣지 않는다 — 2차 순찰 전에 빠질 차라 운영관리에 남길 것이 아니다.
+    """
+    cells = cells or block_cells(board.get("yard", "new"))
     import pythoncom
     import win32com.client
     pythoncom.CoInitialize()
 
-    excel = win32com.client.Dispatch("Excel.Application")
-    excel.Visible = False
+    # DispatchEx — 사장님이 열어 둔 엑셀에 붙지 않고 우리 것만 따로 띄운다.
+    # 붙으면 우리가 끝내며 Quit 할 때 열어 두신 문서까지 닫아 버린다.
+    excel = win32com.client.DispatchEx("Excel.Application")
     excel.DisplayAlerts = False
-    excel.ScreenUpdating = False
+    try:
+        excel.Visible = False
+        excel.ScreenUpdating = False
+    except Exception:
+        pass                          # 갓 띄운 엑셀이 아직 못 받는 때가 있다 — 그냥 진행
     wb = excel.Workbooks.Open(path)
     try:
         # 이 통합문서는 VLOOKUP 이 많아, 한 칸 쓸 때마다 다시 계산하면 몇 분씩 걸린다.
@@ -192,9 +210,9 @@ def fill(path, board, cells=None, show_sheet=False):
             want[rc] = None
         written = 0
         for spot, e in board["entries"].items():
-            rc = cells.get(_label_of(int(spot)))
+            rc = cells.get(_label_of(int(spot), board.get("yard", "new")))
             if not rc or e.get("status") != "filled" or not e.get("plate"):
-                continue                      # 공차는 빈 칸으로 둔다
+                continue                      # 공차와 승용차는 빈 칸으로 둔다
             want[rc] = int(e["plate"])
             written += 1
 
@@ -206,7 +224,7 @@ def fill(path, board, cells=None, show_sheet=False):
             # 열었을 때 차고지 칸이 바로 보이게 이 시트를 펴 둔 채로 저장한다.
             # (시트를 '옮기면' 엑셀이 다른 통합문서로 떼어 내 버린다 — 옮기지 않는다.)
             try:
-                excel.Visible = True      # 창이 있어야 시트를 펴 둘 수 있다
+                excel.Visible = True      # 우리 전용 엑셀이라 남의 문서에 영향이 없다
                 ws.Activate()
             except Exception:
                 pass
@@ -214,28 +232,31 @@ def fill(path, board, cells=None, show_sheet=False):
         wb.Save()
     finally:
         wb.Close(SaveChanges=False)
-        excel.ScreenUpdating = True
-        excel.Visible = False
+        try:
+            excel.ScreenUpdating = True
+            excel.Visible = False
+        except Exception:
+            pass
         excel.Quit()
     return written, len(cells) - written
 
 
-_LABELS = None
+_LABELS = {}
 
 
-def _labels():
+def _labels(yard="new"):
     """순회 번호 -> 자리 이름"""
-    global _LABELS
-    if _LABELS is None:
-        with open(os.path.join(ROOT, "src", "yard-data.js"), encoding="utf-8") as f:
+    if yard not in _LABELS:
+        cfg = YARDS.get(yard, YARDS["new"])
+        with open(os.path.join(ROOT, "src", cfg["data"]), encoding="utf-8") as f:
             text = f.read()
-        yard = json.loads(text[text.index("{"):text.rindex("}") + 1])
-        _LABELS = {c["spot"]: c["label"] for c in yard["cells"] if c["kind"] == "spot"}
-    return _LABELS
+        data = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        _LABELS[yard] = {c["spot"]: c["label"] for c in data["cells"] if c["kind"] == "spot"}
+    return _LABELS[yard]
 
 
-def _label_of(spot):
-    return _labels().get(spot)
+def _label_of(spot, yard="new"):
+    return _labels(yard).get(spot)
 
 
 def run(board_date=None, date=None, log=print):
@@ -276,6 +297,34 @@ def fill_original(board, orig=None, date=None, log=print):
         return str(e)
     log(f"✅ [엑셀] 원본에 {written}대 넣음")
     return f"원본에 {written}대 넣음"
+
+
+def read_board(yard="old", date=None, log=print):
+    """원본 엑셀에 지금 적혀 있는 자리들을 읽는다 (2차 순찰의 밑바탕).
+
+    읽기만 하므로 다른 사람이 열어 두어도 된다. 1행의 차량번호만 가져온다 —
+    2·3행은 그 번호를 보고 끌어오는 수식이라 값이 아니다.
+    """
+    date = date or target_date()
+    path = find_excel(date)
+    log(f"📥 [엑셀] {os.path.basename(path)} 에서 읽는 중...")
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    try:
+        ws = wb[SHEET]
+        cells = block_cells(yard)
+        spot_of = {label: spot for spot, label in _labels(yard).items()}
+        entries = {}
+        for label, (row, col) in cells.items():
+            v = ws.cell(row, col).value
+            if v is None:
+                continue
+            text = str(v).strip()
+            if text.isdigit() and len(text) == 4:
+                entries[str(spot_of[label])] = {"plate": text, "status": "filled", "round": 1}
+    finally:
+        wb.close()
+    log(f"📥 [엑셀] {len(entries)}대 읽음")
+    return entries
 
 
 def run_original(board_date=None, date=None, log=print):
