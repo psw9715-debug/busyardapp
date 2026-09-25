@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202609252255';
+import { extractSequence } from './plate.js?v=202609252309';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -268,8 +268,8 @@ const DIGIT_WORD = ['공', '일', '이', '삼', '사', '오', '육', '칠', '팔
  * 잘못 누른 것을 알아채는 게 목적이므로 또렷한 쪽을 택한다.
  * 빨리 연달아 누르면 앞 소리를 끊고 방금 누른 것을 읽는다.
  */
-export function speakDigit(d) {
+export function speakDigit(d, rate = 0.75) {
   const word = DIGIT_WORD[Number(d)];
   if (word === undefined) return;
-  speak(word, { rate: 0.75 });
+  speak(word, { rate });
 }

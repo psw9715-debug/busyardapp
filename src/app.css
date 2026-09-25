@@ -442,6 +442,9 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
 }
 .diag-row.toggle:active { background: var(--line); border-color: var(--amber); }
 .diag-row.toggle b::after { content: ' ▸'; color: var(--amber); font-weight: 400; }
+/* 바로 위 줄에 딸린 속도 — 한 칸 들여쓰고 조금 작게 */
+.diag-row.sub { margin-left: 14px; padding: 9px 12px; }
+.diag-row.sub b { color: var(--ink-dim); font-weight: 500; }
 .diag-row.toggle b { color: var(--ink); }
 .diag-row.toggle span.no { color: var(--ink-dim); }
 .diag-log { margin-top: 16px; }

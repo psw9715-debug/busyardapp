@@ -1,13 +1,13 @@
-import { YARD } from './yard-data.js?v=202609252255';
-import { BUILD } from './build.js?v=202609252255';
-import { toKoreanSino, walkSay } from './plate.js?v=202609252255';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609252255';
+import { YARD } from './yard-data.js?v=202609252309';
+import { BUILD } from './build.js?v=202609252309';
+import { toKoreanSino, walkSay } from './plate.js?v=202609252309';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609252309';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609252255';
-import { createSync, getToken, setToken } from './sync.js?v=202609252255';
+} from './store.js?v=202609252309';
+import { createSync, getToken, setToken } from './sync.js?v=202609252309';
 
 // ---------------------------------------------------------------- 상태
 
@@ -456,7 +456,7 @@ function goNext() {
 /** 안내 음성. 말하는 동안 자기 목소리가 다시 인식되지 않게 막는다. */
 function announceSpeak(text) {
   if (!ttsOn) return;
-  const ms = speak(text, { rate: SAY_RATE[rateIdx] });
+  const ms = speak(text, { rate: rate.say });
   if (voice) voice.muteFor(ms + 250);
 }
 
@@ -493,11 +493,29 @@ const SETTLE = [
   { ms: 450, label: '보통' },
   { ms: 700, label: '느림' },
 ];
-// 안내 음성 속도. 2회차에 조깅하듯 돌 때는 번호가 짧게 끝나야 걸음을 따라온다.
-const SAY_RATE = [1.25, 1.6, 2];
-const savedRate = Number(localStorage.getItem('busyard:sayrate'));
-let rateIdx = SAY_RATE.indexOf(savedRate);
-if (rateIdx < 0) rateIdx = 1;
+/**
+ * 읽어 주는 속도 — 소리마다 하는 일이 달라 알맞은 빠르기도 다르다.
+ * 숫자 하나는 또박또박, 되읽기는 빠르게, 안내는 그 중간이다.
+ * 각각 진단에서 따로 고른다.
+ */
+const RATES = {
+  say:   { steps: [0.9, 1, 1.25, 1.6, 2], def: 1.25, key: 'busyard:sayrate' },
+  digit: { steps: [0.6, 0.75, 1, 1.3], def: 0.75, key: 'busyard:digitrate' },
+  read:  { steps: [1.1, 1.4, 1.7, 2], def: 1.7, key: 'busyard:readrate' },
+};
+const rate = {};
+for (const [name, r] of Object.entries(RATES)) {
+  const saved = Number(localStorage.getItem(r.key));
+  rate[name] = r.steps.includes(saved) ? saved : r.def;
+}
+
+/** 다음 단계로 돌린다 (마지막 다음은 처음으로) */
+function cycleRate(name) {
+  const r = RATES[name];
+  rate[name] = r.steps[(r.steps.indexOf(rate[name]) + 1) % r.steps.length];
+  localStorage.setItem(r.key, String(rate[name]));
+  return rate[name];
+}
 
 const savedSettle = Number(localStorage.getItem('busyard:settlems'));
 let settleIdx = SETTLE.findIndex((s) => s.ms === savedSettle);
@@ -505,7 +523,7 @@ if (settleIdx < 0) settleIdx = 1;   // 기본 아주 빠름
 
 function readBackPlate(plate) {
   if (!padTtsOn || !plate) return;
-  const ms = speak(toKoreanSino(plate), { rate: 1.7 });
+  const ms = speak(toKoreanSino(plate), { rate: rate.read });
   if (voice) voice.muteFor(ms + 200);
 }
 
@@ -661,7 +679,7 @@ function padKey(k) {
   if (padDigits.length >= 3) return;
   padDigits += k;
   renderPad();
-  if (keyTtsOn) speakDigit(k);   // 무엇을 눌렀는지 귀로 확인
+  if (keyTtsOn) speakDigit(k, rate.digit);   // 무엇을 눌렀는지 귀로 확인
   if (padDigits.length === 3) {
     const plate = '1' + padDigits;
     commit(padSpot, { plate, status: 'filled', confidence: 'high', method: 'keypad' }, { announce: false });
@@ -867,6 +885,12 @@ function doLoadLog(date) {
 
 // ---------------------------------------------------------------- 진단
 
+/** 속도를 한 단계 돌리고(소리로 들려주고) 화면을 새 값으로 다시 그린다 */
+function openDiagAfter(change) {
+  change();
+  openDiag();
+}
+
 function syncText() {
   const st = syncState;
   if (st.state === 'notoken') return '토큰 없음 — 눌러서 넣기';
@@ -882,20 +906,22 @@ function openDiag() {
   const rows = [
     ['음성 인식 지원', isSupported(), isSupported() ? '사용 가능' : '미지원'],
     ['보안 연결(HTTPS)', window.isSecureContext, window.isSecureContext ? '정상' : '마이크 사용 불가'],
-    ['음성 넘어가는 속도', true, `${SETTLE[settleIdx].label} (${SETTLE[settleIdx].ms}ms) — 눌러서 바꾸기`],
-    ['키패드 숫자 읽기', keyTtsOn, keyTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
-    ['다음 자리 안내 음성', ttsOn, ttsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
-    ['키패드 입력 되읽기', padTtsOn, padTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기'],
-    ['읽어주는 속도', true, `${SAY_RATE[rateIdx]}배 — 눌러서 바꾸기`],
+    ['음성 넘어가는 속도', true, `${SETTLE[settleIdx].label} (${SETTLE[settleIdx].ms}ms) — 눌러서 바꾸기`, 'settle'],
+    ['키패드 숫자 읽기', keyTtsOn, keyTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기', 'keytts'],
+    ['└ 숫자 읽는 속도', true, `${rate.digit}배 — 눌러서 바꾸기`, 'digitrate'],
+    ['다음 자리 안내 음성', ttsOn, ttsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기', 'tts'],
+    ['└ 자리·번호 읽는 속도', true, `${rate.say}배 — 눌러서 바꾸기`, 'sayrate'],
+    ['키패드 입력 되읽기', padTtsOn, padTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기', 'padtts'],
+    ['└ 되읽는 속도', true, `${rate.read}배 — 눌러서 바꾸기`, 'readrate'],
     ['화면 꺼짐 방지', 'wakeLock' in navigator, 'wakeLock' in navigator ? '지원' : '미지원'],
     ['홈화면 설치 상태', window.navigator.standalone === true, window.navigator.standalone ? '설치됨' : '사파리 탭'],
     ['네트워크', navigator.onLine, navigator.onLine ? '온라인' : '오프라인 — 음성 불가'],
-    ['PC 전송', syncState.state === 'ok' || syncState.state === 'idle', syncText()],
+    ['PC 전송', syncState.state === 'ok' || syncState.state === 'idle', syncText(), 'sync'],
   ];
-  const TOGGLES = ['안내 음성', '되읽기', '숫자 읽기', '넘어가는 속도', '읽어주는 속도', 'PC 전송'];
-  $('diagBody').innerHTML = rows.map(([k, ok, v]) => {
-    const toggle = TOGGLES.some((t) => k.includes(t)) ? ' toggle' : '';
-    return `<div class="diag-row${toggle}"><b>${k}</b><span class="${ok ? 'ok' : 'no'}">${v}</span></div>`;
+  $('diagBody').innerHTML = rows.map(([k, ok, v, act]) => {
+    const sub = k.startsWith('└') ? ' sub' : '';
+    return `<div class="diag-row${act ? ' toggle' : ''}${sub}"${act ? ` data-act="${act}"` : ''}>`
+      + `<b>${k}</b><span class="${ok ? 'ok' : 'no'}">${v}</span></div>`;
   }).join('') +
   `<div class="diag-row"><b>저장된 순회</b><span>${workDate()} · ${countFilled(session)}건</span></div>`;
 
@@ -1151,7 +1177,7 @@ function init() {
     if (targetDigits.length >= 3) return;
     targetDigits += k;
     renderTargetPad();
-    if (keyTtsOn) speakDigit(k);   // 여기서도 무엇을 눌렀는지 귀로 확인
+    if (keyTtsOn) speakDigit(k, rate.digit);   // 여기서도 무엇을 눌렀는지 귀로 확인
     if (targetDigits.length === 3) {
       const plate = '1' + targetDigits;
       if (targets.length >= MAX_TARGETS) {
@@ -1238,36 +1264,37 @@ function init() {
   });
   $('diagBody').addEventListener('click', (ev) => {
     const row = ev.target.closest('.diag-row');
-    if (!row) return;
-    const name = row.querySelector('b').textContent;
+    if (!row || !row.dataset.act) return;
     primeAudio();
 
-    if (name.includes('안내 음성')) {
+    // 속도는 바꾸는 즉시 그 속도로 들려준다 — 귀로 고르는 것이 빠르다
+    if (row.dataset.act === 'tts') {
       ttsOn = !ttsOn;
       localStorage.setItem('busyard:tts', ttsOn ? '1' : '0');
       openDiag();
-      if (ttsOn) speak('다음 자리를 읽어 드립니다');
-    } else if (name.includes('되읽기')) {
+      if (ttsOn) speak('다음 자리를 읽어 드립니다', { rate: rate.say });
+    } else if (row.dataset.act === 'padtts') {
       padTtsOn = !padTtsOn;
       localStorage.setItem('busyard:padtts', padTtsOn ? '1' : '0');
       openDiag();
-      if (padTtsOn) speak(toKoreanSino('1734'), { rate: 1.7 });   // 실제 속도로 미리 들려준다
-    } else if (name.includes('숫자 읽기')) {
+      if (padTtsOn) speak(toKoreanSino('1734'), { rate: rate.read });
+    } else if (row.dataset.act === 'keytts') {
       keyTtsOn = !keyTtsOn;
       localStorage.setItem('busyard:keytts', keyTtsOn ? '1' : '0');
       openDiag();
-      if (keyTtsOn) speakDigit('7');
-    } else if (name.includes('읽어주는 속도')) {
-      rateIdx = (rateIdx + 1) % SAY_RATE.length;
-      localStorage.setItem('busyard:sayrate', String(SAY_RATE[rateIdx]));
-      openDiag();
-      speak(toKoreanSino('1734'), { rate: SAY_RATE[rateIdx] });   // 실제 속도로 들려준다
-    } else if (name.includes('넘어가는 속도')) {
+      if (keyTtsOn) speakDigit('7', rate.digit);
+    } else if (row.dataset.act === 'sayrate') {
+      openDiagAfter(() => speak(toKoreanSino('1734'), { rate: cycleRate('say') }));
+    } else if (row.dataset.act === 'digitrate') {
+      openDiagAfter(() => speakDigit('7', cycleRate('digit')));
+    } else if (row.dataset.act === 'readrate') {
+      openDiagAfter(() => speak(toKoreanSino('1734'), { rate: cycleRate('read') }));
+    } else if (row.dataset.act === 'settle') {
       settleIdx = (settleIdx + 1) % SETTLE.length;
       localStorage.setItem('busyard:settlems', String(SETTLE[settleIdx].ms));
       if (voice) voice.setSettle(SETTLE[settleIdx].ms);
       openDiag();
-    } else if (name.includes('PC 전송')) {
+    } else if (row.dataset.act === 'sync') {
       if (!getToken() || (syncState.detail || '').includes('토큰')) {
         const t = prompt('GitHub 토큰을 붙여 넣으세요 (PC 인쇄용 판 올리기)', '');
         if (t === null) return;
