@@ -5,7 +5,7 @@
 저장소의 inbox 가지를 우편함처럼 쓴다.
 
     폰  inbox/<날짜>.json   그날 판 (입력이 멎을 때마다 올린다)
-    폰  inbox/print.json    인쇄 요청 {id, date, at} — [인쇄] 를 누르면
+    폰  inbox/print.json    요청 {id, date, at, what} — what 은 'paper'(종이) 또는 'excel'
     PC  inbox/status.json   인쇄 결과 {id, state, msg, at} — 폰이 이걸 보고 "인쇄 완료" 를 띄운다
 
 PC 쪽은 전부 git 으로 주고받는다. 이 PC 의 git 은 이미 GitHub 에 로그인돼 있어 토큰이
@@ -210,23 +210,28 @@ def _save_last(id_):
         f.write(id_)
 
 
-def handle(req, log):
-    """인쇄 요청 하나를 처리하고 폰에 결과를 알린다"""
+def handle(req, log, notify=None):
+    """폰이 보낸 요청 하나를 처리하고 결과를 폰에 알린다"""
     now = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
+    excel = req.get("what") == "excel"
+    what = "운영관리 엑셀" if excel else "종이 인쇄"
     try:
-        summary = save_and_print(req["date"])
-        if summary is None:
-            state, msg = "nodata", f"{req['date']} 판이 GitHub 에 없습니다"
+        if excel:
+            import ops_fill
+            state, msg = "done", ops_fill.run(board_date=req["date"], log=log)
         else:
-            state, msg = "done", summary
+            summary = save_and_print(req["date"])
+            state, msg = ("nodata", f"{req['date']} 판이 GitHub 에 없습니다") if summary is None else ("done", summary)
     except Exception as e:                    # 프린터·엑셀 오류도 폰에 그대로 알린다
         state, msg = "fail", str(e)
-    log(f"{'🖨' if state == 'done' else '⚠'} [순회판] 폰 인쇄 요청 — {msg}")
+    log(f"{'🖨' if state == 'done' else '⚠'} [순회판] 폰 요청({what}) — {msg}")
     write_status({"id": req["id"], "state": state, "msg": msg, "at": now()})
+    if notify:
+        notify(state == "done", f"{what} — {msg}")
 
 
-def watch(log=print, stop=None):
-    """inbox 가지를 5초마다 보고, 새 인쇄 요청이 오면 인쇄한다. stop() 이 참이면 끝낸다."""
+def watch(log=print, stop=None, notify=None):
+    """inbox 가지를 5초마다 보고, 폰이 보낸 요청을 처리한다. stop() 이 참이면 끝낸다."""
     handled = _load_last()
     seen = None
     last_err = None
@@ -243,7 +248,7 @@ def watch(log=print, stop=None):
                     handled = req["id"]
                     _save_last(handled)       # 뽑다가 죽어도 같은 요청을 다시 뽑지 않게 먼저 적는다
                     if what == "print":
-                        handle(req, log)
+                        handle(req, log, notify)
                     else:
                         log(f"⏭ [순회판] {req['at']} 요청은 10분이 지나 뽑지 않음")
             last_err = None

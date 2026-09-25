@@ -96,15 +96,19 @@ export function createSync({ getSession, onStatus }) {
     /** 올릴 것이 남아 있는가 (앱이 가려질 때 바로 올리려고) */
     pending: () => timer !== null,
 
-    /** 지금 판을 올리고 PC 에 인쇄를 부탁한다. 요청 id 를 돌려준다. 실패하면 throw. */
-    async requestPrint() {
+    /**
+     * 지금 판을 올리고 PC 에 부탁한다. what 은 'paper'(종이 인쇄) 또는 'excel'(운영관리 엑셀).
+     * 요청 id 를 돌려준다. 실패하면 throw.
+     */
+    async requestPrint(what) {
       clearTimeout(timer);
       timer = null;
       await putBoard();
       onStatus({ state: 'ok', at: new Date() });
       const session = getSession();
       const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-      await put('print.json', { id, date: session.date, at: new Date().toISOString() }, `${session.date} 인쇄 요청`);
+      await put('print.json', { id, date: session.date, at: new Date().toISOString(), what },
+        `${session.date} ${what === 'excel' ? '엑셀 입력' : '인쇄'} 요청`);
       return id;
     },
 

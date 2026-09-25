@@ -1,13 +1,13 @@
-import { YARD } from './yard-data.js?v=202609252309';
-import { BUILD } from './build.js?v=202609252309';
-import { toKoreanSino, walkSay } from './plate.js?v=202609252309';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609252309';
+import { YARD } from './yard-data.js?v=202609260048';
+import { BUILD } from './build.js?v=202609260048';
+import { toKoreanSino, walkSay } from './plate.js?v=202609260048';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609260048';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609252309';
-import { createSync, getToken, setToken } from './sync.js?v=202609252309';
+} from './store.js?v=202609260048';
+import { createSync, getToken, setToken } from './sync.js?v=202609260048';
 
 // ---------------------------------------------------------------- 상태
 
@@ -986,9 +986,13 @@ async function forceUpdate() {
 
 // ---------------------------------------------------------------- 인쇄
 
-// 인쇄는 사무실 PC 가 한다. 폰은 판과 인쇄 요청을 GitHub 에 올리고, PC(sctc-copy 안의
-// tools/inbox.py)가 받아 원본 엑셀에 채워 뽑은 뒤 결과를 남긴다. 폰은 그 결과를 읽어 보여 준다.
-const PRINT_WAIT_MS = 90000;
+// 인쇄도 엑셀 입력도 사무실 PC 가 한다. 폰은 판과 요청을 GitHub 에 올리고,
+// PC(sctc-copy 안의 tools/inbox.py)가 받아 종이로 뽑거나 운영관리 엑셀에 넣고 결과를 남긴다.
+//
+//   종이 인쇄 — 원본 엑셀에 채워 기본 프린터로
+//   엑셀 입력 — 그날 "입출차 운영관리" 의 6차고지 칸에 그대로 (손으로 옮겨 적던 일)
+// 종이는 금방 나오지만, 운영관리 엑셀은 파일이 무거워 여는 데만 30초가 넘는다
+const WAIT_MS = { paper: 90000, excel: 300000 };
 let printing = false;   // 보낸 요청의 결과를 기다리는 중
 
 function printMsg(text, kind) {
@@ -996,15 +1000,21 @@ function printMsg(text, kind) {
   $('printMsg').className = 'print-msg' + (kind ? ' ' + kind : '');
 }
 
-async function doPrint() {
+/** 인쇄 시트를 연다. 무엇을 할지는 시트 안에서 고른다. */
+function openPrint() {
   const done = countFilled(session);
   if (done === 0) { note('입력된 자리가 없습니다', 'warn'); beep('error'); return; }
   const r2 = countRound(session.entries, 2);
   $('printCount').textContent = r2 > 0
     ? `모두 ${done}자리 — 2회차 ${r2}자리는 진하게, 1회차는 흐리게`
     : `${done}자리 입력됨 · ${ALL - done}자리 비어 있음`;
+  if (!printing) printMsg(getToken() ? '' : '토큰이 없습니다 — [진단] → PC 전송에서 넣으세요',
+    getToken() ? '' : 'no');
   $('printSheet').hidden = false;
-  if (printing) return;   // 이미 보낸 것을 기다리는 중 — 다시 눌러도 두 번 뽑지 않는다
+}
+
+async function doPrint(what) {
+  if (printing) return;   // 이미 보낸 것을 기다리는 중 — 두 번 하지 않는다
   if (!getToken()) {
     printMsg('토큰이 없습니다 — [진단] → PC 전송에서 넣으세요', 'no');
     beep('error');
@@ -1015,16 +1025,18 @@ async function doPrint() {
   printMsg('PC로 보내는 중…');
   let id;
   try {
-    id = await sync.requestPrint();
+    id = await sync.requestPrint(what);
   } catch (err) {
     printing = false;
     printMsg(`보내지 못했습니다: ${err.message} — 다시 누르세요`, 'no');
     beep('error');
     return;
   }
-  printMsg('PC가 인쇄하기를 기다리는 중…');
+  printMsg(what === 'excel'
+    ? 'PC가 엑셀에 넣는 중… (파일이 커서 1~2분 걸립니다)'
+    : 'PC가 인쇄하기를 기다리는 중…');
 
-  const until = Date.now() + PRINT_WAIT_MS;
+  const until = Date.now() + WAIT_MS[what];
   while (Date.now() < until) {
     await new Promise((r) => setTimeout(r, 3000));
     let st = null;
@@ -1032,17 +1044,17 @@ async function doPrint() {
     if (!st || st.id !== id) continue;
     printing = false;
     if (st.state === 'done') {
-      printMsg(`인쇄했습니다 — ${st.msg}`, 'ok');
+      printMsg(`${what === 'excel' ? '엑셀에 넣었습니다' : '인쇄했습니다'} — ${st.msg}`, 'ok');
       beep('done');
     } else {
-      printMsg(`PC가 인쇄하지 못했습니다: ${st.msg}`, 'no');
+      printMsg(`PC가 하지 못했습니다: ${st.msg}`, 'no');
       beep('error');
     }
     return;
   }
   printing = false;
   printMsg('PC 응답이 없습니다 — PC의 sctc-copy 가 켜져 있는지 확인하세요. '
-    + '10분 안에 켜지면 그때 인쇄됩니다.', 'no');
+    + '10분 안에 켜지면 그때 처리됩니다.', 'no');
   beep('warn');
 }
 
@@ -1068,7 +1080,9 @@ function init() {
   $('btnVacant').addEventListener('click', () => { primeAudio(); markVacant(); });
   $('btnNext').addEventListener('click', () => { primeAudio(); goNext(); });
   $('btnPad').addEventListener('click', () => openPad(cursor));
-  $('btnPrint').addEventListener('click', doPrint);
+  $('btnPrint').addEventListener('click', openPrint);
+  $('printPaper').addEventListener('click', () => doPrint('paper'));
+  $('printExcel').addEventListener('click', () => doPrint('excel'));
   $('btnDiag').addEventListener('click', openDiag);
 
   // ---- 차량번호 찾기 ----
