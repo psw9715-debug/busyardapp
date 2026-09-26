@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202609270058';
-import { YARD_OLD } from './yard-old-data.js?v=202609270058';
-import { BUILD } from './build.js?v=202609270058';
-import { toKoreanSino, walkSay } from './plate.js?v=202609270058';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609270058';
+import { YARD as YARD_NEW } from './yard-data.js?v=202609270116';
+import { YARD_OLD } from './yard-old-data.js?v=202609270116';
+import { BUILD } from './build.js?v=202609270116';
+import { toKoreanSino, walkSay } from './plate.js?v=202609270116';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609270116';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609270058';
-import { createSync, getToken, setToken } from './sync.js?v=202609270058';
+} from './store.js?v=202609270116';
+import { createSync, getToken, setToken } from './sync.js?v=202609270116';
 
 // ---------------------------------------------------------------- 상태
 
@@ -509,21 +509,22 @@ let saidSeg = null;
 
 /**
  * 커서가 선 자리를 읽어 준다.
- * 1회차는 갈 자리를 불러 주면 되고, 2회차 확인은 눈앞의 차와 맞춰 볼
- * "적혀 있는 번호" 를 불러 줘야 한다.
+ *
+ * 한 대 넣을 때마다 다음 자리를 불러 주면 쉴 새 없이 떠들어 정신이 없다.
+ * 어차피 한 줄을 따라 차례로 가므로, **구역이 바뀌는 첫 자리에서만** 불러 준다
+ * ("비 이 일번", "정비 일번"). 2회차 확인은 눈앞의 차와 맞춰 볼 번호가 필요하니
+ * 구역 안에서도 적힌 번호를 읽어 준다.
  */
 function announceCursor() {
   const cell = SPOT.get(cursor);
   const newSeg = !cell || cell.seg !== saidSeg;
   saidSeg = cell ? cell.seg : null;
   if (round === 2) announceSpeak(walkSay(spotSay(cursor), session.entries[cursor], newSeg));
-  else announceSpeak(spotSay(cursor));
+  else if (newSeg) announceSpeak(spotSay(cursor));
 }
 
 // 2회차 확인은 적힌 번호를 귀로 듣는 것이 핵심이라 기본 켜짐
 let ttsOn = localStorage.getItem('busyard:tts') !== '0';
-// 키패드로 넣은 번호를 한국식으로 되읽어 확인시켜 준다 ("734" -> "천칠백삼십사")
-let padTtsOn = localStorage.getItem('busyard:padtts') === '1';
 // 키패드에서 누른 숫자를 바로 읽어준다 ("7" -> "칠"). 기본 켜짐.
 let keyTtsOn = localStorage.getItem('busyard:keytts') !== '0';
 
@@ -539,13 +540,11 @@ const SETTLE = [
 ];
 /**
  * 읽어 주는 속도 — 소리마다 하는 일이 달라 알맞은 빠르기도 다르다.
- * 숫자 하나는 또박또박, 되읽기는 빠르게, 안내는 그 중간이다.
- * 각각 진단에서 따로 고른다.
+ * 숫자 하나는 또박또박, 자리 안내는 그보다 빠르게. 각각 진단에서 따로 고른다.
  */
 const RATES = {
   say:   { steps: [0.9, 1, 1.25, 1.6, 2], def: 1.25, key: 'busyard:sayrate' },
   digit: { steps: [0.6, 0.75, 1, 1.3], def: 0.75, key: 'busyard:digitrate' },
-  read:  { steps: [1.1, 1.4, 1.7, 2], def: 1.7, key: 'busyard:readrate' },
 };
 const rate = {};
 for (const [name, r] of Object.entries(RATES)) {
@@ -564,12 +563,6 @@ function cycleRate(name) {
 const savedSettle = Number(localStorage.getItem('busyard:settlems'));
 let settleIdx = SETTLE.findIndex((s) => s.ms === savedSettle);
 if (settleIdx < 0) settleIdx = 1;   // 기본 아주 빠름
-
-function readBackPlate(plate) {
-  if (!padTtsOn || !plate) return;
-  const ms = speak(toKoreanSino(plate), { rate: rate.read });
-  if (voice) voice.muteFor(ms + 200);
-}
 
 // ---------------------------------------------------------------- 음성
 
@@ -774,9 +767,9 @@ function padKey(k) {
       { announce: false });
     note(`승용차 ${phoneText(phone)}`);
   } else {
+    // 누를 때마다 숫자를 하나씩 읽어 줬으니 다 넣고 또 읽어 줄 것은 없다
     const plate = '1' + padDigits;
     commit(padSpot, { plate, status: 'filled', confidence: 'high', method: 'keypad' }, { announce: false });
-    readBackPlate(plate);
   }
   if (closePadOn) {
     // 한 대 넣고 시트를 닫으면 뒤에 있던 지도와 주황 칸이 바로 보인다.
@@ -795,7 +788,11 @@ let sheetSpot = null;
 function openSpotSheet(spot) {
   sheetSpot = spot;
   const e = session.entries[spot];
-  $('spotTitle').textContent = `${spotName(spot)}번 자리` + (e ? ` — ${e.status === 'vacant' ? '공차' : e.plate}` : '');
+  // 승용차는 전화번호가 알맹이다. 종이에는 안 찍고 여기서 눌러 보게 한다.
+  const what = !e ? '' : e.status === 'vacant' ? ' — 공차'
+    : e.status === 'car' ? ` — 승용차 ${phoneText(e.phone)}`
+      : ` — ${e.plate}`;
+  $('spotTitle').textContent = `${spotName(spot)}번 자리${what}`;
   $('spotClear').hidden = !e;
   $('spotGoto').hidden = spot > TOTAL;
   $('spotSheet').hidden = false;
@@ -1056,8 +1053,6 @@ function openDiag() {
     ['└ 숫자 읽는 속도', true, `${rate.digit}배 — 눌러서 바꾸기`, 'digitrate'],
     ['다음 자리 안내 음성', ttsOn, ttsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기', 'tts'],
     ['└ 자리·번호 읽는 속도', true, `${rate.say}배 — 눌러서 바꾸기`, 'sayrate'],
-    ['키패드 입력 되읽기', padTtsOn, padTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기', 'padtts'],
-    ['└ 되읽는 속도', true, `${rate.read}배 — 눌러서 바꾸기`, 'readrate'],
     ['번호 넣으면 키패드 닫기', closePadOn, closePadOn ? '닫음 — 지도가 바로 보임' : '열어 둠 — 계속 입력',
      'closepad'],
     ['화면 꺼짐 방지', 'wakeLock' in navigator, 'wakeLock' in navigator ? '지원' : '미지원'],
@@ -1442,11 +1437,6 @@ function init() {
       localStorage.setItem('busyard:tts', ttsOn ? '1' : '0');
       openDiag();
       if (ttsOn) speak('다음 자리를 읽어 드립니다', { rate: rate.say });
-    } else if (row.dataset.act === 'padtts') {
-      padTtsOn = !padTtsOn;
-      localStorage.setItem('busyard:padtts', padTtsOn ? '1' : '0');
-      openDiag();
-      if (padTtsOn) speak(toKoreanSino('1734'), { rate: rate.read });
     } else if (row.dataset.act === 'keytts') {
       keyTtsOn = !keyTtsOn;
       localStorage.setItem('busyard:keytts', keyTtsOn ? '1' : '0');
@@ -1456,8 +1446,6 @@ function init() {
       openDiagAfter(() => speak(toKoreanSino('1734'), { rate: cycleRate('say') }));
     } else if (row.dataset.act === 'digitrate') {
       openDiagAfter(() => speakDigit('7', cycleRate('digit')));
-    } else if (row.dataset.act === 'readrate') {
-      openDiagAfter(() => speak(toKoreanSino('1734'), { rate: cycleRate('read') }));
     } else if (row.dataset.act === 'closepad') {
       closePadOn = !closePadOn;
       localStorage.setItem('busyard:closepad', closePadOn ? '1' : '0');

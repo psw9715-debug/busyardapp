@@ -173,27 +173,16 @@ def fill(board, out_path):
     ws.sheet_properties.pageSetUpPr = PageSetupProperties(fitToPage=True)
 
     n = 0
-    no_phone = 0                        # 전화번호 없이 온 승용차 — 폰 앱이 옛 버전이면 이렇게 온다
     for spot, e in entries.items():
         xl = cells.get(int(spot))
         if not xl:
             continue
         cell = ws[xl]
-        if e.get("status") == "car" and not e.get("phone"):
-            no_phone += 1
-            continue                    # 적을 것이 없다. 아래에서 몇 칸인지 알린다
         if e.get("status") == "car":
-            # 버스 자리에 선 승용차 — 한 칸에 세 줄로 (010 / 1234 / 5678)
-            p = e["phone"]
-            cell.value = f"{p[:3]}\n{p[3:7]}\n{p[7:]}"
-            align = copy.copy(cell.alignment)
-            align.wrapText = True          # 스타일은 통째로 갈아 끼워야 한다
-            cell.alignment = align
-            # 차량번호 크기 그대로면 세 줄이 칸을 넘어 마지막 줄이 잘린다
-            font = copy.copy(cell.font)
-            font.sz = (cell.font.sz or 20) * 0.45
-            cell.font = font
-        elif e.get("status") == "filled" and e.get("plate"):
+            # 승용차 전화번호는 종이에 찍지 않는다 — 개인 번호이고, 2차 순찰 전에 빠질 차다.
+            # 번호는 폰에서 그 칸을 눌러 본다.
+            continue
+        if e.get("status") == "filled" and e.get("plate"):
             cell.value = e["plate"]
         else:
             continue                            # 공차는 종이에서 빈 칸
@@ -204,7 +193,6 @@ def fill(board, out_path):
             cell.font = font
         n += 1
     wb.save(out_path)
-    fill.no_phone = no_phone
     return n
 
 
@@ -232,9 +220,7 @@ def save_and_print(date, do_print=True, yard="new"):
     n = fill(board, base + ".xlsx")
     if do_print:
         print_xlsx(base + ".xlsx")
-    short = getattr(fill, "no_phone", 0)
-    warn = f" ⚠ 승용차 {short}칸은 전화번호 없이 와서 비워 둠 (폰 앱을 최신으로)" if short else ""
-    return f"{date} {n}대{warn}"
+    return f"{date} {n}대"
 
 
 # ---- 폰의 인쇄 요청 기다리기 ----------------------------------------------
