@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202609262156';
-import { YARD_OLD } from './yard-old-data.js?v=202609262156';
-import { BUILD } from './build.js?v=202609262156';
-import { toKoreanSino, walkSay } from './plate.js?v=202609262156';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609262156';
+import { YARD as YARD_NEW } from './yard-data.js?v=202609262219';
+import { YARD_OLD } from './yard-old-data.js?v=202609262219';
+import { BUILD } from './build.js?v=202609262219';
+import { toKoreanSino, walkSay } from './plate.js?v=202609262219';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609262219';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609262156';
-import { createSync, getToken, setToken } from './sync.js?v=202609262156';
+} from './store.js?v=202609262219';
+import { createSync, getToken, setToken } from './sync.js?v=202609262219';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1459,9 +1459,18 @@ function init() {
     }
   });
 
-  // 주머니에 넣느라 화면이 꺼지면 30초를 기다리지 않고 바로 올린다
+  // 주머니에 넣느라 화면이 꺼지면 30초를 기다리지 않고 바로 올린다.
+  // 다시 꺼내 볼 때는 새 버전이 올라왔는지도 본다 — 앱을 켜 둔 채 며칠을 보내면
+  // 켤 때 한 번 하는 확인만으로는 옛 코드가 계속 돈다.
+  let lastCheck = Date.now();
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && sync.pending()) sync.flush();
+    if (document.hidden) {
+      if (sync.pending()) sync.flush();
+      return;
+    }
+    if (Date.now() - lastCheck < 300000) return;
+    lastCheck = Date.now();
+    checkForUpdate();
   });
 
   [$('padSheet'), $('spotSheet'), $('diagSheet')].forEach((bg) =>
