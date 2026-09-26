@@ -21,6 +21,8 @@ export function boardPayload(session) {
   const entries = {};
   for (const [n, e] of Object.entries(session.entries)) {
     entries[n] = { plate: e.plate, status: e.status, round: e.round || 1 };
+    // 승용차는 전화번호가 알맹이다 — 이것이 빠지면 인쇄물에 아무것도 안 나온다
+    if (e.phone) entries[n].phone = e.phone;
   }
   return { date: session.date, yard: session.yard, layout: session.layout, updatedAt: session.updatedAt, entries };
 }

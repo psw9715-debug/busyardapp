@@ -212,6 +212,14 @@ log('<h2>▶ PC 로 보낼 판 — 인쇄에 쓰는 것만 추린다</h2>');
       3: { plate: '1003', status: 'filled', round: 1 },
     },
   }, '회차가 빠진 옛 기록은 1회차로');
+
+  // 승용차는 전화번호가 알맹이다. 빼고 보내면 인쇄물에 아무것도 안 나온다.
+  const car = { yard: 'old', date: '2026-09-26', layout: 3, updatedAt: 'x', entries: {
+    5: { plate: null, phone: '01098765432', status: 'car', confidence: 'high', method: 'keypad', round: 1 },
+  } };
+  eq(boardPayload(car).entries, {
+    5: { plate: null, status: 'car', round: 1, phone: '01098765432' },
+  }, '승용차는 전화번호까지 보낸다');
   eq(atob(toBase64('abc')), 'abc', 'base64 — 영문');
   eq(new TextDecoder().decode(Uint8Array.from(atob(toBase64('휴게실-1')), (c) => c.charCodeAt(0))), '휴게실-1', 'base64 — 한글');
 }

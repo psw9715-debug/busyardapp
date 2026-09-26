@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202609260608';
-import { YARD_OLD } from './yard-old-data.js?v=202609260608';
-import { BUILD } from './build.js?v=202609260608';
-import { toKoreanSino, walkSay } from './plate.js?v=202609260608';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609260608';
+import { YARD as YARD_NEW } from './yard-data.js?v=202609262156';
+import { YARD_OLD } from './yard-old-data.js?v=202609262156';
+import { BUILD } from './build.js?v=202609262156';
+import { toKoreanSino, walkSay } from './plate.js?v=202609262156';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609262156';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609260608';
-import { createSync, getToken, setToken } from './sync.js?v=202609260608';
+} from './store.js?v=202609262156';
+import { createSync, getToken, setToken } from './sync.js?v=202609262156';
 
 // ---------------------------------------------------------------- 상태
 
@@ -675,6 +675,8 @@ function openPad(spot) {
   $('padTitle').textContent = padTitleOf(spot);
   renderPad();
   $('padSheet').hidden = false;
+  document.body.classList.add('pad-open');
+  revealCursor();
 }
 
 /** 입력·이전·다음 뒤에 커서가 간 자리를 이어서 받는다 */
@@ -682,10 +684,12 @@ function padFollowCursor() {
   padSpot = cursor; padDigits = ''; padPhone = false;
   $('padTitle').textContent = padTitleOf(padSpot);
   renderPad();
+  revealCursor();
 }
 
 function closePad() {
   $('padSheet').hidden = true;
+  document.body.classList.remove('pad-open');
 }
 function renderPad() {
   if (padPhone) {
@@ -705,6 +709,14 @@ function renderPad() {
     el.classList.toggle('set', Boolean(ch));
   });
 }
+/** 키패드가 덮고 있어도 지금 자리는 배치도에서 보이게 밀어 올린다 */
+function revealCursor() {
+  const el = cellEls.get(cursor);
+  if (!el) return;
+  // 키패드 위에 남는 띠가 좁다. 가운데가 아니라 맨 위에 붙여야 그 띠 안에 들어온다.
+  try { el.scrollIntoView({ block: 'start', inline: 'center' }); } catch (_) { /* 옛 사파리 */ }
+}
+
 /** 키패드 머리에 쓰는 자리 이름 */
 const padTitleOf = (spot) => (OLD_YARD ? `${spotZone(spot)} ${spotName(spot).split('-').pop()}번 자리`
   : `${spotName(spot)}번 자리`);

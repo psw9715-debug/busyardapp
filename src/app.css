@@ -514,6 +514,12 @@ body.yard-old .pad-keys .car { display: block; color: var(--violet-ink); }
 }
 body.round2 .pad-keys .ok { display: block; }
 .pad-keys .seg { grid-column: 1 / -1; }
+/* 구차고지는 승용차 키가 한 칸, 다음 구역이 나머지 두 칸 — 한 줄로 줄여 배치도를 더 보인다 */
+body.yard-old .pad-keys .seg { grid-column: span 2; }
+
+/* 키패드를 열면 그 아래가 가려진다. 배치도 밑에 빈 자리를 붙여 위로 밀어 올릴 수 있게 하고,
+   지금 자리가 키패드 위쪽 띠에 오도록 스스로 움직인다. */
+body.pad-open .mapwrap { padding-bottom: 65vh; }
 /* 구역 건너뛰기는 2회차에 드물게 쓴다 — 자리는 두되 낮게 */
 body.round2 .pad-keys .seg { font-size: 14px; padding: 10px 0; }
 
