@@ -6,7 +6,7 @@
 // entries 는 `{ "1-1": { plate, rest, out }, … }` 꼴이고 키가 자리번호라
 // 한 자리에 두 대가 들어가는 일이 구조적으로 생기지 않는다.
 
-import { YARD12 } from './yard12-data.js?v=202609262219';
+import { YARD12 } from './yard12-data.js?v=202609270058';
 
 const Y1 = YARD12.yard1;
 const Y2 = YARD12.yard2;

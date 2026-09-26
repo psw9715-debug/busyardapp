@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202609262219';
-import { YARD_OLD } from './yard-old-data.js?v=202609262219';
-import { BUILD } from './build.js?v=202609262219';
-import { toKoreanSino, walkSay } from './plate.js?v=202609262219';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609262219';
+import { YARD as YARD_NEW } from './yard-data.js?v=202609270058';
+import { YARD_OLD } from './yard-old-data.js?v=202609270058';
+import { BUILD } from './build.js?v=202609270058';
+import { toKoreanSino, walkSay } from './plate.js?v=202609270058';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609270058';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609262219';
-import { createSync, getToken, setToken } from './sync.js?v=202609262219';
+} from './store.js?v=202609270058';
+import { createSync, getToken, setToken } from './sync.js?v=202609270058';
 
 // ---------------------------------------------------------------- 상태
 
@@ -54,9 +54,13 @@ function spotSay(n) {
 // 입력마다 회차 표시가 붙는다. 2회차는 1회차에 비어 있던 자리를 채우러 가는 것이라
 // 기존 입력이 지워지면 안 된다.
 // 회차는 그날 판에만 딸린다. 어제 2회차로 끝냈다고 오늘 첫 순찰이 2회차로 적히면 안 된다.
-let round = ROUNDS.includes(Number(localStorage.getItem('busyard:round')))
-  && localStorage.getItem('busyard:roundDate') === workDate()
-  ? Number(localStorage.getItem('busyard:round')) : 1;
+// 회차는 차고지마다 따로다 — 구차고지를 2회차로 돌다 신차고지로 건너가면
+// 거기는 아직 1회차일 수 있다.
+const ROUND_KEY = `busyard:round:${YARD.id}`;
+const ROUND_DATE_KEY = `busyard:roundDate:${YARD.id}`;
+let round = ROUNDS.includes(Number(localStorage.getItem(ROUND_KEY)))
+  && localStorage.getItem(ROUND_DATE_KEY) === workDate()
+  ? Number(localStorage.getItem(ROUND_KEY)) : 1;
 let session = upgradeSession(mergeLegacyRound2(loadSession(YARD.id, workDate(), 1)), SPOT_BY_XL);
 let cursor = startSpot();
 let voice = null;
@@ -367,7 +371,7 @@ function confirmSpot() {
   paintSpot(cursor);
   renderHud();
   note('');
-  if (!$('padSheet').hidden) padFollowCursor();
+  if (!$('padSheet').hidden) padFollowCursor(); else revealCursor();
   announceCursor();
 }
 
@@ -379,6 +383,7 @@ function commit(spot, entry, { announce = true } = {}) {
   // 예비 칸은 걷는 순서 밖이라 커서를 움직이지 않는다
   const isLast = spot === TOTAL;
   if (spot <= TOTAL) cursor = isLast ? TOTAL : nextSpotAfter(spot);
+  if ($('padSheet').hidden) revealCursor();
   paintSpot(spot);
   paintSpot(cursor);
   renderHud(entry);
@@ -663,6 +668,8 @@ let padSpot = null;
 let padDigits = '';
 // 승용차 전화번호를 받는 중인가. 앞 010 은 고정이라 나머지 여덟 자리만 받는다.
 let padPhone = false;
+// 번호 한 대를 넣으면 키패드를 닫을지. 닫으면 지도에서 다음 자리가 어디인지 바로 보인다.
+let closePadOn = localStorage.getItem('busyard:closepad') === '1';
 
 function openPad(spot) {
   primeAudio();
@@ -771,8 +778,15 @@ function padKey(k) {
     commit(padSpot, { plate, status: 'filled', confidence: 'high', method: 'keypad' }, { announce: false });
     readBackPlate(plate);
   }
-  // 이어서 다음 자리를 계속 찍을 수 있게 시트를 열어 둔다
-  padFollowCursor();
+  if (closePadOn) {
+    // 한 대 넣고 시트를 닫으면 뒤에 있던 지도와 주황 칸이 바로 보인다.
+    // 2회차처럼 "확인하다 가끔 고치는" 걸음에 맞는 방식이다.
+    closePad();
+    revealCursor();
+  } else {
+    // 이어서 다음 자리를 계속 찍을 수 있게 시트를 열어 둔다
+    padFollowCursor();
+  }
 }
 
 // ---------------------------------------------------------------- 자리 탭 시트
@@ -898,8 +912,8 @@ function switchRound(next) {
   if (voice && voice.isOn()) voice.stop();
 
   round = next;
-  localStorage.setItem('busyard:round', String(round));
-  localStorage.setItem('busyard:roundDate', workDate());
+  localStorage.setItem(ROUND_KEY, String(round));
+  localStorage.setItem(ROUND_DATE_KEY, workDate());
   cursor = round === 2 ? 1 : firstEmptySpot();   // 확인은 걷는 순서 첫 자리부터
   saveCursor();
   saidSeg = null;
@@ -1044,6 +1058,8 @@ function openDiag() {
     ['└ 자리·번호 읽는 속도', true, `${rate.say}배 — 눌러서 바꾸기`, 'sayrate'],
     ['키패드 입력 되읽기', padTtsOn, padTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기', 'padtts'],
     ['└ 되읽는 속도', true, `${rate.read}배 — 눌러서 바꾸기`, 'readrate'],
+    ['번호 넣으면 키패드 닫기', closePadOn, closePadOn ? '닫음 — 지도가 바로 보임' : '열어 둠 — 계속 입력',
+     'closepad'],
     ['화면 꺼짐 방지', 'wakeLock' in navigator, 'wakeLock' in navigator ? '지원' : '미지원'],
     ['홈화면 설치 상태', window.navigator.standalone === true, window.navigator.standalone ? '설치됨' : '사파리 탭'],
     ['네트워크', navigator.onLine, navigator.onLine ? '온라인' : '오프라인 — 음성 불가'],
@@ -1442,6 +1458,10 @@ function init() {
       openDiagAfter(() => speakDigit('7', cycleRate('digit')));
     } else if (row.dataset.act === 'readrate') {
       openDiagAfter(() => speak(toKoreanSino('1734'), { rate: cycleRate('read') }));
+    } else if (row.dataset.act === 'closepad') {
+      closePadOn = !closePadOn;
+      localStorage.setItem('busyard:closepad', closePadOn ? '1' : '0');
+      openDiag();
     } else if (row.dataset.act === 'settle') {
       settleIdx = (settleIdx + 1) % SETTLE.length;
       localStorage.setItem('busyard:settlems', String(SETTLE[settleIdx].ms));
