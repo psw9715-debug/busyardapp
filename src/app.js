@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202609270116';
-import { YARD_OLD } from './yard-old-data.js?v=202609270116';
-import { BUILD } from './build.js?v=202609270116';
-import { toKoreanSino, walkSay } from './plate.js?v=202609270116';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609270116';
+import { YARD as YARD_NEW } from './yard-data.js?v=202609280549';
+import { YARD_OLD } from './yard-old-data.js?v=202609280549';
+import { BUILD } from './build.js?v=202609280549';
+import { toKoreanSino, walkSay } from './plate.js?v=202609280549';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609280549';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609270116';
-import { createSync, getToken, setToken } from './sync.js?v=202609270116';
+} from './store.js?v=202609280549';
+import { createSync, getToken, setToken } from './sync.js?v=202609280549';
 
 // ---------------------------------------------------------------- 상태
 
@@ -702,7 +702,10 @@ function renderPad() {
   // 2회차에 눈앞의 차와 맞춰 보는 것이 이 화면이 하는 일이다.
   const e = padDigits ? null : session.entries[padSpot];
   $('padDisplay').className = 'pad-display' + (e ? ' kept' : '');
-  $('padKept').textContent = e ? (e.status === 'vacant' ? '공차' : e.plate) : '';
+  $('padKept').textContent = !e ? ''
+    : e.status === 'vacant' ? '공차'
+      : e.status === 'car' ? '승용차'            // 전화번호는 자리를 눌러 본다
+        : e.plate;
   document.querySelectorAll('#padDisplay .slot').forEach((el, i) => {
     const ch = padDigits[i];
     el.textContent = ch || '_';
@@ -743,7 +746,7 @@ function padKey(k) {
     return;
   }
   if (k === 'vacant') {
-    commit(padSpot, { plate: null, status: 'vacant', confidence: 'high', method: 'keypad' }, { announce: false });
+    commit(padSpot, { plate: null, status: 'vacant', confidence: 'high', method: 'keypad' });
     padFollowCursor();
     return;
   }
@@ -763,13 +766,13 @@ function padKey(k) {
 
   if (padPhone) {
     const phone = '010' + padDigits;
-    commit(padSpot, { plate: null, phone, status: 'car', confidence: 'high', method: 'keypad' },
-      { announce: false });
+    commit(padSpot, { plate: null, phone, status: 'car', confidence: 'high', method: 'keypad' });
     note(`승용차 ${phoneText(phone)}`);
   } else {
-    // 누를 때마다 숫자를 하나씩 읽어 줬으니 다 넣고 또 읽어 줄 것은 없다
+    // 누를 때마다 숫자를 하나씩 읽어 줬으니 넣은 번호를 또 읽어 줄 것은 없다.
+    // 다만 다음 자리는 불러 준다 — 2회차 확인은 그 소리를 따라 걷는다.
     const plate = '1' + padDigits;
-    commit(padSpot, { plate, status: 'filled', confidence: 'high', method: 'keypad' }, { announce: false });
+    commit(padSpot, { plate, status: 'filled', confidence: 'high', method: 'keypad' });
   }
   if (closePadOn) {
     // 한 대 넣고 시트를 닫으면 뒤에 있던 지도와 주황 칸이 바로 보인다.
@@ -926,13 +929,26 @@ function switchRound(next) {
 
   // 구차고지 2회차는 방향이 반대다. 1차 뒤에 들어온 차를 사무실에서 엑셀에 적어 두므로,
   // 그 판을 받아다 깔고 그 위에서 고치고 더한다.
-  if (OLD_YARD && round === 2) pullFromExcel();
+  if (OLD_YARD && round === 2) { pullFromExcel(); return; }
+
+  // 2회차 확인은 손가락을 [확인] 에 올려 두고 도는 걸음이다. 키패드를 열어 두고
+  // 첫 자리의 적힌 번호부터 읽어 준다.
+  if (round === 2) startConfirmWalk();
+  else closePad();
+}
+
+/** 2회차 확인 걸음을 시작한다 — 키패드를 열고 첫 자리를 불러 준다 */
+function startConfirmWalk() {
+  openPad(cursor);
+  announceCursor();
 }
 
 /** PC 에게 원본 엑셀의 지금 자리들을 받아다 판에 깐다 */
 async function pullFromExcel() {
+  // 못 받아 와도 걸음은 시작한다 — 폰에 있는 것만으로라도 돌 수 있어야 한다
   if (!getToken()) {
     note('토큰이 없습니다 — [진단] → PC 전송에서 넣으세요', 'warn');
+    startConfirmWalk();
     return;
   }
   note('PC가 엑셀에서 가져오는 중…');
@@ -942,6 +958,7 @@ async function pullFromExcel() {
   } catch (err) {
     note(`가져오기를 보내지 못했습니다: ${err.message}`, 'warn');
     beep('error');
+    startConfirmWalk();
     return;
   }
 
@@ -964,10 +981,12 @@ async function pullFromExcel() {
     renderHud();
     note(`엑셀에서 ${Object.keys(got.entries).length}대를 받았습니다 — ${spotName(cursor)}번부터`);
     beep('done');
+    startConfirmWalk();
     return;
   }
   note('PC 응답이 없습니다 — sctc-copy 가 켜져 있는지 확인하세요', 'warn');
   beep('warn');
+  startConfirmWalk();
 }
 
 // ---------------------------------------------------------------- 일지 보관

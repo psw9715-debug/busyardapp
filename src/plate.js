@@ -219,6 +219,7 @@ export function extractSequence(text) {
 export function walkSay(spotSay, entry, newSeg) {
   const what = !entry ? '빈칸'
     : entry.status === 'vacant' ? '공차'
+    : entry.status === 'car' ? '승용차'          // 버스 번호가 없으니 읽을 번호도 없다
     : toKoreanSino(entry.plate);
   return newSeg ? `${spotSay}, ${what}` : what;
 }

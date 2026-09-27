@@ -191,6 +191,9 @@ log('<h2>▶ 2회차에 읽어 줄 말 — 구역 안에서는 번호만</h2>');
   eq(walkSay('비 이 일번', { plate: '1355', status: 'filled' }, true), '비 이 일번, 천삼백오십오', '구역이 바뀌면 자리부터');
   eq(walkSay('비 이 일번', { plate: null, status: 'vacant' }, false), '공차', '공차');
   eq(walkSay('비 이 일번', null, true), '비 이 일번, 빈칸', '아직 안 적은 칸');
+  // 승용차는 차량번호가 없다. 없는 번호를 읽으려 들면 "null" 이라고 말한다.
+  eq(walkSay('1차고지 3열 3번', { plate: null, phone: '01012345678', status: 'car' }, false),
+    '승용차', '승용차 칸');
 }
 
 log('<h2>▶ PC 로 보낼 판 — 인쇄에 쓰는 것만 추린다</h2>');
