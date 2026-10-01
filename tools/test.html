@@ -196,6 +196,24 @@ log('<h2>▶ 2회차에 읽어 줄 말 — 구역 안에서는 번호만</h2>');
     '승용차', '승용차 칸');
 }
 
+log('<h2>▶ 그 자리에서 무엇을 읽어 줄까 — 회차마다 다르다</h2>');
+{
+  const { announceText } = await import(`../src/plate.js?t=${Date.now()}`);
+  const car = { plate: '1508', status: 'filled' };
+  const say = (o) => announceText({ spotSay: 'B5 1번', entry: car, ...o });
+
+  // 2회차 확인은 적힌 번호를 귀로 듣는 것이 일 자체다 — 안내 음성을 꺼 두어도 읽어 준다
+  eq(say({ round: 2, newSeg: false, ttsOn: false }), '천오백팔', '2회차 — 꺼 두어도 번호를 읽는다');
+  eq(say({ round: 2, newSeg: true, ttsOn: false }), 'B5 1번, 천오백팔', '2회차 — 구역이 바뀌면 자리부터');
+  eq(announceText({ spotSay: 'B5 1번', entry: null, round: 2, newSeg: false, ttsOn: true }),
+    '빈칸', '2회차 — 아직 안 적은 칸');
+
+  // 1회차는 부르는 대로 받아 적기만 하면 된다. 구역이 바뀔 때만, 그것도 켜 두었을 때만.
+  eq(say({ round: 1, newSeg: true, ttsOn: true }), 'B5 1번', '1회차 — 구역이 바뀌면 자리를');
+  eq(say({ round: 1, newSeg: false, ttsOn: true }), null, '1회차 — 구역 안에서는 말이 없다');
+  eq(say({ round: 1, newSeg: true, ttsOn: false }), null, '1회차 — 꺼 두면 말이 없다');
+}
+
 log('<h2>▶ PC 로 보낼 판 — 인쇄에 쓰는 것만 추린다</h2>');
 {
   const { boardPayload, toBase64 } = await import(`../src/sync.js?t=${Date.now()}`);

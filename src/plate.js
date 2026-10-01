@@ -223,3 +223,20 @@ export function walkSay(spotSay, entry, newSeg) {
     : toKoreanSino(entry.plate);
   return newSeg ? `${spotSay}, ${what}` : what;
 }
+
+
+/**
+ * 그 자리에서 무엇을 읽어 줄지. 아무 말도 안 할 때는 null.
+ *
+ * 회차마다 음성이 하는 일이 다르다.
+ *   1회차 — 부르는 대로 받아 적기만 하면 된다. 한 대마다 다음 자리를 불러 주면
+ *           쉴 새 없이 떠들어 정신이 없으므로 구역이 바뀔 때만, 그것도 켜 두었을 때만.
+ *   2회차 — 적힌 번호를 귀로 듣고 눈앞의 차와 맞춰 보는 것이 일 자체다.
+ *           그래서 "다음 자리 안내 음성" 을 꺼 두어도 읽어 준다. 이것까지 막으면
+ *           확인 걸음이 성립하지 않는다.
+ */
+export function announceText({ round, newSeg, ttsOn, spotSay, entry }) {
+  if (round === 2) return walkSay(spotSay, entry, newSeg);
+  if (!ttsOn || !newSeg) return null;
+  return spotSay;
+}

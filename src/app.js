@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202609280549';
-import { YARD_OLD } from './yard-old-data.js?v=202609280549';
-import { BUILD } from './build.js?v=202609280549';
-import { toKoreanSino, walkSay } from './plate.js?v=202609280549';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202609280549';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610020002';
+import { YARD_OLD } from './yard-old-data.js?v=202610020002';
+import { BUILD } from './build.js?v=202610020002';
+import { toKoreanSino, announceText } from './plate.js?v=202610020002';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610020002';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202609280549';
-import { createSync, getToken, setToken } from './sync.js?v=202609280549';
+} from './store.js?v=202610020002';
+import { createSync, getToken, setToken } from './sync.js?v=202610020002';
 
 // ---------------------------------------------------------------- 상태
 
@@ -414,7 +414,8 @@ function commit(spot, entry, { announce = true } = {}) {
   if (isLast && routeFilled() >= TOTAL) {
     note(`${TOTAL}자리 전부 입력 완료`, 'warn');
     beep('done');
-    if (announce) announceSpeak('순회 완료');
+    // 한 바퀴를 끝낸 한 마디다. 안내를 꺼 두었으면 1회차에서는 소리 없이 끝낸다.
+    if (announce && (ttsOn || round === 2)) announceSpeak('순회 완료');
     return;
   }
   if (announce) announceCursor();
@@ -499,7 +500,7 @@ function goNext() {
 
 /** 안내 음성. 말하는 동안 자기 목소리가 다시 인식되지 않게 막는다. */
 function announceSpeak(text) {
-  if (!ttsOn) return;
+  if (!text) return;
   const ms = speak(text, { rate: rate.say });
   if (voice) voice.muteFor(ms + 250);
 }
@@ -507,20 +508,14 @@ function announceSpeak(text) {
 // 방금 읽어 준 자리의 구역. 구역이 바뀐 첫 칸에서만 자리 이름을 읽는다.
 let saidSeg = null;
 
-/**
- * 커서가 선 자리를 읽어 준다.
- *
- * 한 대 넣을 때마다 다음 자리를 불러 주면 쉴 새 없이 떠들어 정신이 없다.
- * 어차피 한 줄을 따라 차례로 가므로, **구역이 바뀌는 첫 자리에서만** 불러 준다
- * ("비 이 일번", "정비 일번"). 2회차 확인은 눈앞의 차와 맞춰 볼 번호가 필요하니
- * 구역 안에서도 적힌 번호를 읽어 준다.
- */
+/** 커서가 선 자리를 읽어 준다 (무엇을 읽을지는 plate.js 의 announceText 가 정한다) */
 function announceCursor() {
   const cell = SPOT.get(cursor);
   const newSeg = !cell || cell.seg !== saidSeg;
   saidSeg = cell ? cell.seg : null;
-  if (round === 2) announceSpeak(walkSay(spotSay(cursor), session.entries[cursor], newSeg));
-  else if (newSeg) announceSpeak(spotSay(cursor));
+  announceSpeak(announceText({
+    round, newSeg, ttsOn, spotSay: spotSay(cursor), entry: session.entries[cursor],
+  }));
 }
 
 // 2회차 확인은 적힌 번호를 귀로 듣는 것이 핵심이라 기본 켜짐
@@ -1070,7 +1065,7 @@ function openDiag() {
     ['음성 넘어가는 속도', true, `${SETTLE[settleIdx].label} (${SETTLE[settleIdx].ms}ms) — 눌러서 바꾸기`, 'settle'],
     ['키패드 숫자 읽기', keyTtsOn, keyTtsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기', 'keytts'],
     ['└ 숫자 읽는 속도', true, `${rate.digit}배 — 눌러서 바꾸기`, 'digitrate'],
-    ['다음 자리 안내 음성', ttsOn, ttsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기', 'tts'],
+    ['1회차 구역 안내 음성', ttsOn, ttsOn ? '켜짐 — 눌러서 끄기' : '꺼짐 — 눌러서 켜기', 'tts'],
     ['└ 자리·번호 읽는 속도', true, `${rate.say}배 — 눌러서 바꾸기`, 'sayrate'],
     ['번호 넣으면 키패드 닫기', closePadOn, closePadOn ? '닫음 — 지도가 바로 보임' : '열어 둠 — 계속 입력',
      'closepad'],
@@ -1455,7 +1450,7 @@ function init() {
       ttsOn = !ttsOn;
       localStorage.setItem('busyard:tts', ttsOn ? '1' : '0');
       openDiag();
-      if (ttsOn) speak('다음 자리를 읽어 드립니다', { rate: rate.say });
+      if (ttsOn) speak('구역이 바뀔 때 자리를 읽어 드립니다', { rate: rate.say });
     } else if (row.dataset.act === 'keytts') {
       keyTtsOn = !keyTtsOn;
       localStorage.setItem('busyard:keytts', keyTtsOn ? '1' : '0');
