@@ -27,16 +27,32 @@ import os
 import re
 import ssl
 import sys
-import threading
 import time
+import threading
 import traceback
 import urllib.error
+import urllib.parse
 import urllib.request
 
 APP_NAME = "차고지 받아쓰기"
 REPO = "psw9715-debug/busyardapp"
-API = f"https://api.github.com/repos/{REPO}/contents/inbox/{{name}}?ref=inbox"
-POLL_SEC = 10
+# api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
+# raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
+RAW = f"https://raw.githubusercontent.com/{REPO}/inbox/inbox/{{name}}"
+#
+# 얼마나 자주 보는가
+#   폰은 셀룰러, 이 PC 는 사내망 안에 있어 폰이 이 PC 를 직접 부를 길이 없다.
+#   그래서 이쪽에서 우편함을 들여다보는 수밖에 없는데, 아무도 순찰하지 않는
+#   낮에까지 10초마다 볼 일은 없다. 순찰하는 밤에만 바짝 보고, 낮에는 길게 쉰다.
+#   낮에 급히 넣어야 하면 시작 메뉴에서 한 번 껐다 켜면 그 자리에서 본다.
+POLL_BUSY = 10            # 21시~9시 — 순찰하고 엑셀에 넣는 시간
+POLL_IDLE = 900           # 그 밖 — 15분에 한 번만 (하루 요청 수가 1/90 로 줄어든다)
+BUSY_FROM, BUSY_TO = 21, 9
+
+
+def poll_sec(now=None):
+    h = (now or datetime.datetime.now()).hour
+    return POLL_BUSY if h >= BUSY_FROM or h < BUSY_TO else POLL_IDLE
 STALE = datetime.timedelta(minutes=10)      # 이보다 오래된 요청은 적지 않는다
 
 BASE = r"Z:\교통사업처_버스운영센터\상황실"
@@ -51,13 +67,9 @@ HOME = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "�
 LOG_FILE = os.path.join(HOME, "받아쓰기.log")
 LAST_FILE = os.path.join(HOME, "마지막요청.txt")
 
-_lines = []          # 트레이 창에 보여 줄 최근 기록
-
 
 def log(msg):
     line = f"{datetime.datetime.now():%H:%M:%S} {msg}"
-    _lines.append(line)
-    del _lines[:-200]
     os.makedirs(HOME, exist_ok=True)
     try:
         with io.open(LOG_FILE, "a", encoding="utf-8") as f:
@@ -83,8 +95,9 @@ _etags = {}
 
 def fetch(name):
     """inbox 의 파일 하나. 지난번과 같으면 None (바뀐 것이 없다)."""
-    req = urllib.request.Request(API.format(name=name), headers={
-        "Accept": "application/vnd.github.raw+json",
+    # raw 는 5분쯤 묵은 것을 내줄 수 있다. 시각을 붙여 늘 지금 것을 받는다.
+    url = f"{RAW.format(name=urllib.parse.quote(name))}?t={int(time.time())}"
+    req = urllib.request.Request(url, headers={
         "User-Agent": "busyard-agent",
         **({"If-None-Match": _etags[name]} if name in _etags else {}),
     })
@@ -327,7 +340,7 @@ def tick():
 
 
 def loop(stop):
-    log(f"{APP_NAME} 시작 — {POLL_SEC}초마다 확인합니다")
+    log(f"{APP_NAME} 시작 — 밤에는 {POLL_BUSY}초, 낮에는 {POLL_IDLE // 60}분마다 확인합니다")
     last_err = None
     while not stop.is_set():
         try:
@@ -340,7 +353,7 @@ def loop(stop):
                 last_err = msg
             if os.environ.get("BUSYARD_DEBUG"):
                 traceback.print_exc()
-        stop.wait(POLL_SEC)
+        stop.wait(poll_sec())
 
 
 def selftest():
@@ -373,17 +386,11 @@ def selftest():
 
 
 def main():
+    """창도 트레이 아이콘도 없다. 보이지 않게 돌면서 엑셀만 고친다.
+    무엇을 적었는지는 기록 파일에만 남는다. 끄려면 시작 메뉴의 [끄기]."""
     if "--점검" in sys.argv or "--selftest" in sys.argv:
         sys.exit(selftest())
-    stop = threading.Event()
-    threading.Thread(target=loop, args=(stop,), daemon=True).start()
-    try:
-        import tray
-        tray.run(APP_NAME, _lines, stop, tick)
-    except Exception:
-        log("트레이를 띄우지 못했습니다 — 창 없이 계속 돕니다")
-        while not stop.is_set():
-            time.sleep(1)
+    loop(threading.Event())
 
 
 if __name__ == "__main__":
