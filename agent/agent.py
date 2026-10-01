@@ -20,6 +20,7 @@
     신차고지(6차고지)   38~97행   (순찰 양식 3행이 38행 — 35줄 아래)
     구차고지(1·2차고지)  1~34행   (순찰 양식과 행이 그대로 겹친다)
 """
+import base64
 import datetime
 import io
 import json
@@ -39,6 +40,9 @@ REPO = "psw9715-debug/busyardapp"
 # api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
 # raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
 RAW = f"https://raw.githubusercontent.com/{REPO}/inbox/inbox/{{name}}"
+# 결과를 폰에 알리는 것은 올리는 일이라 토큰이 있어야 한다. 설치할 때 받아 둔다.
+# 올리기는 하루에 몇 번뿐이므로 api.github.com 의 한도(토큰 있으면 시간당 5천)로 넉넉하다.
+API = f"https://api.github.com/repos/{REPO}/contents/inbox/{{name}}"
 #
 # 얼마나 자주 보는가
 #   폰은 셀룰러, 이 PC 는 사내망 안에 있어 폰이 이 PC 를 직접 부를 길이 없다.
@@ -66,6 +70,7 @@ YARDS = {
 HOME = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "차고지받아쓰기")
 LOG_FILE = os.path.join(HOME, "받아쓰기.log")
 LAST_FILE = os.path.join(HOME, "마지막요청.txt")
+TOKEN_FILE = os.path.join(HOME, "토큰.txt")
 
 
 def log(msg):
@@ -110,6 +115,69 @@ def fetch(name):
         if e.code in (304, 404):
             return None          # 바뀐 것이 없거나 아직 없는 파일
         raise
+
+
+def token():
+    """설치할 때 받아 둔 토큰. 없으면 엑셀만 고치고 폰에는 알리지 못한다."""
+    # 설치 프로그램이 넣어 준 파일이라 인코딩이 무엇일지 못 믿는다. 토큰은 영문·숫자뿐이다.
+    try:
+        with io.open(TOKEN_FILE, "rb") as f:
+            return f.read().decode("utf-8", "ignore").strip()
+    except Exception:
+        return ""
+
+
+def _api(name, method="GET", body=None, tok=""):
+    req = urllib.request.Request(API.format(name=name), method=method,
+                                 data=json.dumps(body).encode("utf-8") if body else None)
+    req.add_header("Accept", "application/vnd.github+json")
+    req.add_header("User-Agent", "busyard-agent")
+    req.add_header("Authorization", f"Bearer {tok}")
+    if body:
+        req.add_header("Content-Type", "application/json")
+    with urllib.request.urlopen(req, timeout=20, context=_ssl_context()) as res:
+        return json.loads(res.read().decode("utf-8"))
+
+
+def report(req_id, state, msg):
+    """폰에 결과를 돌려준다 (inbox/status.json). 폰은 이것을 보고 결과를 띄운다.
+
+    사무실 PC 도 같은 파일에 쓴다. 한쪽이 이미 '됐다' 고 적어 둔 것을 이쪽의
+    실패로 덮지는 않는다 — 어느 PC 든 한 곳이라도 넣었으면 넣어진 것이다.
+    """
+    tok = token()
+    if not tok:
+        log("ⓘ 토큰이 없어 폰에는 알리지 못했습니다 (엑셀은 고쳤습니다)")
+        return
+    sha = None
+    try:
+        cur = _api("status.json?ref=inbox", tok=tok)
+        sha = cur.get("sha")
+        now = json.loads(base64.b64decode(cur["content"]).decode("utf-8"))
+        if now.get("id") == req_id and now.get("state") == "done" and state != "done":
+            return
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+    at = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds")
+    body = {
+        "message": f"A 결과: {state}",
+        "branch": "inbox",
+        "content": base64.b64encode(json.dumps({
+            "id": req_id, "state": state, "msg": msg, "at": at.replace("+00:00", "Z"),
+        }, ensure_ascii=False).encode("utf-8")).decode("ascii"),
+    }
+    if sha:
+        body["sha"] = sha
+    try:
+        _api("status.json", "PUT", body, tok)
+    except urllib.error.HTTPError as e:
+        if e.code not in (409, 422):
+            raise
+        # 사무실 PC 가 그 틈에 같은 파일을 바꿨다. 지금 것을 다시 받아 그 위에 쓴다.
+        body["sha"] = _api("status.json?ref=inbox", tok=tok).get("sha")
+        _api("status.json", "PUT", body, tok)
+    log(f"📨 폰에 알렸습니다 — {state} · {msg}")
 
 
 # ---- 자리와 칸 -----------------------------------------------------------
@@ -311,18 +379,38 @@ def decide(req, done, now):
 
 
 def handle(req):
+    """엑셀에 적고, 다 되면 폰에 알린다.
+
+    [최종 인쇄] 는 적는 것으로 끝나지 않고 사무실 PC 가 종이로 뽑아야 끝이다.
+    그 결과는 사무실 PC 가 알리므로, 이쪽은 적기만 하고 입을 다문다.
+    """
     yard = req.get("yard", "new")
-    date = datetime.date.fromisoformat(req["date"]) + datetime.timedelta(days=1)
-    board = fetch(f"{req['date']}-{yard}.json")
-    if board is None:
-        _etags.pop(f"{req['date']}-{yard}.json", None)      # 조건부 요청 때문에 비었을 수 있다
+    tell = req.get("what") == "excel"
+    try:
+        date = datetime.date.fromisoformat(req["date"]) + datetime.timedelta(days=1)
         board = fetch(f"{req['date']}-{yard}.json")
-    if board is None:
-        log(f"⚠ {req['date']} {yard} 판을 못 받았습니다")
+        if board is None:
+            _etags.pop(f"{req['date']}-{yard}.json", None)  # 조건부 요청 때문에 비었을 수 있다
+            board = fetch(f"{req['date']}-{yard}.json")
+        if board is None:
+            raise FileNotFoundError(f"{req['date']} {yard} 판을 못 받았습니다")
+        path = find_excel(date)
+        n, was_open = write_board(board, path)
+    except Exception as e:
+        log(f"⚠ {type(e).__name__}: {e}")
+        if tell:
+            try:
+                report(req["id"], "error", f"A 컴퓨터: {e}")
+            except Exception as e2:
+                log(f"⚠ 폰에 알리지 못했습니다 — {type(e2).__name__}: {e2}")
         return
-    path = find_excel(date)
-    n, was_open = write_board(board, path)
+
     log(f"✅ {date:%m/%d} {'열려 있던 ' if was_open else ''}엑셀에 {n}대 적고 저장했습니다")
+    if tell:
+        try:
+            report(req["id"], "done", f"A 컴퓨터가 {'열어 둔 ' if was_open else ''}엑셀에 {n}대")
+        except Exception as e:
+            log(f"⚠ 적기는 했는데 폰에 알리지 못했습니다 — {type(e).__name__}: {e}")
 
 
 def tick():
@@ -370,6 +458,20 @@ def selftest():
     except Exception as e:
         bad += 1
         log(f"점검 · 우편함 읽기 실패 — {type(e).__name__}: {e}")
+    tok = token()
+    if not tok:
+        log("점검 · 토큰이 없다 — 엑셀은 고치지만 폰에 결과를 알리지 못한다")
+    else:
+        try:
+            try:
+                _api("status.json?ref=inbox", tok=tok)
+            except urllib.error.HTTPError as e:
+                if e.code != 404:
+                    raise
+            log("점검 · 토큰 정상 — 폰에 결과를 알릴 수 있다")
+        except Exception as e:
+            bad += 1
+            log(f"점검 · 토큰이 듣지 않는다 — {type(e).__name__}: {e}")
     try:
         import win32com.client
         import pythoncom

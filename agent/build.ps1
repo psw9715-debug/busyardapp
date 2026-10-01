@@ -49,3 +49,11 @@ if (-not $iscc) {
 & $iscc (Join-Path $agent 'installer.iss')
 $setup = Get-ChildItem (Join-Path $agent 'dist') -Filter '*Setup*.exe' | Select-Object -First 1
 if ($setup) { "setup: {0} ({1:N1} MB)" -f $setup.FullName, ($setup.Length / 1MB) }
+
+# 4) hand it over: keep the finished installer where the user can grab it
+#    (and where GitHub serves it, so computer A can just download it)
+$out = Join-Path $root '설치프로그램'
+New-Item -ItemType Directory -Force -Path $out | Out-Null
+Copy-Item $setup.FullName $out -Force
+Copy-Item (Join-Path $agent '읽어보기.txt') $out -Force
+"handed over: $out"
