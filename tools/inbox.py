@@ -9,6 +9,8 @@
                             'paper'(순찰 양식 인쇄) · 'excel'(운영관리에 넣기)
                             'final'(넣고 그 양식 그대로 인쇄) · 'pull'(엑셀에서 가져오기)
     PC  inbox/status.json   결과 {id, state, msg, at} — 폰이 이걸 보고 결과를 띄운다
+    A   Z: 의 받아쓰기/결과.json   엑셀을 열어 둔 PC 가 "적었다" 를 놓는 쪽지.
+                            그 PC 는 올릴 권한이 없으므로 이 PC 가 받아 폰에 전한다.
     PC  inbox/pulled.json   가져온 판 {id, yard, date, entries} — 2차 순찰의 밑바탕
 
 PC 쪽은 전부 git 으로 주고받는다. 이 PC 의 git 은 이미 GitHub 에 로그인돼 있어 토큰이
@@ -249,6 +251,33 @@ def _save_last(id_):
         f.write(id_)
 
 
+def agent_note(req_id):
+    """A 컴퓨터(엑셀을 열어 둔 PC)가 Z: 에 놓아 둔 쪽지. 이 요청 것이 아니면 None.
+
+    A 는 GitHub 에 올릴 권한이 없다. 그래서 "적었다" 를 Z: 에 한 줄 놓고, 이미 그
+    권한을 들고 도는 이 PC 가 폰에 전해 준다.
+    """
+    import ops_fill
+    try:
+        with open(ops_fill.AGENT_RESULT, encoding="utf-8") as f:
+            note = json.load(f)
+    except Exception:
+        return None
+    return note if note.get("id") == req_id else None
+
+
+def wait_for_agent(req_id, log, secs=30):
+    """A 컴퓨터가 적고 쪽지를 놓을 때까지 잠깐 기다린다. 안 오면 내가 한다."""
+    until = time.time() + secs
+    while time.time() < until:
+        note = agent_note(req_id)
+        if note:
+            log(f"📨 [순회판] A 컴퓨터: {note['msg']}")
+            return note
+        time.sleep(2)
+    return None
+
+
 def handle(req, log, notify=None):
     """폰이 보낸 요청 하나를 처리하고 결과를 폰에 알린다"""
     now = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
@@ -266,8 +295,17 @@ def handle(req, log, notify=None):
             state, msg = "done", f"{len(entries)}대 가져옴"
         elif kind in ("excel", "final"):
             import ops_fill
-            go = ops_fill.run_final if kind == "final" else ops_fill.run
-            state, msg = "done", go(board_date=req["date"], log=log, yard=req.get("yard", "new"))
+            yard = req.get("yard", "new")
+            note = wait_for_agent(req["id"], log)      # A 가 원본에 적는 쪽이 빠르고 확실하다
+            if note and note["state"] != "done":
+                raise RuntimeError(note["msg"])        # A 가 못 했다면 그대로 폰에 알린다
+            if kind == "excel":
+                state, msg = ("done", note["msg"]) if note else (
+                    "done", ops_fill.run(board_date=req["date"], log=log, yard=yard))
+            else:
+                state, msg = "done", ops_fill.run_final(
+                    board_date=req["date"], log=log, yard=yard,
+                    recorded=note["msg"] if note else None)
         else:
             summary = save_and_print(req["date"], yard=req.get("yard", "new"))
             state, msg = ("nodata", f"{req['date']} 판이 GitHub 에 없습니다") if summary is None else ("done", summary)

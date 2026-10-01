@@ -30,6 +30,8 @@ import openpyxl
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BASE = r"Z:\교통사업처_버스운영센터\상황실"
 KEYWORD = "입출차 운영관리"          # 그날 폴더에 있는 다른 엑셀과 가르는 말
+# A 컴퓨터가 "적었다/못 적었다" 를 놓아 두는 쪽지 (agent/agent.py 가 쓴다)
+AGENT_RESULT = os.path.join(BASE, "받아쓰기", "결과.json")
 SHEET = "고정차고지_입력"
 # 차고지마다 이 시트 안의 자리가 다르다.
 #   신차고지(6차고지)   : 38~97행 — 인쇄 양식 3행이 38행이라 35줄 아래
@@ -368,12 +370,22 @@ def print_ops(path, yard="new"):
     return os.path.basename(path)
 
 
-def run_final(board_date=None, date=None, log=print, yard="new"):
-    """엑셀에 넣고, 그 엑셀 양식 그대로 한 장 뽑는다 (2회차를 마친 뒤 쓰는 마무리)."""
-    summary = run(board_date=board_date, date=date, log=log, yard=yard)
+def run_final(board_date=None, date=None, log=print, yard="new", recorded=None):
+    """엑셀 양식 그대로 한 장 뽑는다 (2회차를 마친 뒤 쓰는 마무리).
+
+    recorded 가 있으면 A 컴퓨터가 이미 원본에 적어 두었다는 뜻이다. 그러면 적지 않고
+    그 원본을 열려 있는 그대로 뽑는다 — 열려 있어도 읽기로는 열리므로 그냥 뽑힌다.
+    A 가 꺼져 있었으면 전처럼 복사본에 적고 그 복사본을 뽑는다.
+    """
     import inbox
     board_date = board_date or inbox.work_date()
     when = date or (datetime.date.fromisoformat(board_date) + datetime.timedelta(days=1))
+    if recorded:
+        src = find_excel(when)
+        log(f"🖨 [엑셀] {os.path.basename(src)} 를 있는 그대로 인쇄 ({recorded})")
+        print_ops(src, yard)
+        return f"{recorded} · 엑셀 양식으로 인쇄"
+    summary = run(board_date=board_date, date=date, log=log, yard=yard)
     dst = copy_path(find_excel(when), when)
     log(f"🖨 [엑셀] {os.path.basename(dst)} 를 그대로 인쇄")
     print_ops(dst, yard)

@@ -29,13 +29,6 @@ PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesInstallIn64BitMode=x64compatible
 
 [Code]
-var TokenPage: TInputQueryWizardPage;
-
-function TokenFile(): String;
-begin
-  Result := ExpandConstant('{localappdata}\차고지받아쓰기\토큰.txt');
-end;
-
 // 보이지 않게 돌고 있으면 파일을 덮어쓸 수 없다. 깔기 전에 조용히 끈다.
 function InitializeSetup(): Boolean;
 var rc: Integer;
@@ -43,33 +36,6 @@ begin
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/im {#AppExe} /f',
        '', SW_HIDE, ewWaitUntilTerminated, rc);
   Result := True;
-end;
-
-// 엑셀을 고친 뒤 "다 됐습니다" 를 폰에 돌려주려면 올릴 권한(토큰)이 있어야 한다.
-// 한 번만 넣어 두면 된다. 비워 두면 엑셀은 고치고 폰에만 알리지 못한다.
-procedure InitializeWizard();
-var old: AnsiString;
-begin
-  TokenPage := CreateInputQueryPage(wpSelectTasks,
-    '폰에 결과를 알리는 토큰',
-    '엑셀에 적은 뒤 "다 됐습니다" 를 폰에 돌려주는 데 씁니다.',
-    '휴대폰 앱의 [진단] → PC 전송에 넣은 것과 같은 토큰을 붙여 넣으세요.' + #13#10 +
-    '비워 두어도 됩니다. 그러면 엑셀은 고치지만 폰에는 알리지 못합니다.');
-  TokenPage.Add('토큰:', False);
-  if LoadStringFromFile(TokenFile(), old) then     // 다시 깔 때는 전에 넣은 것을 보여 준다
-    TokenPage.Values[0] := Trim(String(old));
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-var tok: String;
-begin
-  if CurStep <> ssPostInstall then Exit;
-  tok := Trim(TokenPage.Values[0]);
-  if tok = '' then                                 // 조용히 깔 때는 /TOKEN=... 으로 준다
-    tok := Trim(ExpandConstant('{param:TOKEN|}'));
-  if tok = '' then Exit;                           // 비워 두면 전에 넣은 것을 지우지 않는다
-  ForceDirectories(ExpandConstant('{localappdata}\차고지받아쓰기'));
-  SaveStringToFile(TokenFile(), AnsiString(tok), False);
 end;
 
 [Languages]
