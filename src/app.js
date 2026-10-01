@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610020002';
-import { YARD_OLD } from './yard-old-data.js?v=202610020002';
-import { BUILD } from './build.js?v=202610020002';
-import { toKoreanSino, announceText } from './plate.js?v=202610020002';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610020002';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610020017';
+import { YARD_OLD } from './yard-old-data.js?v=202610020017';
+import { BUILD } from './build.js?v=202610020017';
+import { toKoreanSino, announceText } from './plate.js?v=202610020017';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610020017';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202610020002';
-import { createSync, getToken, setToken } from './sync.js?v=202610020002';
+} from './store.js?v=202610020017';
+import { createSync, getToken, setToken } from './sync.js?v=202610020017';
 
 // ---------------------------------------------------------------- 상태
 
@@ -932,6 +932,35 @@ function switchRound(next) {
   else closePad();
 }
 
+/**
+ * 오늘 것을 전부 지우고 처음 상태로 되돌린다.
+ *
+ * "초기화" 라고 하면 1회차 첫 자리에서 다시 시작하는 것이다. 판만 비우고
+ * 회차·커서를 2회차에 둔 채로 두면, 지운 뒤에 적는 것이 2회차 기록이 되어
+ * 인쇄물에서 혼자 진하게 나온다. 설정(음성·속도 등)은 오늘 것이 아니므로 둔다.
+ */
+function resetToday() {
+  clearSession(session);
+  targets = [];              // 찾을 차량도 함께 비운다 — "전부" 는 전부여야 한다
+  saveTargets();
+
+  round = 1;
+  localStorage.removeItem(ROUND_KEY);
+  localStorage.removeItem(ROUND_DATE_KEY);
+
+  cursor = 1;
+  saveCursor();              // 앱을 껐다 켜도 1번부터
+  saidSeg = null;            // 다음 안내는 구역 이름부터
+
+  closePad();                // 2회차라 열려 있던 키패드를 닫는다
+  if (voice) voice.reset();  // 지우기 전에 들린 말이 뒤늦게 들어오지 않게
+
+  renderRound();
+  repaintAll();
+  renderHud();
+  renderTargetBadge();
+}
+
 /** 2회차 확인 걸음을 시작한다 — 키패드를 열고 첫 자리를 불러 준다 */
 function startConfirmWalk() {
   openPad(cursor);
@@ -1229,6 +1258,10 @@ function init() {
   renderTargetBadge();
   if (countFilled(session) > 0) note(`이어서 ${spotName(cursor)}번부터 입력합니다`);
 
+  // 2회차 도중에 앱이 다시 뜨는 일이 있다 (화면을 오래 꺼 두거나 새 버전을 받을 때).
+  // 그때도 돌던 자리에서 확인 걸음을 이어 간다 — 키패드를 손으로 다시 열 일이 없게.
+  if (round === 2) startConfirmWalk();
+
   $('btnRound').addEventListener('click', () => {
     primeAudio();
     switchRound(round === 1 ? 2 : 1);
@@ -1414,30 +1447,27 @@ function init() {
 
   // 되돌릴 수 없는 일이라 두 번 눌러야 지워진다
   let clearArmed = false;
+  // 되돌릴 라벨은 HTML 에 적힌 것을 그대로 쓴다 — 두 군데 적어 두면 어긋난다
+  const CLEAR_LABEL = $('diagClear').textContent;
+  const disarmClear = () => {
+    clearArmed = false;
+    $('diagClear').textContent = CLEAR_LABEL;
+    $('diagClear').classList.remove('armed');
+  };
   $('diagClear').addEventListener('click', () => {
     if (!clearArmed) {
       clearArmed = true;
       $('diagClear').textContent = '정말 지울까요? 한 번 더 누르세요';
       $('diagClear').classList.add('armed');
       setTimeout(() => {
-        if (!clearArmed) return;
-        clearArmed = false;
-        $('diagClear').textContent = '이 회차 입력 전부 지우기';
-        $('diagClear').classList.remove('armed');
+        if (clearArmed) disarmClear();
       }, 4000);
       return;
     }
-    clearArmed = false;
-    clearSession(session);
-    targets = [];              // 찾을 차량도 함께 비운다 — "전부"는 전부여야 한다
-    saveTargets();
-    cursor = 1;
-    repaintAll();
-    renderHud();
-    $('diagClear').textContent = '오늘 입력·대상 전부 지우기';
-    $('diagClear').classList.remove('armed');
+    disarmClear();
+    resetToday();
     $('diagSheet').hidden = true;
-    note(`입력과 찾을 차량을 전부 지웠습니다. ${spotName(1)}번 자리부터 시작합니다.`);
+    note(`전부 지웠습니다 — 1회차 ${spotName(1)}번 자리부터 다시 시작합니다.`);
     beep('back');
   });
   $('diagBody').addEventListener('click', (ev) => {

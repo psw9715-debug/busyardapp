@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>app.js 테스트</title>
+<style>
+  body { font: 13px/1.6 ui-monospace, Consolas, monospace; background:#14140f; color:#e8e2d2; padding:16px; }
+  .fail { color:#ff8f6b; }
+  .ok { color:#a9d18e; }
+  iframe { position:absolute; left:-9999px; width:375px; height:812px; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script type="module">
+// 앱을 실제로 띄워 눌러 보는 검사. plate.js 처럼 순수한 로직이 아니라
+// "누르면 무슨 일이 일어나는가" 를 본다.
+//
+// 앱을 iframe 으로 띄우면 같은 출처라 안을 그대로 조작할 수 있다.
+// 끝나면 document.title 이 "PASS n" / "FAIL n" 이 된다 — 다른 테스트 페이지와 같다.
+// 서버가 있어야 모듈을 읽는다:  python -m http.server 5181  뒤 /tools/app.test.html
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const log = (t, cls) => { const d = document.createElement('div'); d.className = cls || ''; d.textContent = t; out.appendChild(d); };
+const eq = (actual, expected, label) => {
+  const a = JSON.stringify(actual), e = JSON.stringify(expected);
+  if (a === e) { pass++; log(`  ok   ${label}`, 'ok'); }
+  else { fail++; log(`  FAIL ${label}\n       기대 ${e}\n       실제 ${a}`, 'fail'); }
+};
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const DATE = (() => { const d = new Date(Date.now() - 9 * 3600e3); return d.toISOString().slice(0, 10); })();
+
+function seed(yard, entries, round) {
+  for (const k of Object.keys(localStorage)) if (k.startsWith('busyard:')) localStorage.removeItem(k);
+  localStorage.setItem('busyard:yard', yard);
+  localStorage.setItem(`busyard:v1:${yard}:${DATE}:1`, JSON.stringify({
+    yard, date: DATE, round: 1, layout: 3, entries, updatedAt: new Date().toISOString(),
+  }));
+  localStorage.setItem(`busyard:round:${yard}`, String(round));
+  localStorage.setItem(`busyard:roundDate:${yard}`, DATE);
+  localStorage.setItem('busyard:targets', JSON.stringify([{ plate: '1777', kind: 'cctv' }]));
+}
+
+async function app() {
+  document.querySelectorAll('iframe').forEach((f) => f.remove());
+  const f = document.createElement('iframe');
+  f.src = '/?t=' + Date.now();
+  document.body.appendChild(f);
+  await new Promise((r) => { f.onload = r; });
+  await wait(600);
+  const w = f.contentWindow, d = f.contentDocument;
+  w.speechSynthesis.speak = (u) => { if (u.text) (w.__said = w.__said || []).push(u.text); };
+  w.__said = [];
+  return {
+    d, w,
+    $: (id) => d.getElementById(id),
+    press: (k) => d.querySelector(`#padSheet [data-k="${k}"]`)
+      .dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true, cancelable: true })),
+    said: () => w.__said.filter((t) => t.length > 1),
+  };
+}
+
+// ── 1) 2회차에서 전부 지우면 1회차 첫 자리로 돌아가야 한다
+log('▶ 2회차에서 "오늘 입력·대상 전부 지우기"');
+{
+  const entries = {};
+  for (let n = 1; n <= 20; n++) entries[n] = { plate: String(1500 + n), status: 'filled', confidence: 'high', round: n % 2 ? 1 : 2 };
+  seed('new', entries, 2);
+  const a = await app();
+
+  eq(a.$('btnRound').textContent, '2회차', '시작은 2회차');
+  // 2회차 도중 앱이 다시 떠도 확인 걸음을 이어 간다
+  eq(a.$('padSheet').hidden, false, '2회차로 켜면 키패드가 열려 있다');
+  eq(a.$('padTitle').textContent, 'B5-1번 자리', '돌던 자리에서 이어 간다');
+
+  a.$('btnDiag').click(); await wait(120);
+  a.$('diagClear').click(); await wait(80);          // 한 번 — 확인 받기
+  eq(a.$('diagClear').classList.contains('armed'), true, '한 번 누르면 확인을 받는다');
+  a.$('diagClear').click(); await wait(250);         // 두 번 — 실행
+
+  eq(a.$('btnRound').textContent, '1회차', '지운 뒤에는 1회차');
+  eq(a.d.body.classList.contains('round2'), false, '2회차 화면 색도 풀린다');
+  eq(a.$('hudSpot').textContent, 'B5-1', '첫 자리로');
+  eq(a.$('hudCount').textContent, '0 / 136', '판이 비었다');
+  eq(a.$('padSheet').hidden, true, '키패드도 닫힌다');
+  eq(a.$('diagSheet').hidden, true, '진단 화면도 닫힌다');
+  eq(a.$('diagClear').textContent, '오늘 입력·대상 전부 지우기', '버튼 라벨이 되돌아온다');
+
+  const key = `busyard:v1:new:${DATE}:1`;
+  eq(Object.keys(JSON.parse(localStorage.getItem(key)).entries).length, 0, '저장된 판도 비었다');
+  eq(JSON.parse(localStorage.getItem('busyard:targets') || '[]').length, 0, '찾을 차량도 비었다');
+  eq(localStorage.getItem('busyard:round:new'), null, '저장된 회차도 지워진다');
+  eq(JSON.parse(localStorage.getItem('busyard:cursor')).spot, 1, '저장된 커서도 1번');
+}
+
+// ── 2) 지운 뒤 다시 켜도 1회차 1번이어야 한다
+log('▶ 지운 뒤 앱을 다시 켜면');
+{
+  const a = await app();
+  eq(a.$('btnRound').textContent, '1회차', '다시 켜도 1회차');
+  eq(a.$('hudSpot').textContent, 'B5-1', '다시 켜도 첫 자리');
+  eq(a.$('padSheet').hidden, true, '1회차라 키패드는 닫힌 채');
+}
+
+// ── 3) 지운 뒤 넣는 것은 1회차 기록이어야 한다 (인쇄물에서 혼자 진해지면 안 된다)
+log('▶ 지운 뒤 입력하면 1회차 기록');
+{
+  const a = await app();
+  a.$('btnPad').click(); await wait(150);
+  for (const k of ['2', '3', '4']) a.press(k);
+  await wait(150);
+  const e = JSON.parse(localStorage.getItem(`busyard:v1:new:${DATE}:1`)).entries[1];
+  eq([e.plate, e.round], ['1234', 1], 'B5-1 에 1234 가 1회차로 들어간다');
+}
+
+// ── 4) 4초 뒤 저절로 풀릴 때도 라벨이 제자리로
+log('▶ 한 번만 누르고 두면');
+{
+  const a = await app();
+  a.$('btnDiag').click(); await wait(120);
+  const label = a.$('diagClear').textContent;
+  a.$('diagClear').click(); await wait(80);
+  eq(a.$('diagClear').textContent !== label, true, '확인을 받는 동안에는 라벨이 바뀐다');
+  await wait(4300);
+  eq(a.$('diagClear').textContent, label, '4초 뒤 라벨이 제자리로');
+  eq(a.$('diagClear').classList.contains('armed'), false, '빨간 표시도 풀린다');
+}
+
+log(`\n통과 ${pass} / 실패 ${fail}`);
+document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
+</script>
+</body>
+</html>
