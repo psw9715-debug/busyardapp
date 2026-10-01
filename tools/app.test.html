@@ -204,6 +204,67 @@ log('▶ 일지 목록 묶기');
     ['busyard:v1:log:2026-08-30'], '연도 묶음도 지워진다');
 }
 
+// ── 8) 현장 사진 보내기 — 고른 것을 우편함에 올린다
+log('▶ 사진 보내기');
+{
+  seed('new', { 1: { plate: '1501', status: 'filled', round: 1 } }, 1);
+  localStorage.setItem('busyard:ghtoken', '시험토큰');
+  const a = await app();
+  const puts = [];
+  const real = a.w.fetch;
+  a.w.fetch = (url, opt) => {
+    if (opt && opt.method === 'PUT') {
+      puts.push({ url: String(url), body: JSON.parse(opt.body) });
+      return Promise.resolve(new a.w.Response(JSON.stringify({ content: { sha: 'x' } }), { status: 201 }));
+    }
+    if (String(url).includes('api.github.com')) {
+      return Promise.resolve(new a.w.Response('', { status: 404 }));
+    }
+    return real(url, opt);
+  };
+
+  // 2x2 빨간 PNG 한 장 (작아서 줄이지 않고 그대로 간다)
+  const png = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAACZgbYnAAAAFElEQVR4AWP4z8DwHwxpBqkGyQYAzUIJuV0AUeUAAAAASUVORK5CYII=';
+  const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
+  const file = new a.w.File([bytes], '파손 사진:1.png', { type: 'image/png' });
+  const dt = new a.w.DataTransfer();
+  dt.items.add(file);
+  a.$('filePick').files = dt.files;
+  a.$('filePick').dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  await wait(600);
+
+  const photo = puts.find((p) => p.url.includes('/files/'));
+  eq(!!photo, true, '사진도 우편함으로 올라간다');
+  eq(photo.url.includes(`/files/${DATE}/`), true, '날짜 폴더 아래에 놓인다');
+  eq(/\d{6}-%ED%8C%8C%EC%86%90%20%EC%82%AC%EC%A7%84_1\.png$/.test(photo.url), true, '이름에 시각이 붙고 쓸 수 없는 글자는 _ 로 바뀐다');
+  eq(photo.body.branch, 'inbox', 'inbox 가지로 간다');
+  eq(photo.body.content, png, '그림이 한 바이트도 틀어지지 않고 담긴다');
+  eq(a.$('fileMsg').textContent, '1개를 PC 다운로드 폴더로 보냈습니다', '보낸 결과를 보여 준다');
+  eq(a.$('fileMsg').className, 'send-msg ok', '초록으로');
+  eq(a.$('filePick').value, '', '같은 사진을 다시 고를 수 있게 비운다');
+}
+
+// ── 9) 토큰이 없으면 사진을 보내지 않는다
+log('▶ 토큰 없이 사진 보내기');
+{
+  seed('new', { 1: { plate: '1501', status: 'filled', round: 1 } }, 1);
+  const a = await app();
+  let put = 0;
+  const real = a.w.fetch;
+  a.w.fetch = (url, opt) => {
+    if (opt && opt.method === 'PUT') { put++; return Promise.resolve(new a.w.Response('{}', { status: 201 })); }
+    return real(url, opt);
+  };
+  const file = new a.w.File([new Uint8Array([1, 2, 3])], 'x.jpg', { type: 'image/jpeg' });
+  const dt = new a.w.DataTransfer();
+  dt.items.add(file);
+  a.$('filePick').files = dt.files;
+  a.$('filePick').dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  await wait(300);
+  eq(put, 0, '올리려 하지 않는다');
+  eq(a.$('fileMsg').className, 'send-msg no', '왜 안 되는지 빨갛게 알려 준다');
+}
+
 log(`\n통과 ${pass} / 실패 ${fail}`);
 document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
 </script>

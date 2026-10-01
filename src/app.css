@@ -473,6 +473,24 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
 .print-msg.ok { color: var(--green); font-weight: 700; }
 .print-msg.no { color: var(--red); }
 
+/* 현장 사진 보내기 — 인쇄 시트 아래에 붙는다 */
+.send-files { border-top: 1px solid var(--line); padding: 14px 0 4px; }
+.send-files-head {
+  font-size: 13px; font-weight: 700; color: var(--ink-dim); padding-bottom: 10px;
+}
+.pick {
+  display: block; text-align: center; padding: 13px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  color: var(--ink); font-size: 15px; cursor: pointer;
+}
+.pick:active { background: var(--line); }
+.send-msg {
+  text-align: center; font-size: 13px; line-height: 1.6;
+  padding: 10px 8px 2px; color: var(--ink-dim);
+}
+.send-msg.ok { color: var(--green); font-weight: 700; }
+.send-msg.no { color: var(--red); }
+
 .diag { font-size: 13px; }
 .diag-row {
   display: flex; justify-content: space-between; gap: 12px;

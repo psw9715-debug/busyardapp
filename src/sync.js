@@ -68,6 +68,24 @@ export function createSync({ getSession, onStatus }) {
     shaByName[name] = (await res.json()).content.sha;
   }
 
+  /**
+   * 사진·파일 한 개를 우편함에 올린다 (inbox/files/<날짜>/<시각>-<이름>).
+   * 사무실 PC 가 그것을 다운로드 폴더로 내리고 우편함에서 치운다.
+   */
+  async function putFile(file, base64, date) {
+    if (!getToken()) throw new Error('토큰 없음');
+    const safe = file.name.replace(/[\\/:*?"<>|]/g, '_').slice(-80);
+    const stamp = new Date().toTimeString().slice(0, 8).replace(/:/g, '');
+    const name = `files/${date}/${stamp}-${safe}`;
+    const res = await fetch(`${API}/${encodeURI(name)}`, {
+      method: 'PUT',
+      headers: headers(),
+      body: JSON.stringify({ message: `${date} 현장 사진 ${safe}`, branch: BRANCH, content: base64 }),
+    });
+    if (!res.ok) throw new Error(res.status === 401 ? '토큰이 맞지 않음' : `보내기 실패 ${res.status}`);
+    return safe;
+  }
+
   // 차고지마다 판이 따로다. 이름에 차고지를 넣지 않으면 서로 덮어쓴다.
   const boardName = (session) => `${session.date}-${session.yard}.json`;
 
@@ -115,6 +133,11 @@ export function createSync({ getSession, onStatus }) {
       await put('print.json', { id, date: session.date, at: new Date().toISOString(), what, yard: session.yard },
         `${session.date} ${{ excel: '엑셀 입력', pull: '가져오기' }[what] || '인쇄'} 요청`);
       return id;
+    },
+
+    /** 사진·파일 하나를 PC 다운로드 폴더로 보낸다. 보낸 이름을 돌려준다. */
+    sendFile(file, base64) {
+      return putFile(file, base64, getSession().date);
     },
 
     /** PC 가 엑셀에서 읽어 올려 둔 판 {id, yard, date, entries}. 아직 없으면 null */

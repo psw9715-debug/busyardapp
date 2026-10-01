@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610020225';
-import { YARD_OLD } from './yard-old-data.js?v=202610020225';
-import { BUILD } from './build.js?v=202610020225';
-import { toKoreanSino, announceText } from './plate.js?v=202610020225';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610020225';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610020607';
+import { YARD_OLD } from './yard-old-data.js?v=202610020607';
+import { BUILD } from './build.js?v=202610020607';
+import { toKoreanSino, announceText } from './plate.js?v=202610020607';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610020607';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610020225';
-import { createSync, getToken, setToken } from './sync.js?v=202610020225';
+} from './store.js?v=202610020607';
+import { createSync, getToken, setToken } from './sync.js?v=202610020607';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1240,6 +1240,75 @@ function openPrint() {
   $('printSheet').hidden = false;
 }
 
+// ---------------------------------------------------------------- 사진 보내기
+
+/** 폰 사진은 3~5MB 다. 긴 쪽을 1600 으로 줄여 보낸다 — 파손 자리를 보기에는 넉넉하다. */
+const SHRINK_OVER = 700 * 1024;
+const MAX_SIDE = 1600;
+
+function shrink(file) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const k = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
+      const cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * k);
+      cv.height = Math.round(img.height * k);
+      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      cv.toBlob((b) => resolve(b || file), 'image/jpeg', 0.82);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };   // 못 읽으면 원본 그대로
+    img.src = url;
+  });
+}
+
+/** 바이트를 GitHub 이 받는 base64 로. 큰 파일에서 한 번에 펼치면 스택이 넘친다. */
+async function toBase64(blob) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 8192) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+  }
+  return btoa(bin);
+}
+
+function fileMsg(text, kind) {
+  $('fileMsg').textContent = text;
+  $('fileMsg').className = 'send-msg' + (kind ? ' ' + kind : '');
+}
+
+let sending = false;
+
+/** 고른 사진·파일을 하나씩 PC 다운로드 폴더로 보낸다 */
+async function sendFiles(files) {
+  if (sending || !files.length) return;
+  if (!getToken()) {
+    fileMsg('토큰이 없습니다 — [진단] → PC 전송에서 넣으세요', 'no');
+    beep('error');
+    return;
+  }
+  sending = true;
+  let sent = 0;
+  try {
+    for (const [i, file] of files.entries()) {
+      fileMsg(`보내는 중 ${i + 1}/${files.length} — ${file.name}`);
+      const body = file.type.startsWith('image/') && file.size > SHRINK_OVER
+        ? await shrink(file) : file;
+      await sync.sendFile(file, await toBase64(body));
+      sent += 1;
+    }
+    fileMsg(`${sent}개를 PC 다운로드 폴더로 보냈습니다`, 'ok');
+    beep('done');
+  } catch (err) {
+    fileMsg(`${sent}개까지 보냈습니다 — ${err.message}`, 'no');
+    beep('error');
+  } finally {
+    sending = false;
+  }
+}
+
 const PRINT_LABEL = {
   paper: ['인쇄했습니다', 'PC가 인쇄하기를 기다리는 중…'],
   excel: ['엑셀에 넣었습니다', 'PC가 엑셀에 넣는 중… (파일이 커서 1~2분 걸립니다)'],
@@ -1504,6 +1573,12 @@ function init() {
   });
 
   $('printClose').addEventListener('click', () => { $('printSheet').hidden = true; });
+
+  $('filePick').addEventListener('change', (ev) => {
+    const files = [...ev.target.files];
+    ev.target.value = '';          // 같은 사진을 다시 고를 수 있게 비운다
+    sendFiles(files);
+  });
 
   $('padClose').addEventListener('click', closePad);
   // 찾기·대상 시트도 같은 .pad-keys 를 쓰므로 반드시 이 시트 안으로 한정한다

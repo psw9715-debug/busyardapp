@@ -52,6 +52,7 @@ YARDS = {
 SHEET = YARDS["new"]["sheet"]        # 옛 기록에 yard 가 없으면 신차고지로 본다
 OUT_DIR = os.path.join(ROOT, "기록")
 LAST_FILE = os.path.join(OUT_DIR, ".last_print")   # 이미 처리한 인쇄 요청 — 껐다 켜도 두 번 뽑지 않게
+FILE_DIR = os.path.join(OUT_DIR, "받은파일")        # 폰에서 보낸 사진이 내려오는 다운로드 폴더
 INBOX_REF = "refs/remotes/origin/inbox"
 GREY = "FF8F8F8F"
 STALE = datetime.timedelta(minutes=10)   # 이보다 오래된 요청은 뽑지 않는다
@@ -128,6 +129,53 @@ def fetch(date, yard="new"):
 def write_status(status):
     """폰에 결과를 알린다 (inbox/status.json)"""
     write_file("inbox/status.json", status, f"PC 결과: {status['state']}")
+
+
+def take_files(log=print):
+    """폰이 보낸 사진·파일을 다운로드 폴더로 내리고 우편함에서 치운다.
+
+    공개 저장소라 사진을 오래 둘 곳이 아니다. 내리는 즉시 지운다.
+    (가지 이력에는 남는다 — 그것까지 비우려면 따로 손봐야 한다.)
+    """
+    r = git("ls-tree", "-r", "--name-only", INBOX_REF, "inbox/files/")
+    paths = [p for p in r.stdout.splitlines() if p.strip()] if r.returncode == 0 else []
+    if not paths:
+        return []
+    got = []
+    for path in paths:
+        blob = subprocess.run(["git", "cat-file", "blob", f"{INBOX_REF}:{path}"], cwd=ROOT,
+                              capture_output=True, timeout=120,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        if blob.returncode != 0:
+            log(f"⚠ [사진] {path} 를 꺼내지 못했다")
+            continue
+        # inbox/files/<날짜>/<이름> → 기록/받은파일/<날짜>/<이름>
+        rel = path[len("inbox/files/"):]
+        out = os.path.join(FILE_DIR, *rel.split("/"))
+        os.makedirs(os.path.dirname(out), exist_ok=True)
+        with open(out, "wb") as f:
+            f.write(blob.stdout)
+        got.append(out)
+        log(f"📷 [사진] {rel} ({len(blob.stdout) // 1024}KB) 받음")
+    if got:
+        drop_files(paths, f"받은 사진 {len(got)}개 치움")
+    return got
+
+
+def drop_files(paths, message):
+    """우편함에서 파일 여러 개를 지운다"""
+    index = os.path.join(tempfile.gettempdir(), "busyard-inbox.index")
+    env = {"GIT_INDEX_FILE": index}
+    for _ in range(3):
+        pull()
+        must(git("read-tree", INBOX_REF, env=env), "색인 읽기")
+        for path in paths:
+            must(git("update-index", "--force-remove", path, env=env), "색인에서 지우기")
+        tree = must(git("write-tree", env=env), "트리 만들기")
+        commit = must(git("commit-tree", tree, "-p", INBOX_REF, "-m", message), "커밋")
+        if git("push", "-q", "origin", f"{commit}:refs/heads/inbox").returncode == 0:
+            return
+    raise RuntimeError("받은 사진을 우편함에서 치우지 못했다")
 
 
 def write_file(path, obj, message):
@@ -329,6 +377,9 @@ def watch(log=print, stop=None, notify=None):
             if sha and sha != seen:
                 pull()
                 seen = sha
+                for got in take_files(log):          # 사진이 함께 와 있으면 먼저 내린다
+                    if notify:
+                        notify(True, f"사진 받음 — {os.path.basename(got)}")
                 req = read("inbox/print.json")
                 what = decide(req, handled, datetime.datetime.now(datetime.timezone.utc))
                 if what != "skip":

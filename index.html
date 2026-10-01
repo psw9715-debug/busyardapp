@@ -10,7 +10,7 @@
 <title>차고지 순회</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="src/app.css?v=202610020225">
+<link rel="stylesheet" href="src/app.css?v=202610020607">
 </head>
 <body>
 
@@ -194,6 +194,13 @@
       <button id="printFinal">최종 인쇄 (엑셀 양식 그대로)</button>
     </div>
     <div class="print-msg" id="printMsg"></div>
+
+    <div class="send-files">
+      <div class="send-files-head">현장 사진 보내기</div>
+      <label class="pick" for="filePick">사진·파일 고르기</label>
+      <input type="file" id="filePick" multiple accept="image/*" hidden>
+      <div class="send-msg" id="fileMsg">고른 것을 PC 다운로드 폴더로 보냅니다</div>
+    </div>
   </div>
 </div>
 
@@ -233,6 +240,6 @@
 
 <!-- 인쇄 전용 레이아웃 -->
 
-<script type="module" src="src/app.js?v=202610020225"></script>
+<script type="module" src="src/app.js?v=202610020607"></script>
 </body>
 </html>
