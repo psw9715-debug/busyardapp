@@ -22,3 +22,9 @@ out/
 
 # PC 가 받아 둔 날짜별 순회판 (tools/inbox.py)
 기록/
+
+# 받아쓰기 프로그램 묶은 결과 (설치 파일은 USB 로 A 컴퓨터에 옮긴다)
+agent/build/
+agent/dist/
+agent/*.spec
+agent/icon.ico
