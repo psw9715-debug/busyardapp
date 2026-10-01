@@ -5,7 +5,9 @@
 저장소의 inbox 가지를 우편함처럼 쓴다.
 
     폰  inbox/<날짜>.json   그날 판 (입력이 멎을 때마다 올린다)
-    폰  inbox/print.json    요청 {id, date, at, what} — 'paper'(종이) · 'excel'(넣기) · 'pull'(가져오기)
+    폰  inbox/print.json    요청 {id, date, at, what}
+                            'paper'(순찰 양식 인쇄) · 'excel'(운영관리에 넣기)
+                            'final'(넣고 그 양식 그대로 인쇄) · 'pull'(엑셀에서 가져오기)
     PC  inbox/status.json   결과 {id, state, msg, at} — 폰이 이걸 보고 결과를 띄운다
     PC  inbox/pulled.json   가져온 판 {id, yard, date, entries} — 2차 순찰의 밑바탕
 
@@ -251,7 +253,8 @@ def handle(req, log, notify=None):
     """폰이 보낸 요청 하나를 처리하고 결과를 폰에 알린다"""
     now = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
     kind = req.get("what", "paper")
-    what = {"excel": "운영관리 엑셀", "pull": "엑셀에서 가져오기"}.get(kind, "종이 인쇄")
+    what = {"excel": "운영관리 엑셀", "pull": "엑셀에서 가져오기",
+            "final": "최종 인쇄"}.get(kind, "종이 인쇄")
     try:
         if kind == "pull":
             import ops_fill
@@ -261,10 +264,10 @@ def handle(req, log, notify=None):
                 "id": req["id"], "yard": yard, "date": req["date"], "entries": entries,
             }, f"{req['date']} 엑셀에서 가져온 판")
             state, msg = "done", f"{len(entries)}대 가져옴"
-        elif kind == "excel":
+        elif kind in ("excel", "final"):
             import ops_fill
-            state, msg = "done", ops_fill.run(board_date=req["date"], log=log,
-                                              yard=req.get("yard", "new"))
+            go = ops_fill.run_final if kind == "final" else ops_fill.run
+            state, msg = "done", go(board_date=req["date"], log=log, yard=req.get("yard", "new"))
         else:
             summary = save_and_print(req["date"], yard=req.get("yard", "new"))
             state, msg = ("nodata", f"{req['date']} 판이 GitHub 에 없습니다") if summary is None else ("done", summary)

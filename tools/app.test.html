@@ -127,6 +127,83 @@ log('▶ 한 번만 누르고 두면');
   eq(a.$('diagClear').classList.contains('armed'), false, '빨간 표시도 풀린다');
 }
 
+// ── 5) 2회차 — CCTV·열쇠 수거 차량은 소리로 알려야 한다
+log('▶ 2회차 확인 걸음의 음성');
+{
+  const entries = {};
+  for (let n = 1; n <= 10; n++) entries[n] = { plate: String(1500 + n), status: 'filled', confidence: 'high', round: 1 };
+  entries[3] = { plate: null, status: 'vacant', confidence: 'high', round: 1 };
+  seed('new', entries, 1);
+  localStorage.setItem('busyard:targets', JSON.stringify([
+    { plate: '1502', kind: 'cctv' }, { plate: '1504', kind: 'key' },
+  ]));
+  const a = await app();
+  a.$('btnRound').click(); await wait(400);      // 1회차 → 2회차 (확인 걸음 시작)
+
+  const step = async () => {
+    const n = a.w.__said.length;
+    a.press('ok');
+    await wait(150);
+    return a.w.__said.slice(n).filter((t) => t.length > 1);
+  };
+  eq(a.said(), ['B5 1번, 천오백일'], '첫 자리는 구역 이름부터');
+  eq(await step(), ['천오백이, 비디오'], 'CCTV 수거 차량이면 함께 알린다');
+  eq(await step(), ['공차'], '공차는 공차라고만');
+  eq(await step(), ['천오백사, 열쇠'], '열쇠 수거 차량도 알린다');
+  eq(await step(), ['천오백오'], '대상이 아니면 번호만');
+}
+
+// ── 6) 일지를 저장하면 오늘 것을 지울지 묻는다
+log('▶ 일지 저장 뒤 초기화');
+{
+  const entries = {};
+  for (let n = 1; n <= 8; n++) entries[n] = { plate: String(1600 + n), status: 'filled', confidence: 'high', round: 1 };
+  seed('new', entries, 2);
+  const a = await app();
+
+  a.$('btnLog').click(); await wait(150);
+  eq(a.$('logReset').hidden, true, '저장 전에는 묻지 않는다');
+  a.$('logSave').click(); await wait(250);
+  eq(a.$('logReset').hidden, false, '저장하면 지울지 묻는다');
+
+  a.$('logReset').click(); await wait(80);       // 한 번 — 확인
+  a.$('logReset').click(); await wait(300);      // 두 번 — 실행
+  eq(a.$('btnRound').textContent, '1회차', '지운 뒤 1회차');
+  eq(a.$('hudCount').textContent, '0 / 136', '판이 비었다');
+  eq(a.$('logSheet').hidden, true, '일지 화면이 닫힌다');
+  eq(Object.keys(localStorage).filter((k) => k.startsWith('busyard:v1:log:')).length, 1, '일지는 남아 있다');
+}
+
+// ── 7) 일지 목록은 연·월로 접히고 묶음으로 지운다
+log('▶ 일지 목록 묶기');
+{
+  for (const k of Object.keys(localStorage)) if (k.startsWith('busyard:')) localStorage.removeItem(k);
+  const mk = (date) => localStorage.setItem(`busyard:v1:log:${date}`, JSON.stringify({
+    date, yard: 'new', savedAt: `${date}T13:00:00.000Z`, layout: 3,
+    entries: { 1: { plate: '1501', status: 'filled', round: 1 } }, targets: [],
+  }));
+  ['2025-11-03', '2026-08-30', '2026-09-26', '2026-09-27'].forEach(mk);
+  const a = await app();
+  a.$('btnLog').click(); await wait(250);
+
+  const heads = (sel) => [...a.$('logList').querySelectorAll(sel)].map((el) => el.textContent.trim().split(/\s+/)[0]);
+  eq(heads('.log-year > summary'), ['2026년', '2025년'], '연도는 내림차순');
+  eq(heads('.log-month > summary'), ['9월', '8월', '11월'], '달도 내림차순 (연도 안에서)');
+
+  const sep = a.$('logList').querySelector('[data-del-many="2026-09"]');
+  sep.click(); await wait(80);                    // 한 번 — 확인
+  eq(sep.classList.contains('armed'), true, '묶음 지우기는 한 번 더 묻는다');
+  sep.click(); await wait(250);                   // 두 번 — 실행
+  eq(Object.keys(localStorage).filter((k) => k.startsWith('busyard:v1:log:')).sort(),
+    ['busyard:v1:log:2025-11-03', 'busyard:v1:log:2026-08-30'], '그 달만 지워진다');
+
+  const y = a.$('logList').querySelector('[data-del-many="2025"]');
+  y.click(); await wait(80);
+  y.click(); await wait(250);
+  eq(Object.keys(localStorage).filter((k) => k.startsWith('busyard:v1:log:')),
+    ['busyard:v1:log:2026-08-30'], '연도 묶음도 지워진다');
+}
+
 log(`\n통과 ${pass} / 실패 ${fail}`);
 document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
 </script>

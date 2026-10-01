@@ -235,8 +235,12 @@ export function walkSay(spotSay, entry, newSeg) {
  *           그래서 "다음 자리 안내 음성" 을 꺼 두어도 읽어 준다. 이것까지 막으면
  *           확인 걸음이 성립하지 않는다.
  */
-export function announceText({ round, newSeg, ttsOn, spotSay, entry }) {
-  if (round === 2) return walkSay(spotSay, entry, newSeg);
+export function announceText({ round, newSeg, ttsOn, spotSay, entry, target }) {
+  if (round === 2) {
+    // 그 자리의 차가 CCTV·열쇠를 수거한 차면 도로 가져다 놓아야 한다. 지나치면 안 된다.
+    const mark = { cctv: ', 비디오', key: ', 열쇠' }[target] || '';
+    return walkSay(spotSay, entry, newSeg) + mark;
+  }
   if (!ttsOn || !newSeg) return null;
-  return spotSay;
+  return spotSay;      // 1회차는 아직 적기 전이라 알릴 대상도 없다
 }

@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610020017';
-import { YARD_OLD } from './yard-old-data.js?v=202610020017';
-import { BUILD } from './build.js?v=202610020017';
-import { toKoreanSino, announceText } from './plate.js?v=202610020017';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610020017';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610020225';
+import { YARD_OLD } from './yard-old-data.js?v=202610020225';
+import { BUILD } from './build.js?v=202610020225';
+import { toKoreanSino, announceText } from './plate.js?v=202610020225';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610020225';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
-  countRound, ROUNDS, upgradeSession, onSave,
-} from './store.js?v=202610020017';
-import { createSync, getToken, setToken } from './sync.js?v=202610020017';
+  countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
+} from './store.js?v=202610020225';
+import { createSync, getToken, setToken } from './sync.js?v=202610020225';
 
 // ---------------------------------------------------------------- 상태
 
@@ -513,8 +513,11 @@ function announceCursor() {
   const cell = SPOT.get(cursor);
   const newSeg = !cell || cell.seg !== saidSeg;
   saidSeg = cell ? cell.seg : null;
+  const e = session.entries[cursor];
+  const target = round === 2 && e && e.status === 'filled' ? targetKind(e.plate) : null;
+  if (target) beep('alert');     // 귀로도 한 번 더 — 그냥 지나치면 안 되는 자리다
   announceSpeak(announceText({
-    round, newSeg, ttsOn, spotSay: spotSay(cursor), entry: session.entries[cursor],
+    round, newSeg, ttsOn, spotSay: spotSay(cursor), entry: e, target,
   }));
 }
 
@@ -1015,6 +1018,11 @@ async function pullFromExcel() {
 
 // ---------------------------------------------------------------- 일지 보관
 
+/**
+ * 일지 목록. 쌓이면 한없이 길어지므로 **연 > 월** 로 접어서 보여 준다.
+ * 최근 것부터 보도록 연도도 달도 내림차순이고, 이번 달만 펼쳐 둔다.
+ * 묶음마다 지우기를 두어 지난 달 것을 한 번에 치울 수 있다.
+ */
 function renderLogList() {
   const ul = $('logList');
   const logs = listLogs();
@@ -1022,15 +1030,47 @@ function renderLogList() {
     ul.innerHTML = '<li class="log-empty">저장된 일지가 없습니다</li>';
     return;
   }
-  ul.innerHTML = logs.map((l) => {
+
+  const byYear = new Map();
+  for (const l of logs) {
+    const [year, month] = [l.date.slice(0, 4), l.date.slice(0, 7)];
+    if (!byYear.has(year)) byYear.set(year, new Map());
+    const months = byYear.get(year);
+    if (!months.has(month)) months.set(month, []);
+    months.get(month).push(l);
+  }
+
+  const desc = (a, b) => (a < b ? 1 : a > b ? -1 : 0);
+  const thisMonth = workDate().slice(0, 7);
+
+  const dayRow = (l) => {
     const time = new Date(l.savedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
     const today = l.date === workDate() ? '<span class="log-today">오늘</span>' : '';
+    const day = Number(l.date.slice(8));
     return `<li>
-      <div class="log-when"><b>${l.date}</b>${today}
+      <div class="log-when"><b>${day}일</b>${today}
         <span class="log-meta">${time} 저장 · 1회차 ${l.counts[0]}대 · 2회차 ${l.counts[1]}대 · 대상 ${l.targets}대</span></div>
       <button class="log-load" data-date="${l.date}">불러오기</button>
       <button class="log-del" data-del="${l.date}" aria-label="지우기">✕</button>
     </li>`;
+  };
+
+  ul.innerHTML = [...byYear.keys()].sort(desc).map((year) => {
+    const months = byYear.get(year);
+    const count = [...months.values()].reduce((n, days) => n + days.length, 0);
+    const inner = [...months.keys()].sort(desc).map((month) => {
+      const days = months.get(month).sort((a, b) => desc(a.date, b.date));
+      return `<details class="log-month"${month === thisMonth ? ' open' : ''}>
+        <summary>${Number(month.slice(5))}월 <span class="log-meta">${days.length}일치</span>
+          <button class="log-del-many" data-del-many="${month}" aria-label="${month} 전부 지우기">묶음 지우기</button>
+        </summary>
+        <ul class="log-days">${days.map(dayRow).join('')}</ul>
+      </details>`;
+    }).join('');
+    return `<li><details class="log-year" open>
+      <summary>${year}년 <span class="log-meta">${count}일치</span>
+        <button class="log-del-many" data-del-many="${year}" aria-label="${year}년 전부 지우기">묶음 지우기</button>
+      </summary>${inner}</details></li>`;
   }).join('');
 }
 
@@ -1043,6 +1083,8 @@ function doSaveLog() {
   }
   saveLog(session, targets);
   sync.flush();
+  // 일지를 저장했다는 것은 오늘을 마무리했다는 뜻이다. 다만 지우는 것은 되돌릴 수 없으니 묻는다.
+  $('logReset').hidden = false;
   $('logSaveNote').textContent =
     `${workDate()} 저장 완료 — 1회차 ${counts[0]}대 · 2회차 ${counts[1]}대 · 대상 ${targets.length}대`;
   renderLogList();
@@ -1177,7 +1219,7 @@ async function forceUpdate() {
 //   종이 인쇄 — 원본 엑셀에 채워 기본 프린터로
 //   엑셀 입력 — 그날 "입출차 운영관리" 의 6차고지 칸에 그대로 (손으로 옮겨 적던 일)
 // 종이는 금방 나오지만, 운영관리 엑셀은 파일이 무거워 여는 데만 30초가 넘는다
-const WAIT_MS = { paper: 90000, excel: 300000 };
+const WAIT_MS = { paper: 90000, excel: 300000, final: 300000 };
 let printing = false;   // 보낸 요청의 결과를 기다리는 중
 
 function printMsg(text, kind) {
@@ -1198,6 +1240,12 @@ function openPrint() {
   $('printSheet').hidden = false;
 }
 
+const PRINT_LABEL = {
+  paper: ['인쇄했습니다', 'PC가 인쇄하기를 기다리는 중…'],
+  excel: ['엑셀에 넣었습니다', 'PC가 엑셀에 넣는 중… (파일이 커서 1~2분 걸립니다)'],
+  final: ['최종 인쇄했습니다', 'PC가 엑셀에 넣고 그대로 뽑는 중… (1~2분 걸립니다)'],
+};
+
 async function doPrint(what) {
   if (printing) return;   // 이미 보낸 것을 기다리는 중 — 두 번 하지 않는다
   if (!getToken()) {
@@ -1217,9 +1265,7 @@ async function doPrint(what) {
     beep('error');
     return;
   }
-  printMsg(what === 'excel'
-    ? 'PC가 엑셀에 넣는 중… (파일이 커서 1~2분 걸립니다)'
-    : 'PC가 인쇄하기를 기다리는 중…');
+  printMsg(PRINT_LABEL[what][1]);
 
   const until = Date.now() + WAIT_MS[what];
   while (Date.now() < until) {
@@ -1229,7 +1275,7 @@ async function doPrint(what) {
     if (!st || st.id !== id) continue;
     printing = false;
     if (st.state === 'done') {
-      printMsg(`${what === 'excel' ? '엑셀에 넣었습니다' : '인쇄했습니다'} — ${st.msg}`, 'ok');
+      printMsg(`${PRINT_LABEL[what][0]} — ${st.msg}`, 'ok');
       beep('done');
     } else {
       printMsg(`PC가 하지 못했습니다: ${st.msg}`, 'no');
@@ -1274,6 +1320,7 @@ function init() {
   $('btnPrint').addEventListener('click', openPrint);
   $('printPaper').addEventListener('click', () => doPrint('paper'));
   $('printExcel').addEventListener('click', () => doPrint('excel'));
+  $('printFinal').addEventListener('click', () => doPrint('final'));
   $('btnDiag').addEventListener('click', openDiag);
   $('yardName').addEventListener('click', () => {
     // 차고지를 바꾸면 판·커서·배치도가 전부 그 차고지 것으로 바뀐다.
@@ -1327,15 +1374,57 @@ function init() {
   $('btnLog').addEventListener('click', () => {
     primeAudio();
     $('logSaveNote').textContent = '';
+    $('logReset').hidden = true;          // 저장한 뒤에만 묻는다
     renderLogList();
     $('logSheet').hidden = false;
   });
   $('logClose').addEventListener('click', () => { $('logSheet').hidden = true; });
   $('logSave').addEventListener('click', doSaveLog);
 
+  // 일지에 남겼으니 오늘 것은 지워도 된다. 그래도 되돌릴 수 없는 일이라 한 번 더 누르게 한다.
+  let resetArmed = false;
+  const RESET_LABEL = $('logReset').textContent;
+  $('logReset').addEventListener('click', () => {
+    if (!resetArmed) {
+      resetArmed = true;
+      $('logReset').textContent = '정말 지울까요? 한 번 더 누르세요';
+      setTimeout(() => {
+        if (!resetArmed) return;
+        resetArmed = false;
+        $('logReset').textContent = RESET_LABEL;
+      }, 4000);
+      return;
+    }
+    resetArmed = false;
+    $('logReset').textContent = RESET_LABEL;
+    $('logReset').hidden = true;
+    resetToday();
+    $('logSheet').hidden = true;
+    note(`일지에 남기고 전부 지웠습니다 — 1회차 ${spotName(1)}번 자리부터 시작합니다.`);
+  });
+
   // 불러오기는 지금 입력을 덮어쓰므로 한 번 더 묻는다
   let loadArmed = null;
+  let delManyArmed = null;
   $('logList').addEventListener('click', (ev) => {
+    const many = ev.target.dataset.delMany;
+    if (many) {
+      // 묶음 지우기는 여러 날을 한 번에 날린다. 한 번 더 눌러야 실행한다.
+      ev.preventDefault();       // <summary> 안에 있어 그냥 두면 접혔다 펴진다
+      if (delManyArmed !== many) {
+        delManyArmed = many;
+        ev.target.textContent = `${many} 전부 지울까요? 한 번 더`;
+        ev.target.classList.add('armed');
+        setTimeout(() => { if (delManyArmed === many) { delManyArmed = null; renderLogList(); } }, 4000);
+        return;
+      }
+      delManyArmed = null;
+      const n = deleteLogs(many);
+      renderLogList();
+      $('logSaveNote').textContent = `${many} 일지 ${n}일치를 지웠습니다.`;
+      beep('back');
+      return;
+    }
     const del = ev.target.dataset.del;
     if (del) {
       deleteLog(del);

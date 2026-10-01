@@ -204,6 +204,17 @@ export function deleteLog(date) {
   localStorage.removeItem(`${LOG}:${date}`);
 }
 
+/** 연·월 묶음을 한 번에 지운다. prefix 는 "2026" 또는 "2026-09". 지운 개수를 돌려준다. */
+export function deleteLogs(prefix) {
+  const dates = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(`${LOG}:${prefix}`)) dates.push(k.slice(LOG.length + 1));
+  }
+  dates.forEach(deleteLog);
+  return dates.length;
+}
+
 export function listSessions() {
   const out = [];
   for (let i = 0; i < localStorage.length; i++) {

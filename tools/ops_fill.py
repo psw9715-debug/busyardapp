@@ -48,6 +48,10 @@ ROW_OFFSET = YARDS["new"]["offset"]
 # 원본이 열려 있어 손을 못 댈 때도 이 복사본은 늘 남는다.
 COPY_NAME = "차고지입력_{:%m%d}.xlsx"
 
+# "최종 인쇄" 는 이 시트를 그대로 뽑는다 — 사무실에서 손으로 뽑던 바로 그 모양이다.
+# 차량번호 밑에 이름과 출근시각이 수식으로 따라 붙어 있어 순찰용 양식보다 쓸모가 많다.
+PRINT_AREA = {"new": "A36:O97", "old": "A1:O34"}
+
 
 def target_date(now=None):
     """넣을 엑셀의 날짜 = 근무일 + 1 (근무일은 오전 9시에 넘어간다)"""
@@ -82,6 +86,11 @@ def find_excel(date, base=BASE):
     return os.path.join(day, hits[0])
 
 
+def copy_path(orig, date):
+    """원본 옆 복사본의 경로 (만들지는 않는다)"""
+    return os.path.join(os.path.dirname(orig), COPY_NAME.format(date))
+
+
 def make_copy(orig, date):
     """원본 옆에 차고지입력_MMDD.xlsx 를 새로 뜬다.
 
@@ -89,7 +98,7 @@ def make_copy(orig, date):
     시트를 보고 있어서, 차고지 시트만 떼면 이름과 시각이 #REF! 로 깨진다.
     대신 열었을 때 차고지 시트가 바로 보이도록 맨 뒤로 옮겨 놓는다(fill 에서).
     """
-    dst = os.path.join(os.path.dirname(orig), COPY_NAME.format(date))
+    dst = copy_path(orig, date)
     shutil.copy2(orig, dst)
     return dst
 
@@ -325,6 +334,50 @@ def read_board(yard="old", date=None, log=print):
         wb.close()
     log(f"📥 [엑셀] {len(entries)}대 읽음")
     return entries
+
+
+def print_ops(path, yard="new"):
+    """운영관리 엑셀의 고정차고지_입력 시트를 그대로 기본 프린터로 뽑는다.
+
+    사무실에서 손으로 하던 것과 같다 — 파일을 열고 그 시트를 인쇄한다.
+    인쇄 영역만 그 차고지 블록으로 맞춘다 (신차고지 A36:O97, 구차고지 A1:O34).
+    원본이 아니라 복사본을 뽑으므로 원본의 인쇄 설정은 건드리지 않는다.
+    """
+    import pythoncom
+    import win32com.client
+    pythoncom.CoInitialize()
+
+    excel = win32com.client.DispatchEx("Excel.Application")   # 남의 엑셀에 붙지 않는다
+    excel.DisplayAlerts = False
+    try:
+        excel.Visible = False
+    except Exception:
+        pass
+    wb = excel.Workbooks.Open(path)
+    try:
+        ws = wb.Worksheets(SHEET)
+        ws.PageSetup.PrintArea = PRINT_AREA.get(yard, PRINT_AREA["new"])
+        ws.PageSetup.Orientation = 1          # xlPortrait
+        ws.PageSetup.Zoom = False
+        ws.PageSetup.FitToPagesWide = 1
+        ws.PageSetup.FitToPagesTall = 1
+        ws.PrintOut()
+    finally:
+        wb.Close(SaveChanges=False)
+        excel.Quit()
+    return os.path.basename(path)
+
+
+def run_final(board_date=None, date=None, log=print, yard="new"):
+    """엑셀에 넣고, 그 엑셀 양식 그대로 한 장 뽑는다 (2회차를 마친 뒤 쓰는 마무리)."""
+    summary = run(board_date=board_date, date=date, log=log, yard=yard)
+    import inbox
+    board_date = board_date or inbox.work_date()
+    when = date or (datetime.date.fromisoformat(board_date) + datetime.timedelta(days=1))
+    dst = copy_path(find_excel(when), when)
+    log(f"🖨 [엑셀] {os.path.basename(dst)} 를 그대로 인쇄")
+    print_ops(dst, yard)
+    return summary + " · 엑셀 양식으로 인쇄"
 
 
 def run_original(board_date=None, date=None, log=print, yard="new"):

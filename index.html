@@ -10,7 +10,7 @@
 <title>차고지 순회</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="src/app.css?v=202610020017">
+<link rel="stylesheet" href="src/app.css?v=202610020225">
 </head>
 <body>
 
@@ -175,6 +175,7 @@
     </p>
     <button class="log-save" id="logSave">오늘 순회 저장하기</button>
     <div class="log-save-note" id="logSaveNote"></div>
+    <button class="log-reset" id="logReset" hidden>오늘 것을 지우고 새로 시작하기</button>
     <ul class="log-list" id="logList"></ul>
   </div>
 </div>
@@ -190,6 +191,7 @@
     <div class="sheet-actions">
       <button class="go" id="printPaper">종이로 인쇄</button>
       <button id="printExcel">운영관리 엑셀에 넣기</button>
+      <button id="printFinal">최종 인쇄 (엑셀 양식 그대로)</button>
     </div>
     <div class="print-msg" id="printMsg"></div>
   </div>
@@ -231,6 +233,6 @@
 
 <!-- 인쇄 전용 레이아웃 -->
 
-<script type="module" src="src/app.js?v=202610020017"></script>
+<script type="module" src="src/app.js?v=202610020225"></script>
 </body>
 </html>

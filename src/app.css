@@ -436,6 +436,36 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
   text-align: center; font-size: 15px; font-weight: 700;
   padding: 4px 0 14px; color: var(--ink);
 }
+/* 일지 목록 — 연 > 월로 접는다. 쌓이면 한없이 길어진다. */
+.log-year > summary,
+.log-month > summary {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 10px; cursor: pointer; list-style: none;
+  font-size: 14px; font-weight: 700; color: var(--ink);
+  border-bottom: 1px solid var(--line);
+}
+.log-year > summary::-webkit-details-marker,
+.log-month > summary::-webkit-details-marker { display: none; }
+.log-year > summary::before,
+.log-month > summary::before { content: '▸'; color: var(--ink-dim); font-weight: 400; }
+.log-year[open] > summary::before,
+.log-month[open] > summary::before { content: '▾'; }
+.log-month > summary { font-size: 13px; font-weight: 500; color: var(--ink-dim); padding-left: 18px; }
+.log-days { list-style: none; padding: 0; margin: 0; }
+.log-days li { padding-left: 10px; }
+.log-del-many {
+  margin-left: auto; font-family: inherit; font-size: 11px; color: var(--ink-dim);
+  background: none; border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px;
+}
+.log-del-many.armed { background: var(--red); border-color: var(--red); color: #fff; }
+
+.log-reset {
+  width: 100%; padding: 13px; margin-top: 8px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  color: var(--amber); font-size: 14px; font-family: inherit;
+}
+.log-reset:active { background: var(--amber); color: var(--amber-ink); }
+
 .print-msg {
   text-align: center; font-size: 15px; line-height: 1.6;
   padding: 14px 8px 18px; color: var(--ink-dim);

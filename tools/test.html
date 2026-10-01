@@ -212,6 +212,14 @@ log('<h2>▶ 그 자리에서 무엇을 읽어 줄까 — 회차마다 다르다
   eq(say({ round: 1, newSeg: true, ttsOn: true }), 'B5 1번', '1회차 — 구역이 바뀌면 자리를');
   eq(say({ round: 1, newSeg: false, ttsOn: true }), null, '1회차 — 구역 안에서는 말이 없다');
   eq(say({ round: 1, newSeg: true, ttsOn: false }), null, '1회차 — 꺼 두면 말이 없다');
+
+  // 2회차에 그 자리의 차가 CCTV·열쇠를 수거한 차면, 도로 가져다 놓아야 한다
+  eq(say({ round: 2, newSeg: false, ttsOn: true, target: 'cctv' }), '천오백팔, 비디오',
+    '2회차 — 비디오 수거 차량');
+  eq(say({ round: 2, newSeg: true, ttsOn: true, target: 'key' }), 'B5 1번, 천오백팔, 열쇠',
+    '2회차 — 구역이 바뀌는 자리의 열쇠 차량');
+  eq(say({ round: 1, newSeg: true, ttsOn: true, target: 'cctv' }), 'B5 1번',
+    '1회차 — 아직 적기 전이라 대상 안내는 하지 않는다');
 }
 
 log('<h2>▶ PC 로 보낼 판 — 인쇄에 쓰는 것만 추린다</h2>');
