@@ -46,30 +46,33 @@ html, body {
   flex: none;
 }
 .bar-left {
-  display: flex; align-items: baseline; gap: 6px;
-  min-width: 0; overflow: hidden;
+  display: flex; align-items: baseline; gap: 7px;
+  min-width: 0;
 }
+/* 자리가 좁으면 차고지 이름이 줄어든다 — 회차 버튼은 늘 통째로 눌릴 수 있어야 한다 */
 .yard {
   font-size: 14px; font-weight: 700; white-space: nowrap; font-family: inherit;
   background: none; border: none; color: var(--ink); padding: 2px 0;
+  min-width: 0; overflow: hidden; text-overflow: ellipsis;
 }
 .yard::after { content: ' ⇄'; color: var(--ink-dim); font-weight: 400; }
 .round {
+  flex: none;                      /* 눌러야 하는 것이라 절대 깎이지 않는다 */
   font-size: 11px; font-family: inherit; white-space: nowrap;
   background: var(--panel-2); color: var(--ink-dim);
-  border: 1px solid var(--line); border-radius: 7px; padding: 4px 8px;
+  border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px;
 }
 .round.r2 { background: var(--r2-bg); color: var(--r2-ink); border-color: var(--r2-line); font-weight: 700; }
 /* 2회차 모드는 윗부분 전체를 보라로 물들여, 지금 몇 회차로 적는지 헷갈리지 않게 한다 */
 body.round2 .bar,
 body.round2 .hud { background: var(--r2-bg); }
 body.round2 .hud { border-bottom: 2px solid var(--r2-line); }
-.bar-right { display: flex; gap: 5px; flex: none; }
+.bar-right { display: flex; gap: 4px; flex: none; }
 .icon-btn {
   position: relative;
   background: var(--panel-2); color: var(--ink-dim);
   border: 1px solid var(--line); border-radius: 8px;
-  font-size: 11px; padding: 7px 8px; font-family: inherit;
+  font-size: 11px; padding: 7px 5px; font-family: inherit;
   white-space: nowrap; line-height: 1;
 }
 .icon-btn:active { background: var(--line); }

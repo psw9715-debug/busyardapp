@@ -21,11 +21,13 @@
     구차고지(1·2차고지)  1~34행   (순찰 양식과 행이 그대로 겹친다)
 """
 import datetime
+import gc
 import io
 import json
 import os
 import re
 import ssl
+import subprocess
 import sys
 import time
 import threading
@@ -129,6 +131,53 @@ def report(req, state, msg):
                    "msg": msg, "at": at.replace("+00:00", "Z")}, f, ensure_ascii=False)
     os.replace(tmp, RESULT_FILE)          # 반만 쓰인 쪽지를 사무실 PC 가 읽지 않게
     log(f"📨 결과를 놓았습니다 — {state} · {msg}")
+
+
+def quit_excel(excel, *objs):
+    """우리가 띄운 엑셀을 확실히 내보낸다.
+
+    Quit() 만으로는 안 나간다. 시트·통합문서를 붙잡고 있던 COM 참조가 하나라도
+    살아 있으면 엑셀은 보이지 않는 채로 남아 그 파일을 쥐고 있고, 그러면 사람이
+    열 때 "읽기 전용" 으로 뜬다. (실제로 그렇게 두 개가 남아 있었다.)
+
+    그래서 ① 붙잡고 있던 것을 먼저 놓고 ② Quit 하고 ③ 그래도 안 나가면 그
+    프로세스만 끊는다. 우리가 DispatchEx 로 따로 띄운 것이라 남의 문서가 아니다.
+    """
+    pid = None
+    try:
+        import win32process
+        pid = win32process.GetWindowThreadProcessId(excel.Hwnd)[1]
+    except Exception:
+        pass
+
+    del objs                       # ws, wb ... 먼저 놓는다
+    gc.collect()
+    try:
+        excel.DisplayAlerts = False
+    except Exception:
+        pass
+    try:
+        excel.Quit()
+    except Exception:
+        pass
+    del excel
+    gc.collect()
+
+    if not pid:
+        return
+    for _ in range(20):            # 제대로 나가는 데 1~2초쯤 걸린다
+        if not _alive(pid):
+            return
+        time.sleep(0.1)
+    subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True,
+                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def _alive(pid):
+    r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return "EXCEL" in (r.stdout or "").upper()
 
 
 # ---- 자리와 칸 -----------------------------------------------------------
@@ -280,7 +329,7 @@ def write_board(board, path, log=log):
             # 누가 열고 있는데 ROT 에서 못 찾은 경우다. 읽기 전용으로 적으면
             # 저장이 안 되는데도 다 된 것처럼 보이므로, 여기서 분명히 멈춘다.
             wb.Close(SaveChanges=False)
-            excel.Quit()
+            quit_excel(excel, wb)
             raise PermissionError("엑셀이 읽기 전용으로 열립니다 — 다른 곳에서 쓰고 있는 파일입니다")
 
     calc = None
@@ -298,8 +347,13 @@ def write_board(board, path, log=log):
         wb.Save()
     finally:
         if mine:
-            wb.Close(SaveChanges=False)
-            excel.Quit()
+            # 우리가 띄운 엑셀이다. 남겨 두면 보이지 않는 채로 이 파일을 쥐고 있어
+            # 사람이 열 때 읽기 전용으로 뜬다 — 확실히 내보낸다.
+            try:
+                wb.Close(SaveChanges=False)
+            except Exception:
+                pass
+            quit_excel(excel, ws, wb)
     return written, was_open
 
 

@@ -21,8 +21,11 @@
 import datetime
 import json
 import os
+import gc
 import re
 import shutil
+import subprocess
+import time
 import sys
 
 import openpyxl
@@ -86,6 +89,53 @@ def find_excel(date, base=BASE):
     # '복사본 …' 같은 것보다 그날 날짜로 시작하는 파일을 먼저 본다
     hits.sort(key=lambda f: (not f.startswith(f"{date:%m%d}"), f))
     return os.path.join(day, hits[0])
+
+
+def quit_excel(excel, *objs):
+    """우리가 띄운 엑셀을 확실히 내보낸다.
+
+    Quit() 만으로는 안 나간다. 시트·통합문서를 붙잡고 있던 COM 참조가 하나라도
+    살아 있으면 엑셀은 보이지 않는 채로 남아 그 파일을 쥐고 있고, 그러면 사람이
+    열 때 "읽기 전용" 으로 뜬다. (실제로 그렇게 두 개가 남아 있었다.)
+
+    그래서 ① 붙잡고 있던 것을 먼저 놓고 ② Quit 하고 ③ 그래도 안 나가면 그
+    프로세스만 끊는다. 우리가 DispatchEx 로 따로 띄운 것이라 남의 문서가 아니다.
+    """
+    pid = None
+    try:
+        import win32process
+        pid = win32process.GetWindowThreadProcessId(excel.Hwnd)[1]
+    except Exception:
+        pass
+
+    del objs                       # ws, wb ... 먼저 놓는다
+    gc.collect()
+    try:
+        excel.DisplayAlerts = False
+    except Exception:
+        pass
+    try:
+        excel.Quit()
+    except Exception:
+        pass
+    del excel
+    gc.collect()
+
+    if not pid:
+        return
+    for _ in range(20):            # 제대로 나가는 데 1~2초쯤 걸린다
+        if not _alive(pid):
+            return
+        time.sleep(0.1)
+    subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True,
+                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def _alive(pid):
+    r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace",
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return "EXCEL" in (r.stdout or "").upper()
 
 
 def copy_path(orig, date):
@@ -242,13 +292,16 @@ def fill(path, board, cells=None, show_sheet=False):
         excel.Calculation = -4105  # xlCalculationAutomatic — 저장 전에 수식을 채운다
         wb.Save()
     finally:
-        wb.Close(SaveChanges=False)
+        try:
+            wb.Close(SaveChanges=False)
+        except Exception:
+            pass
         try:
             excel.ScreenUpdating = True
             excel.Visible = False
         except Exception:
             pass
-        excel.Quit()
+        quit_excel(excel, ws, wb)
     return written, len(cells) - written
 
 
@@ -365,8 +418,11 @@ def print_ops(path, yard="new"):
         ws.PageSetup.FitToPagesTall = 1
         ws.PrintOut()
     finally:
-        wb.Close(SaveChanges=False)
-        excel.Quit()
+        try:
+            wb.Close(SaveChanges=False)
+        except Exception:
+            pass
+        quit_excel(excel, ws, wb)
     return os.path.basename(path)
 
 

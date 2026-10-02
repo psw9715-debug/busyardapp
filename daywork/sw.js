@@ -7,7 +7,7 @@
 //
 // 주소(scope)가 /daywork/ 라서 이 앱의 페이지는 루트 워커가 아니라 이 워커가 맡는다.
 
-const CACHE = 'daywork-202610030056';
+const CACHE = 'daywork-202610030404';
 const ASSETS = [
   './',
   './index.html',

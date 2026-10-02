@@ -54,6 +54,12 @@ OUT_DIR = os.path.join(ROOT, "기록")
 LAST_FILE = os.path.join(OUT_DIR, ".last_print")   # 이미 처리한 인쇄 요청 — 껐다 켜도 두 번 뽑지 않게
 FILE_DIR = os.path.join(OUT_DIR, "받은파일")        # 폰에서 보낸 사진이 내려오는 다운로드 폴더
 INBOX_REF = "refs/remotes/origin/inbox"
+
+# 폰이 올린 차량 특이사항을 일지 프로그램에게 넘기는 곳.
+# 여기에 텍스트로 떨구면 일지 프로그램(daywork.py)이 집어서 엑셀에 적는다.
+DAYWORK_DIR = os.path.join(os.path.dirname(ROOT), "daywork")
+DAYWORK_INBOX = os.path.join(DAYWORK_DIR, "inbox")
+DAYWORK_SEEN = os.path.join(OUT_DIR, ".last_daywork.json")   # 같은 것을 두 번 떨구지 않게
 GREY = "FF8F8F8F"
 STALE = datetime.timedelta(minutes=10)   # 이보다 오래된 요청은 뽑지 않는다
 POLL_SEC = 5
@@ -124,6 +130,90 @@ def fetch(date, yard="new"):
     if board is None and yard == "new":
         board = read(f"inbox/{date}.json")
     return board
+
+
+# ---- 차량 특이사항 (daywork) ------------------------------------------
+
+def inbox_names():
+    """우편함에 올라와 있는 파일 이름들"""
+    r = git("ls-tree", "--name-only", f"{INBOX_REF}:inbox")
+    return r.stdout.split() if r.returncode == 0 else []
+
+
+def daywork_text(board):
+    """일지 프로그램이 읽을 텍스트. 사람이 눈으로 보고 손으로 고칠 수도 있게 단순하게.
+
+        # daywork 특이사항 2026-10-02
+        # 폰 전송 2026-10-03T01:31:00 · 3건
+        1120\t대차
+        1121\t브레이크 소음
+    """
+    lines = [f"# daywork 특이사항 {board.get('date', '')}",
+             f"# 폰 전송 {board.get('updatedAt', '')} · {len(board.get('entries', []))}건"]
+    for e in board.get("entries", []):
+        plate = str(e.get("plate", "")).strip()
+        issue = str(e.get("issue", "")).replace("\t", " ").strip()
+        if plate and issue:
+            lines.append(f"{plate}\t{issue}")
+    return "\n".join(lines) + "\n"
+
+
+def _seen():
+    try:
+        with open(DAYWORK_SEEN, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _mark_seen(seen):
+    os.makedirs(OUT_DIR, exist_ok=True)
+    with open(DAYWORK_SEEN, "w", encoding="utf-8") as f:
+        json.dump(seen, f, ensure_ascii=False, indent=2)
+
+
+def take_daywork(log=print):
+    """폰이 올린 특이사항을 일지 프로그램 폴더에 텍스트로 떨군다.
+
+    같은 내용을 두 번 떨구지 않도록 폰이 찍은 시각(updatedAt)을 기억해 둔다.
+    폰이 하루에 여러 번 보내면 그때마다 그날 전체 목록이 다시 오는데,
+    일지 프로그램이 이미 적은 것은 건너뛰므로 중복 걱정은 없다.
+
+    떨군 파일 경로 목록을 돌려준다.
+    """
+    seen = _seen()
+    written = []
+    for name in inbox_names():
+        if not (name.startswith("daywork-") and name.endswith(".json")):
+            continue
+        board = read(f"inbox/{name}")
+        if not board:
+            continue
+        date = board.get("date") or name[len("daywork-"):-len(".json")]
+        stamp = board.get("updatedAt") or ""
+        if seen.get(date) == stamp:
+            continue                      # 지난번에 떨군 것과 같다
+        entries = board.get("entries") or []
+        if not entries:
+            seen[date] = stamp
+            continue
+
+        try:
+            os.makedirs(DAYWORK_INBOX, exist_ok=True)
+            path = os.path.join(DAYWORK_INBOX, f"{date}.txt")
+            with open(path, "w", encoding="utf-8", newline="\r\n") as f:
+                f.write(daywork_text(board))
+        except Exception as e:
+            log(f"⚠ [특이사항] 일지 폴더에 떨구지 못함: {e}")
+            continue
+
+        seen[date] = stamp
+        written.append(path)
+        log(f"📝 [특이사항] 폰에서 {date} {len(entries)}건 받음")
+
+    if written:
+        _mark_seen(seen)
+    return written
 
 
 def write_status(status):
@@ -365,8 +455,12 @@ def handle(req, log, notify=None):
         notify(state == "done", f"{what} — {msg}")
 
 
-def watch(log=print, stop=None, notify=None):
-    """inbox 가지를 5초마다 보고, 폰이 보낸 요청을 처리한다. stop() 이 참이면 끝낸다."""
+def watch(log=print, stop=None, notify=None, on_daywork=None):
+    """inbox 가지를 5초마다 보고, 폰이 보낸 요청을 처리한다. stop() 이 참이면 끝낸다.
+
+    on_daywork(떨군 파일 목록) — 차량 특이사항이 새로 왔을 때 부른다.
+    받는 일은 여기서 하고, 엑셀에 적는 일은 일지 프로그램이 한다.
+    """
     handled = _load_last()
     seen = None
     last_err = None
@@ -380,6 +474,9 @@ def watch(log=print, stop=None, notify=None):
                 for got in take_files(log):          # 사진이 함께 와 있으면 먼저 내린다
                     if notify:
                         notify(True, f"사진 받음 — {os.path.basename(got)}")
+                dropped = take_daywork(log)          # 차량 특이사항도 같은 기회에 집는다
+                if dropped and on_daywork:
+                    on_daywork(dropped)
                 req = read("inbox/print.json")
                 what = decide(req, handled, datetime.datetime.now(datetime.timezone.utc))
                 if what != "skip":

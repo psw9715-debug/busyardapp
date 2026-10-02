@@ -13,9 +13,9 @@
 //
 // 브라우저 API를 쓰지 않는 순수 로직이라 테스트 페이지에서 그대로 검사한다.
 
-import { extractSequence } from '../../src/plate.js?v=202610030056';
-import { isKnown } from './roster.js?v=202610030056';
-import { workDate } from './workdate.js?v=202610030056';
+import { extractSequence } from '../../src/plate.js?v=202610030404';
+import { isKnown } from './roster.js?v=202610030404';
+import { workDate } from './workdate.js?v=202610030404';
 
 // 공백·쉼표는 extractSequence 가 지우고 본다. 같은 규칙으로 지워야 위치가 맞는다.
 const SKIP_CHARS = /[\s,.\-·]/;

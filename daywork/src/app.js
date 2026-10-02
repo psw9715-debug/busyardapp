@@ -10,15 +10,15 @@
 
 import {
   createState, handleUtterance, setPlate, removeCard, undo, sendable,
-} from './entry.js?v=202610030056';
-import { createListener, isSupported } from './listen.js?v=202610030056';
-import { loadSession, saveSession, clearSession, listDays, getToken } from './store.js?v=202610030056';
-import { workDate } from './workdate.js?v=202610030056';
-import { send as sendToPc } from './sync.js?v=202610030056';
-import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610030056';
-import * as logbook from './log.js?v=202610030056';
-import * as roster from './roster.js?v=202610030056';
-import { beep, primeAudio } from '../../src/voice.js?v=202610030056';
+} from './entry.js?v=202610030404';
+import { createListener, isSupported } from './listen.js?v=202610030404';
+import { loadSession, saveSession, clearSession, listDays, getToken } from './store.js?v=202610030404';
+import { workDate } from './workdate.js?v=202610030404';
+import { send as sendToPc } from './sync.js?v=202610030404';
+import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610030404';
+import * as logbook from './log.js?v=202610030404';
+import * as roster from './roster.js?v=202610030404';
+import { beep, primeAudio } from '../../src/voice.js?v=202610030404';
 
 // 내용을 받을 때 말이 멎고 이만큼 기다린다
 const SYMPTOM_WAIT = 2000;
