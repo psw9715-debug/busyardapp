@@ -9,6 +9,7 @@
 """
 import io
 import re
+import sys
 from datetime import datetime, timezone, timedelta
 
 KST = timezone(timedelta(hours=9))
@@ -20,6 +21,51 @@ ASSETS = MODULES + ['app.css']
 # 진입 안내 앱(guide/) — 순회 앱과 같은 이유로 주소에 버전을 붙여야 한다.
 GUIDE_MODULES = ['ui.js', 'assign.js', 'session.js', 'source.js', 'yard12-data.js']
 GUIDE_ASSETS = GUIDE_MODULES + ['guide.css']
+
+# 특이사항 받아쓰기 앱(daywork/) — 같은 이유로 주소에 버전을 붙인다.
+# 이 앱은 캐시와 서비스 워커를 따로 쓰므로 배포도 따로 할 수 있다:
+#   python tools/stamp_build.py --only daywork
+# 순찰 중에 일지 앱만 고쳐 올려도 순회앱이 새로 받지 않는다.
+DAYWORK_MODULES = ['app.js', 'entry.js', 'roster.js', 'workdate.js', 'listen.js', 'store.js', 'words.js']
+DAYWORK_ASSETS = DAYWORK_MODULES + ['app.css']
+
+
+def stamp_daywork_urls(tag):
+    """daywork/ 쪽 주소에도 같은 도장을 찍는다.
+
+    daywork/index.html 은 `./src/app.js` 로, 모듈끼리는 `./entry.js` 로,
+    순회앱과 함께 쓰는 것은 `../../src/plate.js` 로 서로를 부른다.
+    """
+    paths = ['daywork/index.html'] + [f'daywork/src/{m}' for m in DAYWORK_MODULES]
+    changed = 0
+
+    for path in paths:
+        try:
+            text = io.open(path, encoding='utf-8').read()
+        except FileNotFoundError:
+            continue
+        original = text
+        for asset in DAYWORK_ASSETS:
+            text = re.sub(
+                r'((?:\./|\./src/)%s)(\?v=\d+)?' % re.escape(asset),
+                lambda m: m.group(1) + '?v=' + tag,
+                text,
+            )
+        for asset in ['plate.js', 'voice.js']:      # 순회앱과 함께 쓰는 것
+            text = re.sub(
+                r'((?:\.\./\.\./src/)%s)(\?v=\d+)?' % re.escape(asset),
+                lambda m: m.group(1) + '?v=' + tag,
+                text,
+            )
+        if text != original:
+            io.open(path, 'w', encoding='utf-8').write(text)
+            changed += 1
+
+    sw = io.open('daywork/sw.js', encoding='utf-8').read()
+    sw = re.sub(r"const CACHE = '[^']*';", f"const CACHE = 'daywork-{tag}';", sw, count=1)
+    io.open('daywork/sw.js', 'w', encoding='utf-8').write(sw)
+
+    print(f'daywork 주소 갱신: {changed}개 파일 (?v={tag}), cache: daywork-{tag}')
 
 
 def stamp_guide_urls(tag):
@@ -87,6 +133,21 @@ def stamp_module_urls(tag):
 
 
 def main():
+    # 어느 앱에 도장을 찍을지. 인자가 없으면 둘 다 (잊고 안 찍는 쪽이 더 위험하다).
+    args = sys.argv[1:]
+    only = args[args.index('--only') + 1] if '--only' in args else None
+    if only not in (None, 'yard', 'daywork'):
+        raise SystemExit("--only 는 yard 또는 daywork")
+    do_yard = only in (None, 'yard')
+    do_daywork = only in (None, 'daywork')
+
+    tag = datetime.now(KST).strftime('%Y%m%d%H%M')
+
+    if do_daywork:
+        stamp_daywork_urls(tag)
+    if not do_yard:
+        return
+
     # 커밋 해시는 이 파일을 만든 시점 기준이라 헷갈린다. 배포 시각만 남긴다.
     build = datetime.now(KST).strftime('%Y-%m-%d %H:%M')
 
@@ -98,7 +159,6 @@ def main():
     with io.open('version.json', 'w', encoding='utf-8') as f:
         f.write('{"build": "%s"}\n' % build)
 
-    tag = datetime.now(KST).strftime('%Y%m%d%H%M')
     stamp_module_urls(tag)
     stamp_guide_urls(tag)
 

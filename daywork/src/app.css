@@ -1,0 +1,113 @@
+/* 야간에 한 손으로 쓰는 화면. 서류철을 들고 있으니 손가락이 크게 닿아도 되게. */
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+body {
+  margin: 0;
+  padding: env(safe-area-inset-top) 12px calc(env(safe-area-inset-bottom) + 8px);
+  background: #0a0d11;
+  color: #e6ecf2;
+  font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 2px 6px;
+  font-size: 13px; color: #8b9bab;
+}
+
+#status { display: flex; align-items: center; gap: 6px; }
+#status::before {
+  content: ''; width: 8px; height: 8px; border-radius: 50%;
+  background: #3d4752;
+}
+#status.on::before { background: #4ec9a0; box-shadow: 0 0 8px #4ec9a0; }
+#status.warn::before { background: #e8b84b; }
+#status.bad::before { background: #ff6b5a; }
+
+/* ── 지금 받고 있는 것 ───────────────────────────────── */
+#stage {
+  background: #121821;
+  border: 1px solid #1e2836;
+  border-radius: 14px;
+  padding: 18px 16px;
+  text-align: center;
+  min-height: 132px;
+  display: flex; flex-direction: column; justify-content: center; gap: 6px;
+}
+#stage.symptom { border-color: #2f6b55; background: #101d19; }
+
+#plate {
+  font-size: 46px; font-weight: 700; letter-spacing: 2px;
+  font-variant-numeric: tabular-nums;
+  color: #e6ecf2;
+}
+#plate.unknown { color: #e8b84b; }
+#plate.idle { color: #39434f; font-size: 34px; }
+
+#hint { font-size: 14px; color: #8b9bab; }
+#heard { font-size: 13px; color: #5d6b7a; min-height: 18px; }
+
+/* ── 음성 버튼 ───────────────────────────────────────── */
+#mic {
+  width: 100%; margin: 12px 0;
+  padding: 18px; border: 0; border-radius: 14px;
+  background: #1d4ed8; color: #fff;
+  font-size: 18px; font-weight: 700;
+}
+#mic.on { background: #b02a1e; }
+#mic:disabled { background: #2a3340; color: #6b7785; }
+
+/* ── 어휘 버튼 ───────────────────────────────────────── */
+#words { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+#words button {
+  padding: 15px 8px; border: 1px solid #243040; border-radius: 11px;
+  background: #151c26; color: #cfd9e4; font-size: 15px;
+}
+#words button:active { background: #24405c; }
+#words.off button { opacity: 0.35; }
+
+/* ── 키패드 ──────────────────────────────────────────── */
+#pad { margin-top: 10px; }
+#padEcho {
+  text-align: center; font-size: 30px; font-variant-numeric: tabular-nums;
+  letter-spacing: 6px; color: #e6ecf2; padding: 6px 0 10px;
+}
+#padKeys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+#padKeys button {
+  padding: 20px 0; border: 1px solid #243040; border-radius: 11px;
+  background: #161e29; color: #e6ecf2; font-size: 24px; font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+#padKeys button:active { background: #24405c; }
+#padKeys button.wide { grid-column: span 2; font-size: 16px; font-weight: 500; }
+
+/* ── 받은 목록 ───────────────────────────────────────── */
+#list { margin-top: 18px; }
+#list h2 { font-size: 13px; color: #8b9bab; font-weight: 500; margin: 0 2px 8px; }
+#cards { list-style: none; margin: 0; padding: 0; }
+#cards li {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 11px 12px; margin-bottom: 6px;
+  background: #121821; border: 1px solid #1e2836; border-radius: 10px;
+}
+#cards li.unknown { border-color: #6b5a1e; }
+#cards li.nosymptom { border-color: #7a3a2e; }
+#cards .no {
+  font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums;
+  min-width: 62px;
+}
+#cards .what { flex: 1; color: #cfd9e4; }
+#cards .badge { font-size: 11px; color: #e8b84b; white-space: nowrap; }
+#cards li.nosymptom .badge { color: #ff8f6b; }
+
+footer { display: flex; gap: 8px; margin: 18px 0 6px; }
+footer button {
+  flex: 1; padding: 13px; border: 1px solid #243040; border-radius: 11px;
+  background: #121821; color: #8b9bab; font-size: 14px;
+}
+footer button:active { background: #1b2430; }
+
+#empty { color: #4b5663; font-size: 14px; text-align: center; padding: 14px 0; }

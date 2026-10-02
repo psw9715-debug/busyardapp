@@ -8,19 +8,27 @@
 
 ---
 
-## 이 저장소에는 앱이 둘 있다
+## 이 저장소에는 앱이 셋 있다
 
 | | 하는 일 | 주소 |
 |---|---|---|
 | **순회** (`index.html`) | 6차고지를 돌며 자리마다 차량번호를 적는다 | `/` |
 | **안내** (`guide/index.html`) | 1·2차고지에 들어오는 차에게 몇 열에 댈지 알려준다 | `/guide/` |
+| **특이사항** (`daywork/index.html`) | 서류철을 넘기며 차량 일지의 특이사항을 받아쓴다 | `/daywork/` |
 
-방향이 반대다. 순회는 *자리 → 번호*, 안내는 *번호 → 자리*다.
-홈화면 아이콘도 따로 잡히니 밤에 헷갈리지 않는다.
-안내 앱 설명은 [guide/README.md](guide/README.md).
+순회와 안내는 방향이 반대다. 순회는 *자리 → 번호*, 안내는 *번호 → 자리*다.
+특이사항은 차고지와 상관없이 *번호 → 고장 내용* 을 받는다.
+셋 다 홈화면 아이콘이 따로 잡히니 밤에 헷갈리지 않는다.
+앱별 설명은 [guide/README.md](guide/README.md) · [daywork/README.md](daywork/README.md).
 
 공용으로 쓰는 것은 `src/plate.js` · `voice.js` · `store.js` 뿐이고,
-안내 앱이 이 셋을 고치는 일은 없다.
+안내·특이사항 앱이 이 셋을 고치는 일은 없다.
+
+같은 도메인에 올라가므로 **캐시와 localStorage 는 세 앱이 공유한다.**
+그래서 특이사항 앱은 자기 서비스 워커(`daywork/sw.js`)와 `daywork-` 캐시,
+`daywork:` 키를 따로 쓰고, 루트 `sw.js` 도 `busyard-` 로 시작하는 캐시만 지운다.
+(예전에는 남의 캐시까지 전부 지웠다 — 그러면 순회앱을 올릴 때마다 특이사항 앱의
+오프라인 캐시가 말없이 날아간다.)
 
 ---
 
@@ -292,6 +300,13 @@ python tools/build_yard.py
 
 ```bash
 python tools/stamp_build.py
+```
+
+특이사항 앱만 고쳤으면 그쪽만 찍을 수 있다. 순찰 중에 올려도 순회앱이
+새로 받지 않는다 (캐시가 따로이기 때문).
+
+```bash
+python tools/stamp_build.py --only daywork
 ```
 
 그 뒤 커밋하고 push 하면 GitHub Pages가 알아서 올린다.

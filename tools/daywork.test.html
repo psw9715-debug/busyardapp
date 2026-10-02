@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>특이사항 받아쓰기 로직 테스트</title>
+<style>
+  body { font: 13px/1.6 ui-monospace, Consolas, monospace; background:#14140f; color:#e8e2d2; padding:16px; }
+  .fail { color:#ff8f6b; }
+  .ok { color:#a9d18e; }
+  h2 { color:#d9c98a; font-size:13px; margin:14px 0 4px; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script type="module">
+// daywork/src/entry.js · roster.js 의 순수 로직 검사.
+// 끝나면 document.title 이 "PASS n" / "FAIL n" 이 된다 — 다른 테스트 페이지와 같다.
+// 서버가 있어야 모듈을 읽는다:  python -m http.server 5181  뒤 /tools/daywork.test.html
+import { createState, handleUtterance, undo, sendable } from '../daywork/src/entry.js';
+import * as roster from '../daywork/src/roster.js';
+import { workDate, sheetName } from '../daywork/src/workdate.js';
+import { workDate as yardWorkDate } from '../src/store.js';
+
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const log = (t, cls) => { const d = document.createElement('div'); d.className = cls || ''; d.textContent = t; out.appendChild(d); };
+const head = (t) => { const h = document.createElement('h2'); h.textContent = t; out.appendChild(h); };
+const eq = (actual, expected, label) => {
+  const a = JSON.stringify(actual), e = JSON.stringify(expected);
+  if (a === e) { pass++; log(`  ok   ${label}`, 'ok'); }
+  else { fail++; log(`  FAIL ${label}\n       기대 ${e}\n       실제 ${a}`, 'fail'); }
+};
+
+const fresh = () => createState('2026-10-02');
+// 카드를 비교하기 쉽게 추린다
+const cards = (s) => s.cards.map((c) => [c.plate, c.symptom, c.status]);
+
+// ───────────────────────────────────────────────────────────
+head('1. 번호 받기 — "천"을 붙여 끝까지 부른다');
+for (const [said, plate] of [
+  ['천십이', '1012'],          // 백의 자리가 0 — 짧게 "십이" 라고만 하면 못 받는 번호대
+  ['천백이십', '1120'],
+  ['천이십이', '1022'],
+  ['천칠백사십구', '1749'],
+  ['천삼백삼십사', '1334'],
+  ['천오백삼', '1503'],
+]) {
+  const s = fresh();
+  const ev = handleUtterance(s, said);
+  eq([ev.type, ev.plate], ['pending', plate], `"${said}" -> ${plate}`);
+}
+
+head('2. 자리별로 부르는 기존 방식도 그대로');
+for (const [said, plate] of [['공이이', '1022'], ['일이공', '1120'], ['공일이', '1012']]) {
+  const s = fresh();
+  const ev = handleUtterance(s, said);
+  eq([ev.type, ev.plate], ['pending', plate], `"${said}" -> ${plate}`);
+}
+
+head('3. 단위만 말하고 멎은 것은 번호가 아니다');
+for (const said of ['천', '천백', '천백십']) {
+  const s = fresh();
+  eq(handleUtterance(s, said).type, 'ignored', `"${said}" 무시`);
+}
+
+// ───────────────────────────────────────────────────────────
+head('4. 두 단계로 부르기');
+{
+  const s = fresh();
+  handleUtterance(s, '천백십삼');
+  const ev = handleUtterance(s, '에어컨 고장');
+  eq(ev.type, 'card', '내용을 말하면 카드가 된다');
+  eq(cards(s), [['1113', '에어컨 고장', 'ok']], '1113 / 에어컨 고장');
+  eq(s.phase, 'plate', '다시 번호 대기로');
+}
+
+head('5. 한 호흡에 부르기 — 띄어쓰기를 살려야 한다');
+{
+  const s = fresh();
+  eq(handleUtterance(s, '천백이십 대차').type, 'card', '바로 카드');
+  handleUtterance(s, '천백이십일 브레이크 소음');
+  eq(cards(s), [['1120', '대차', 'ok'], ['1121', '브레이크 소음', 'ok']],
+    '"브레이크 소음" 이 붙지 않는다');
+}
+
+// ───────────────────────────────────────────────────────────
+head('6. 내용을 기다리는 중에 숫자가 들리면 = 다음 차');
+{
+  const s = fresh();
+  handleUtterance(s, '천백십삼');
+  const ev = handleUtterance(s, '천백이십 대차');
+  eq(cards(s), [['1113', '', 'nosymptom'], ['1120', '대차', 'ok']],
+    '앞 차는 내용 없음으로 남고 사라지지 않는다');
+  eq(ev.parked && ev.parked.card.plate, '1113', '남겨진 카드를 알려 준다');
+}
+
+head('7. 특이사항 없는 차');
+{
+  const s = fresh();
+  handleUtterance(s, '천백십삼');
+  eq(handleUtterance(s, '없음').type, 'skip', '"없음" -> 넘어감');
+  eq(cards(s), [], '카드가 만들어지지 않는다');
+
+  const t = fresh();
+  eq(handleUtterance(t, '천백이십 패스').type, 'skip', '한 호흡 "천백이십 패스"');
+  eq(cards(t), [], '역시 카드 없음');
+}
+
+head('8. 정정');
+{
+  const s = fresh();
+  handleUtterance(s, '천백십삼');
+  eq(handleUtterance(s, '정정').type, 'undo', '기다리던 번호를 되돌린다');
+  eq(s.pending, null, 'pending 없음');
+
+  handleUtterance(s, '천백이십 대차');
+  eq(handleUtterance(s, '이전').from, 'card', '저장된 카드를 되돌린다');
+  eq(cards(s), [], '카드가 빠졌다');
+  eq(undo(s).from, 'none', '되돌릴 것이 없을 때도 터지지 않는다');
+}
+
+// ───────────────────────────────────────────────────────────
+head('9. 명부 — 막지 않고 표시만 한다');
+{
+  eq(roster.size, 181, '명부 181개');
+  eq([roster.isKnown('1012'), roster.isKnown('1749'), roster.isKnown('1133')],
+    [true, true, true], '불러 주신 구간 안');
+  eq([roster.isKnown('1011'), roster.isKnown('1755'), roster.isKnown('1400')],
+    [false, false, false], '구간 밖');
+
+  const s = fresh();
+  const ev = handleUtterance(s, '천구백구십구');
+  eq([ev.type, ev.plate, ev.known], ['pending', '1999', false], '명부에 없어도 받는다');
+  handleUtterance(s, '엔진 고장');
+  eq(cards(s), [['1999', '엔진 고장', 'unknown']], '저장은 되고 unknown 으로 표시');
+}
+
+head('10. 같은 차를 또 부르면 덮어쓴다 (PC 프로그램과 같은 규칙)');
+{
+  const s = fresh();
+  handleUtterance(s, '천백이십 대차');
+  const ev = handleUtterance(s, '천백이십 세차');
+  eq(ev.updated, true, '덮어썼다고 알려 준다');
+  eq(cards(s), [['1120', '세차', 'ok']], '카드는 하나, 내용은 새것');
+}
+
+head('11. PC 로 보낼 것 추리기');
+{
+  const s = fresh();
+  handleUtterance(s, '천백십삼');
+  handleUtterance(s, '천백이십 대차');      // 1113 은 내용 없이 남는다
+  eq(sendable(s).map((c) => c.plate), ['1120'], '내용 없는 카드는 보내지 않는다');
+}
+
+// ───────────────────────────────────────────────────────────
+head('12. 근무일 — PC 의 daywork.py 와 같은 규칙(06:30)이어야 한다');
+{
+  const at = (y, m, d, h, mi) => workDate(new Date(y, m - 1, d, h, mi));
+  eq(at(2026, 10, 2, 23, 50), '2026-10-02', '23:50 -> 그날');
+  eq(at(2026, 10, 2, 0, 0), '2026-10-01', '자정 -> 전날');
+  eq(at(2026, 10, 2, 0, 30), '2026-10-01', '00:30 -> 전날 (평소 입력 시각)');
+  eq(at(2026, 10, 2, 1, 0), '2026-10-01', '01:00 -> 전날 (익일 입력)');
+  eq(at(2026, 10, 2, 6, 30), '2026-10-01', '06:30 -> 아직 전날');
+  eq(at(2026, 10, 2, 6, 31), '2026-10-02', '06:31 -> 그날로 넘어감');
+  eq(at(2026, 11, 1, 2, 0), '2026-10-31', '달 경계');
+  eq(at(2027, 1, 1, 3, 0), '2026-12-31', '해 경계');
+  eq(sheetName('2026-10-01'), '10.01', '시트 이름');
+
+  // 순회앱 규칙을 그대로 가져다 쓰면 안 되는 이유를 못으로 박아 둔다
+  const seven = new Date(2026, 9, 2, 7, 0);
+  eq(workDate(seven), '2026-10-02', '07:00 은 daywork 기준으로 그날');
+  eq(yardWorkDate(seven), '2026-10-01', '같은 시각을 순회앱은 전날로 본다 — 섞으면 하루 밀린다');
+}
+
+log('');
+log(`${pass} 통과 / ${fail} 실패`, fail ? 'fail' : 'ok');
+document.title = fail ? `FAIL ${fail}` : `PASS ${pass}`;
+</script>
+</body>
+</html>

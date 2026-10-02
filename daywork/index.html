@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="특이사항">
+<meta name="theme-color" content="#0a0d11">
+<title>특이사항 받아쓰기</title>
+<link rel="manifest" href="./manifest.json">
+<link rel="apple-touch-icon" href="../icons/icon-180.png">
+<link rel="stylesheet" href="./src/app.css?v=202610030013">
+</head>
+<body>
+
+<header>
+  <div id="date">근무일</div>
+  <div id="status">꺼짐</div>
+</header>
+
+<section id="stage">
+  <div id="plate" class="idle">번호 대기</div>
+  <div id="hint">차량번호를 "천백이십" 처럼 불러 주세요</div>
+  <div id="heard"></div>
+</section>
+
+<button id="mic">음성 입력 시작</button>
+
+<section id="pad" hidden>
+  <div id="padEcho">1···</div>
+  <div id="padKeys"></div>
+</section>
+
+<section id="words"></section>
+
+<section id="list">
+  <h2><span id="count">0</span>건 받음</h2>
+  <ul id="cards"></ul>
+</section>
+
+<footer>
+  <button id="padBtn">키패드</button>
+  <button id="clearBtn">오늘 지우기</button>
+</footer>
+
+<script type="module" src="./src/app.js?v=202610030013"></script>
+</body>
+</html>

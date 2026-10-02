@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>특이사항 앱 테스트</title>
+<style>
+  body { font: 13px/1.6 ui-monospace, Consolas, monospace; background:#14140f; color:#e8e2d2; padding:16px; }
+  .fail { color:#ff8f6b; }
+  .ok { color:#a9d18e; }
+  h2 { color:#d9c98a; font-size:13px; margin:14px 0 4px; }
+  iframe { position:absolute; left:-9999px; width:390px; height:844px; }
+</style>
+</head>
+<body>
+<div id="out"></div>
+<script type="module">
+// 앱을 실제로 띄워 눌러 보는 검사. entry.js 의 순수 로직은 daywork.test.html 이 맡고,
+// 여기서는 "누르면 무슨 일이 일어나는가" 를 본다.
+//
+// 끝나면 document.title 이 "PASS n" / "FAIL n" 이 된다.
+// 서버가 있어야 모듈을 읽는다:  python -m http.server 5181  뒤 /tools/daywork.app.test.html
+const out = document.getElementById('out');
+let pass = 0, fail = 0;
+const log = (t, cls) => { const d = document.createElement('div'); d.className = cls || ''; d.textContent = t; out.appendChild(d); };
+const head = (t) => { const h = document.createElement('h2'); h.textContent = t; out.appendChild(h); };
+const eq = (actual, expected, label) => {
+  const a = JSON.stringify(actual), e = JSON.stringify(expected);
+  if (a === e) { pass++; log(`  ok   ${label}`, 'ok'); }
+  else { fail++; log(`  FAIL ${label}\n       기대 ${e}\n       실제 ${a}`, 'fail'); }
+};
+const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const until = async (ok, tries = 400) => {
+  for (let i = 0; i < tries; i++) { if (ok()) return true; await wait(20); }
+  return ok();
+};
+
+function wipe() {
+  for (const k of Object.keys(localStorage)) if (k.startsWith('daywork:')) localStorage.removeItem(k);
+}
+
+let frame = null;
+/**
+ * 앱을 띄운다. fresh=true 면 저장된 판까지 비우고 새로 시작한다.
+ *
+ * 순서가 중요하다 — 앱은 화면을 벗어날 때(pagehide) 판을 저장한다.
+ * 먼저 지우고 iframe 을 없애면, 없애는 순간 옛 판이 되살아나 다음 검사에 섞인다.
+ * 그래서 반드시 iframe 을 먼저 치우고 그 다음에 지운다.
+ */
+async function app(fresh) {
+  if (frame) { frame.remove(); frame = null; await wait(50); }
+  if (fresh) wipe();
+  frame = document.createElement('iframe');
+  frame.src = '../daywork/index.html';
+  document.body.appendChild(frame);
+  await until(() => {
+    const d = frame.contentDocument;
+    return d && d.getElementById('words') && d.getElementById('words').children.length > 0;
+  });
+  frame.contentWindow.confirm = () => true;      // 지울지 묻는 창은 늘 예
+  return frame.contentDocument;
+}
+
+const $ = (d, id) => d.getElementById(id);
+const words = (d) => [...$(d, 'words').children].map((b) => b.textContent);
+const cards = (d) => [...$(d, 'cards').querySelectorAll('li')]
+  .map((li) => [li.querySelector('.no').textContent, li.querySelector('.what').textContent, li.className]);
+const padKey = (d, label) => [...$(d, 'padKeys').children].find((b) => b.textContent === label);
+const tap = (btn) => btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+
+// ───────────────────────────────────────────────────────────
+head('1. 어휘 버튼 — PC 프로그램과 같은 순서');
+{
+  const d = await app(true);
+  eq(words(d).slice(0, 4), ['대차', '세차', '에어컨 고장', '브레이크 소음'], '많이 쓴 순서');
+  eq($(d, 'words').classList.contains('off'), true, '번호가 없으면 흐리게');
+}
+
+head('2. 키패드로 번호 -> 어휘 버튼으로 내용');
+{
+  const d = await app(true);
+  $(d, 'padBtn').click();
+  eq($(d, 'pad').hidden, false, '키패드가 열린다');
+
+  tap(padKey(d, '1')); tap(padKey(d, '2')); tap(padKey(d, '0'));
+  await until(() => $(d, 'plate').textContent === '1120');
+  eq($(d, 'plate').textContent, '1120', '앞자리 1이 붙어 1120');
+  eq($(d, 'stage').classList.contains('symptom'), true, '내용 대기로 바뀐다');
+  eq($(d, 'words').classList.contains('off'), false, '어휘 버튼이 살아난다');
+
+  [...$(d, 'words').children].find((b) => b.textContent === '대차').click();
+  await until(() => cards(d).length === 1);
+  eq(cards(d), [['1120', '대차', '']], '카드가 생긴다');
+  eq($(d, 'count').textContent, '1', '건수 표시');
+  eq($(d, 'plate').textContent, '번호 대기', '다시 번호 대기로');
+}
+
+head('3. 번호 없이 어휘 버튼을 누르면');
+{
+  const d = await app(true);
+  [...$(d, 'words').children][0].click();
+  await wait(60);
+  eq(cards(d).length, 0, '카드가 만들어지지 않는다');
+  eq($(d, 'hint').textContent, '번호를 먼저 불러 주세요', '왜 안 되는지 알려 준다');
+}
+
+head('4. 명부에 없는 번호도 받는다 — 노랗게 표시만');
+{
+  const d = await app(true);
+  $(d, 'padBtn').click();
+  tap(padKey(d, '9')); tap(padKey(d, '9')); tap(padKey(d, '9'));
+  await until(() => $(d, 'plate').textContent === '1999');
+  eq($(d, 'plate').classList.contains('unknown'), true, '번호가 노랗게');
+  eq($(d, 'hint').textContent.includes('명부에 없는'), true, '명부에 없다고 알려 준다');
+
+  [...$(d, 'words').children].find((b) => b.textContent === '세차').click();
+  await until(() => cards(d).length === 1);
+  eq(cards(d), [['1999', '세차', 'unknown']], '저장은 되고 unknown 으로 남는다');
+}
+
+head('5. 앱을 다시 켜도 남아 있다');
+{
+  let d = await app(true);
+  $(d, 'padBtn').click();
+  tap(padKey(d, '1')); tap(padKey(d, '2')); tap(padKey(d, '1'));
+  await until(() => $(d, 'plate').textContent === '1121');
+  [...$(d, 'words').children].find((b) => b.textContent === '대차').click();
+  await until(() => cards(d).length === 1);
+
+  d = await app();                                  // 다시 켠다 (지우지 않고)
+  eq(cards(d), [['1121', '대차', '']], '카드가 그대로');
+  eq($(d, 'plate').textContent, '번호 대기', '기다리던 번호는 없이 시작');
+}
+
+head('6. 카드를 눌러 지우기 · 오늘 지우기');
+{
+  const d = await app();                            // 5번의 카드가 남아 있는 상태
+  eq(cards(d).length, 1, '지울 카드가 있다');
+  $(d, 'cards').querySelector('li').click();
+  await until(() => cards(d).length === 0);
+  eq(cards(d).length, 0, '카드를 눌러 지웠다');
+
+  $(d, 'padBtn').click();
+  tap(padKey(d, '1')); tap(padKey(d, '3')); tap(padKey(d, '3'));
+  await until(() => $(d, 'plate').textContent === '1133');
+  [...$(d, 'words').children].find((b) => b.textContent === '세차').click();
+  await until(() => cards(d).length === 1);
+  $(d, 'clearBtn').click();
+  await until(() => cards(d).length === 0);
+  eq($(d, 'count').textContent, '0', '오늘 지우기로 비었다');
+}
+
+head('7. 키패드 지우기는 한 자리씩');
+{
+  const d = await app(true);
+  $(d, 'padBtn').click();
+  tap(padKey(d, '7')); tap(padKey(d, '0'));
+  eq($(d, 'padEcho').textContent, '170·', '두 자리 눌렀다');
+  tap(padKey(d, '지우기'));
+  eq($(d, 'padEcho').textContent, '17··', '한 자리 지워진다');
+  tap(padKey(d, '4'));
+  tap(padKey(d, '9'));
+  await until(() => $(d, 'plate').textContent === '1749');
+  eq($(d, 'plate').textContent, '1749', '세 자리가 차면 번호가 된다');
+}
+
+head('8. 어휘 버튼 접기 — 받은 목록이 화면 밖으로 밀리지 않게');
+{
+  const d = await app(true);
+  const more = () => $(d, 'moreWords');
+  eq($(d, 'words').children.length, 9, '자주 쓰는 8개 + 더 보기');
+  eq(words(d).slice(0, 2), ['대차', '세차'], '가장 많이 쓴 것부터');
+  eq(more().textContent, '더 보기 (19)', '남은 개수를 알려 준다');
+
+  more().click();
+  await until(() => $(d, 'words').children.length > 9);
+  eq($(d, 'words').children.length, 28, '펴면 27개 전부 + 접기');
+  eq(more().textContent, '접기', '라벨이 바뀐다');
+
+  more().click();
+  await until(() => $(d, 'words').children.length === 9);
+  eq($(d, 'words').children.length, 9, '다시 접힌다');
+}
+
+// ───────────────────────────────────────────────────────────
+wipe();
+log('');
+log(`${pass} 통과 / ${fail} 실패`, fail ? 'fail' : 'ok');
+document.title = fail ? `FAIL ${fail}` : `PASS ${pass}`;
+</script>
+</body>
+</html>

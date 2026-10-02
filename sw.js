@@ -36,7 +36,11 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))))
+      // 이 도메인에는 /daywork/ 앱의 캐시도 함께 있다. 'busyard-' 가 아닌 것은
+      // 남의 것이므로 건드리지 않는다 (예전에는 전부 지워 버렸다).
+      .then((keys) => Promise.all(
+        keys.filter((k) => k.startsWith('busyard-') && k !== CACHE).map((k) => caches.delete(k))
+      ))
       .then(() => self.clients.claim())
   );
 });
