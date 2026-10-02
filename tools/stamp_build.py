@@ -26,11 +26,12 @@ GUIDE_ASSETS = GUIDE_MODULES + ['guide.css']
 # 이 앱은 캐시와 서비스 워커를 따로 쓰므로 배포도 따로 할 수 있다:
 #   python tools/stamp_build.py --only daywork
 # 순찰 중에 일지 앱만 고쳐 올려도 순회앱이 새로 받지 않는다.
-DAYWORK_MODULES = ['app.js', 'entry.js', 'roster.js', 'workdate.js', 'listen.js', 'store.js', 'words.js']
+DAYWORK_MODULES = ['app.js', 'entry.js', 'roster.js', 'workdate.js', 'listen.js',
+                   'store.js', 'sync.js', 'log.js', 'update.js', 'build.js']
 DAYWORK_ASSETS = DAYWORK_MODULES + ['app.css']
 
 
-def stamp_daywork_urls(tag):
+def stamp_daywork_urls(tag, build):
     """daywork/ 쪽 주소에도 같은 도장을 찍는다.
 
     daywork/index.html 은 `./src/app.js` 로, 모듈끼리는 `./entry.js` 로,
@@ -60,6 +61,13 @@ def stamp_daywork_urls(tag):
         if text != original:
             io.open(path, 'w', encoding='utf-8').write(text)
             changed += 1
+
+    # 앱 안에 보이는 버전과, 실행할 때마다 캐시를 건너뛰고 받아와 비교하는 파일
+    with io.open('daywork/src/build.js', 'w', encoding='utf-8') as f:
+        f.write('// 자동 생성 파일 — `python tools/stamp_build.py --only daywork` 로 갱신.\n')
+        f.write(f"export const BUILD = '{build}';\n")
+    with io.open('daywork/version.json', 'w', encoding='utf-8') as f:
+        f.write('{"build": "%s"}\n' % build)
 
     sw = io.open('daywork/sw.js', encoding='utf-8').read()
     sw = re.sub(r"const CACHE = '[^']*';", f"const CACHE = 'daywork-{tag}';", sw, count=1)
@@ -142,15 +150,14 @@ def main():
     do_daywork = only in (None, 'daywork')
 
     tag = datetime.now(KST).strftime('%Y%m%d%H%M')
+    build = datetime.now(KST).strftime('%Y-%m-%d %H:%M')
 
     if do_daywork:
-        stamp_daywork_urls(tag)
+        stamp_daywork_urls(tag, build)
     if not do_yard:
         return
 
     # 커밋 해시는 이 파일을 만든 시점 기준이라 헷갈린다. 배포 시각만 남긴다.
-    build = datetime.now(KST).strftime('%Y-%m-%d %H:%M')
-
     with io.open('src/build.js', 'w', encoding='utf-8') as f:
         f.write('// 자동 생성 파일 — `python tools/stamp_build.py` 로 갱신.\n')
         f.write(f"export const BUILD = '{build}';\n")

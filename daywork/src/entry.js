@@ -13,9 +13,9 @@
 //
 // 브라우저 API를 쓰지 않는 순수 로직이라 테스트 페이지에서 그대로 검사한다.
 
-import { extractSequence } from '../../src/plate.js?v=202610030013';
-import { isKnown } from './roster.js?v=202610030013';
-import { workDate } from './workdate.js?v=202610030013';
+import { extractSequence } from '../../src/plate.js?v=202610030056';
+import { isKnown } from './roster.js?v=202610030056';
+import { workDate } from './workdate.js?v=202610030056';
 
 // 공백·쉼표는 extractSequence 가 지우고 본다. 같은 규칙으로 지워야 위치가 맞는다.
 const SKIP_CHARS = /[\s,.\-·]/;
@@ -72,8 +72,9 @@ function makeCard(plate, symptom, now) {
 function put(state, card) {
   const i = state.cards.findIndex((c) => c.plate === card.plate);
   if (i >= 0) {
+    const before = state.cards[i].symptom;    // 변경 기록에 남길 '바뀌기 전'
     state.cards[i] = card;
-    return { type: 'card', card, updated: true };
+    return { type: 'card', card, updated: true, before };
   }
   state.cards.push(card);
   return { type: 'card', card, updated: false };
@@ -181,24 +182,11 @@ export function setPlate(state, plate, now = new Date()) {
   return { type: 'pending', plate, known: state.pending.known, parked };
 }
 
-/**
- * 어휘 버튼으로 내용을 넣는다. 음성 파서를 거치지 않는다 —
- * "1번 도어" 같은 말이 들어와도 번호로 읽히지 않게.
- */
-export function setSymptom(state, text, now = new Date()) {
-  if (!state.pending) return { type: 'ignored', heard: text };
-  const plate = state.pending.plate;
-  state.pending = null;
-  state.phase = 'plate';
-  return put(state, makeCard(plate, text, now));
-}
-
-/** 카드 한 장을 지운다 (목록에서 손으로) */
+/** 카드 한 장을 지운다 (목록에서 손으로). 지운 카드를 돌려준다 — 기록에 남기려고. */
 export function removeCard(state, plate) {
   const i = state.cards.findIndex((c) => c.plate === plate);
-  if (i < 0) return false;
-  state.cards.splice(i, 1);
-  return true;
+  if (i < 0) return null;
+  return state.cards.splice(i, 1)[0];
 }
 
 /** PC 로 보낼 것만 추린다 — 내용 없는 카드는 보내지 않는다(엑셀에 빈 줄이 생기므로) */

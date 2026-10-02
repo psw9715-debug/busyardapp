@@ -7,7 +7,7 @@
 //
 // 주소(scope)가 /daywork/ 라서 이 앱의 페이지는 루트 워커가 아니라 이 워커가 맡는다.
 
-const CACHE = 'daywork-202610030013';
+const CACHE = 'daywork-202610030056';
 const ASSETS = [
   './',
   './index.html',
@@ -19,7 +19,11 @@ const ASSETS = [
   './src/workdate.js',
   './src/listen.js',
   './src/store.js',
-  './src/words.js',
+  './src/sync.js',
+  './src/log.js',
+  './src/update.js',
+  './src/build.js',
+  './version.json',
   // 순회앱과 함께 쓰는 것 — 고치지 않고 가져다 쓴다
   '../src/plate.js',
   '../src/voice.js',

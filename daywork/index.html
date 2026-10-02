@@ -10,13 +10,19 @@
 <title>특이사항 받아쓰기</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="../icons/icon-180.png">
-<link rel="stylesheet" href="./src/app.css?v=202610030013">
+<link rel="stylesheet" href="./src/app.css?v=202610030056">
 </head>
 <body>
 
 <header>
-  <div id="date">근무일</div>
-  <div id="status">꺼짐</div>
+  <div class="left">
+    <span id="date">근무일</span>
+    <span id="status">꺼짐</span>
+  </div>
+  <div class="right">
+    <button class="icon-btn" id="btnLog">기록</button>
+    <button class="icon-btn" id="btnDiag">진단</button>
+  </div>
 </header>
 
 <section id="stage">
@@ -25,6 +31,13 @@
   <div id="heard"></div>
 </section>
 
+<div id="controls">
+  <button class="ctl" id="btnBack">◀ 이전</button>
+  <button class="ctl ok" id="btnConfirm">확인</button>
+  <button class="ctl" id="btnSkip">없음</button>
+  <button class="ctl" id="btnPad">키패드</button>
+</div>
+
 <button id="mic">음성 입력 시작</button>
 
 <section id="pad" hidden>
@@ -32,18 +45,49 @@
   <div id="padKeys"></div>
 </section>
 
-<section id="words"></section>
-
 <section id="list">
   <h2><span id="count">0</span>건 받음</h2>
   <ul id="cards"></ul>
 </section>
 
 <footer>
-  <button id="padBtn">키패드</button>
-  <button id="clearBtn">오늘 지우기</button>
+  <button id="btnSend" class="primary">PC로 보내기</button>
+  <button id="btnClear">오늘 지우기</button>
 </footer>
+<div id="sendNote"></div>
 
-<script type="module" src="./src/app.js?v=202610030013"></script>
+<!-- 기록 ─────────────────────────────────────────── -->
+<div class="sheet-bg" id="logSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <span>기록</span>
+      <button class="sheet-close" id="logClose">닫기</button>
+    </div>
+    <div class="sheet-body">
+      <p class="muted">바뀌기 전 내용까지 남는다. 잘못 들어간 것을 되짚을 때 본다.</p>
+      <div id="logDays"></div>
+      <div id="logRows"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 진단 ─────────────────────────────────────────── -->
+<div class="sheet-bg" id="diagSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <span>진단</span>
+      <button class="sheet-close" id="diagClose">닫기</button>
+    </div>
+    <div class="sheet-body">
+      <dl id="diagInfo"></dl>
+      <button id="diagUpdate">최신 버전 받기</button>
+      <p class="muted">앱이 옛 파일을 붙잡고 있을 때 누른다. 받아 둔 기록은 지워지지 않는다.</p>
+      <h3>최근에 들린 말</h3>
+      <ul id="diagHeard"></ul>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./src/app.js?v=202610030056"></script>
 </body>
 </html>

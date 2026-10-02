@@ -14,14 +14,16 @@
 //   - 확정을 한참 뒤에야 주므로, 말이 멎으면 그 자리에서 확정으로 본다
 //   - 안내 음성이 나가는 동안은 자기 목소리를 되먹지 않게 막는다
 
-import { extractSequence } from '../../src/plate.js?v=202610030013';
+import { extractSequence } from '../../src/plate.js?v=202610030056';
 
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+// 엔진은 모듈을 읽을 때가 아니라 **쓸 때** 찾는다.
+// 그래야 테스트에서 가짜 엔진을 끼워 넣고 전체 흐름을 그대로 돌려볼 수 있다.
+const engine = () => window.SpeechRecognition || window.webkitSpeechRecognition;
 
 // 더 이어질 수 없는 말(번호를 다 불렀거나 명령어로 끝)은 이만큼만 기다린다
 const FAST_MS = 150;
 
-export const isSupported = () => Boolean(SR);
+export const isSupported = () => Boolean(engine());
 
 const strip = (t) => t.replace(/[\s,.\-·]/g, '');
 
@@ -72,7 +74,7 @@ export function createListener({ onUtterance, onInterim, onStatus, settleMs = 70
   }
 
   function build() {
-    const r = new SR();
+    const r = new (engine())();
     r.lang = 'ko-KR';
     r.continuous = true;        // 사파리는 무시하지만 다른 브라우저에선 유효
     r.interimResults = true;
@@ -154,7 +156,7 @@ export function createListener({ onUtterance, onInterim, onStatus, settleMs = 70
 
   return {
     start() {
-      if (!SR) { status('unsupported'); return; }
+      if (!engine()) { status('unsupported'); return; }
       wanted = true;
       status('starting');
       safeStart();
@@ -169,6 +171,15 @@ export function createListener({ onUtterance, onInterim, onStatus, settleMs = 70
       status('idle');
     },
     isOn: () => wanted,
+    /**
+     * 지금까지 들린 말을 기다리지 않고 바로 넘긴다 ([확인] 버튼).
+     * 내용을 받을 때는 2초를 기다리므로, 다 말했으면 눌러서 건너뛴다.
+     */
+    flushNow() {
+      clearTimeout(settleTimer);
+      settleTimer = null;
+      take(true);
+    },
     /** 말이 멎고 몇 ms 뒤에 확정할지 */
     setSettle(ms) { settleMs = ms; },
     /** 안내 음성이 나가는 동안 인식 결과를 무시한다 */

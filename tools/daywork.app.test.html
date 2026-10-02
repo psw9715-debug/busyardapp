@@ -14,8 +14,9 @@
 <body>
 <div id="out"></div>
 <script type="module">
-// 앱을 실제로 띄워 눌러 보는 검사. entry.js 의 순수 로직은 daywork.test.html 이 맡고,
-// 여기서는 "누르면 무슨 일이 일어나는가" 를 본다.
+// 앱을 실제로 띄워 눌러 보는 검사.
+// 음성은 가짜 엔진을 끼워 넣어 **실제 흐름 그대로** 돌린다 (listen.js -> entry.js -> 화면).
+// entry.js 의 순수 로직은 daywork.test.html 이 맡는다.
 //
 // 끝나면 document.title 이 "PASS n" / "FAIL n" 이 된다.
 // 서버가 있어야 모듈을 읽는다:  python -m http.server 5181  뒤 /tools/daywork.app.test.html
@@ -34,17 +35,37 @@ const until = async (ok, tries = 400) => {
   return ok();
 };
 
+/** 가짜 음성 엔진 — 사파리가 주는 것과 같은 모양으로 결과를 흘린다 */
+class FakeSR {
+  constructor() { FakeSR.last = this; this.started = false; }
+  // live: onstart 가 지나가 listen.js 가 결과를 받을 준비가 된 상태
+  start() { this.started = true; setTimeout(() => { this.live = true; this.onstart && this.onstart(); }, 0); }
+  abort() { this.ended(); }
+  stop() { this.ended(); }
+  ended() {
+    if (!this.started) return;
+    this.started = false; this.live = false;
+    setTimeout(() => this.onend && this.onend(), 0);
+  }
+  /** parts: [[말, 확정여부], ...] — 사파리는 세션 시작부터의 전사를 누적해서 준다 */
+  emit(parts) {
+    const results = parts.map(([transcript, isFinal]) => ({ 0: { transcript }, isFinal, length: 1 }));
+    results.length = parts.length;
+    this.onresult && this.onresult({ results });
+  }
+}
+
 function wipe() {
   for (const k of Object.keys(localStorage)) if (k.startsWith('daywork:')) localStorage.removeItem(k);
+  localStorage.removeItem('busyard:ghtoken');     // 검사 중에 진짜로 올리는 일이 없게
 }
 
 let frame = null;
 /**
  * 앱을 띄운다. fresh=true 면 저장된 판까지 비우고 새로 시작한다.
  *
- * 순서가 중요하다 — 앱은 화면을 벗어날 때(pagehide) 판을 저장한다.
- * 먼저 지우고 iframe 을 없애면, 없애는 순간 옛 판이 되살아나 다음 검사에 섞인다.
- * 그래서 반드시 iframe 을 먼저 치우고 그 다음에 지운다.
+ * 순서가 중요하다 — 앱은 화면을 벗어날 때(pagehide) 판을 저장한다. 먼저 지우고
+ * iframe 을 없애면 옛 판이 되살아나 다음 검사에 섞인다.
  */
 async function app(fresh) {
   if (frame) { frame.remove(); frame = null; await wait(50); }
@@ -54,131 +75,232 @@ async function app(fresh) {
   document.body.appendChild(frame);
   await until(() => {
     const d = frame.contentDocument;
-    return d && d.getElementById('words') && d.getElementById('words').children.length > 0;
+    return d && d.getElementById('padKeys') && d.getElementById('padKeys').children.length > 0;
   });
-  frame.contentWindow.confirm = () => true;      // 지울지 묻는 창은 늘 예
+  frame.contentWindow.confirm = () => true;
+  frame.contentWindow.SpeechRecognition = FakeSR;     // 엔진은 쓸 때 찾으므로 지금 끼워도 된다
   return frame.contentDocument;
 }
 
 const $ = (d, id) => d.getElementById(id);
-const words = (d) => [...$(d, 'words').children].map((b) => b.textContent);
 const cards = (d) => [...$(d, 'cards').querySelectorAll('li')]
   .map((li) => [li.querySelector('.no').textContent, li.querySelector('.what').textContent, li.className]);
 const padKey = (d, label) => [...$(d, 'padKeys').children].find((b) => b.textContent === label);
 const tap = (btn) => btn.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
+const logRows = (d) => [...$(d, 'logRows').querySelectorAll('li')].map((li) => li.textContent);
 
-// ───────────────────────────────────────────────────────────
-head('1. 어휘 버튼 — PC 프로그램과 같은 순서');
-{
-  const d = await app(true);
-  eq(words(d).slice(0, 4), ['대차', '세차', '에어컨 고장', '브레이크 소음'], '많이 쓴 순서');
-  eq($(d, 'words').classList.contains('off'), true, '번호가 없으면 흐리게');
+/**
+ * 음성을 켜고 **실제로 듣기 시작할 때까지** 기다린다.
+ *
+ * listen.js 는 onstart 가 와야 running 이 되고, 그 전에 온 결과는 버린다
+ * (끊은 뒤 뒤늦게 도착한 결과를 막기 위한 것). 가짜 엔진도 같은 순서를 지켜야
+ * 하므로, 화면 상태가 '듣는 중' 이 된 다음에 말을 흘린다.
+ */
+async function mic(d) {
+  $(d, 'mic').click();
+  await until(() => FakeSR.last && FakeSR.last.live);
+  return FakeSR.last;
 }
 
-head('2. 키패드로 번호 -> 어휘 버튼으로 내용');
+/**
+ * 한 마디 말한다.
+ * 한 마디를 받을 때마다 listen.js 가 세션을 끊었다 다시 켜므로(빈 종이에서 시작),
+ * 다시 '듣는 중' 이 될 때까지 기다렸다 흘린다.
+ */
+async function say(d, text) {
+  // 화면 상태는 끊긴 틈에도 '듣는 중' 그대로다. 엔진이 실제로 살아났는지를 본다.
+  await until(() => FakeSR.last && FakeSR.last.live);
+  FakeSR.last.emit([[text, true]]);
+}
+
+// ───────────────────────────────────────────────────────────
+head('0. 켜자마자 — 시트는 실제로 안 보여야 한다');
 {
   const d = await app(true);
-  $(d, 'padBtn').click();
-  eq($(d, 'pad').hidden, false, '키패드가 열린다');
+  const shown = (id) => frame.contentWindow.getComputedStyle($(d, id)).display;
+  // hidden 속성만 보면 놓친다. .sheet-bg 에 display 를 주면 hidden 이 먹지 않는다.
+  eq(shown('logSheet'), 'none', '기록 시트가 덮고 있지 않다');
+  eq(shown('diagSheet'), 'none', '진단 시트가 덮고 있지 않다');
+  eq($(d, 'pad').hidden, true, '키패드는 접혀 있다');
+  eq($(d, 'btnConfirm').disabled, true, '받는 번호가 없으면 [확인] 은 눌리지 않는다');
+}
 
-  tap(padKey(d, '1')); tap(padKey(d, '2')); tap(padKey(d, '0'));
-  await until(() => $(d, 'plate').textContent === '1120');
-  eq($(d, 'plate').textContent, '1120', '앞자리 1이 붙어 1120');
+head('1. 음성 전체 흐름 — 번호 다음 내용');
+{
+  const d = await app(true);
+  await mic(d);
+
+  await say(d, '천백이십');
+  await until(() => $(d, 'plate').textContent === '1120', 100);
+  eq($(d, 'plate').textContent, '1120', '"천백이십" -> 1120');
   eq($(d, 'stage').classList.contains('symptom'), true, '내용 대기로 바뀐다');
-  eq($(d, 'words').classList.contains('off'), false, '어휘 버튼이 살아난다');
+  eq(cards(d).length, 0, '아직 카드는 없다');
 
-  [...$(d, 'words').children].find((b) => b.textContent === '대차').click();
-  await until(() => cards(d).length === 1);
-  eq(cards(d), [['1120', '대차', '']], '카드가 생긴다');
-  eq($(d, 'count').textContent, '1', '건수 표시');
+  await say(d, '대차');
+  await wait(900);
+  eq(cards(d).length, 0, '내용을 말해도 1초쯤은 더 기다린다 (뒷말이 올 수 있다)');
+
+  await until(() => cards(d).length === 1, 150);
+  eq(cards(d), [['1120', '대차', '']], '2초쯤 지나면 카드가 된다');
   eq($(d, 'plate').textContent, '번호 대기', '다시 번호 대기로');
 }
 
-head('3. 번호 없이 어휘 버튼을 누르면');
+head('2. [확인] — 2초를 기다리지 않고 바로 넣는다');
 {
   const d = await app(true);
-  [...$(d, 'words').children][0].click();
-  await wait(60);
-  eq(cards(d).length, 0, '카드가 만들어지지 않는다');
-  eq($(d, 'hint').textContent, '번호를 먼저 불러 주세요', '왜 안 되는지 알려 준다');
+  await mic(d);
+  await say(d, '천백십삼');
+  await until(() => $(d, 'plate').textContent === '1113', 100);
+
+  await say(d, '에어컨 고장');
+  await wait(150);
+  eq(cards(d).length, 0, '아직 기다리는 중');
+
+  $(d, 'btnConfirm').click();
+  await until(() => cards(d).length === 1, 60);
+  eq(cards(d), [['1113', '에어컨 고장', '']], '누르는 즉시 들어간다');
 }
 
-head('4. 명부에 없는 번호도 받는다 — 노랗게 표시만');
+head('3. 한 호흡에 불러도 된다');
 {
   const d = await app(true);
-  $(d, 'padBtn').click();
-  tap(padKey(d, '9')); tap(padKey(d, '9')); tap(padKey(d, '9'));
-  await until(() => $(d, 'plate').textContent === '1999');
-  eq($(d, 'plate').classList.contains('unknown'), true, '번호가 노랗게');
-  eq($(d, 'hint').textContent.includes('명부에 없는'), true, '명부에 없다고 알려 준다');
-
-  [...$(d, 'words').children].find((b) => b.textContent === '세차').click();
-  await until(() => cards(d).length === 1);
-  eq(cards(d), [['1999', '세차', 'unknown']], '저장은 되고 unknown 으로 남는다');
+  await mic(d);
+  await say(d, '천칠백사십구 브레이크 소음');
+  await until(() => cards(d).length === 1, 200);
+  eq(cards(d), [['1749', '브레이크 소음', '']], '띄어쓰기가 살아 있다');
 }
 
-head('5. 앱을 다시 켜도 남아 있다');
-{
-  let d = await app(true);
-  $(d, 'padBtn').click();
-  tap(padKey(d, '1')); tap(padKey(d, '2')); tap(padKey(d, '1'));
-  await until(() => $(d, 'plate').textContent === '1121');
-  [...$(d, 'words').children].find((b) => b.textContent === '대차').click();
-  await until(() => cards(d).length === 1);
-
-  d = await app();                                  // 다시 켠다 (지우지 않고)
-  eq(cards(d), [['1121', '대차', '']], '카드가 그대로');
-  eq($(d, 'plate').textContent, '번호 대기', '기다리던 번호는 없이 시작');
-}
-
-head('6. 카드를 눌러 지우기 · 오늘 지우기');
-{
-  const d = await app();                            // 5번의 카드가 남아 있는 상태
-  eq(cards(d).length, 1, '지울 카드가 있다');
-  $(d, 'cards').querySelector('li').click();
-  await until(() => cards(d).length === 0);
-  eq(cards(d).length, 0, '카드를 눌러 지웠다');
-
-  $(d, 'padBtn').click();
-  tap(padKey(d, '1')); tap(padKey(d, '3')); tap(padKey(d, '3'));
-  await until(() => $(d, 'plate').textContent === '1133');
-  [...$(d, 'words').children].find((b) => b.textContent === '세차').click();
-  await until(() => cards(d).length === 1);
-  $(d, 'clearBtn').click();
-  await until(() => cards(d).length === 0);
-  eq($(d, 'count').textContent, '0', '오늘 지우기로 비었다');
-}
-
-head('7. 키패드 지우기는 한 자리씩');
+head('4. 내용 기다리는 중에 숫자가 들리면 = 다음 차');
 {
   const d = await app(true);
-  $(d, 'padBtn').click();
+  await mic(d);
+  await say(d, '천백십삼');
+  await until(() => $(d, 'plate').textContent === '1113', 100);
+  await say(d, '천백이십 대차');
+  await until(() => cards(d).length === 2, 200);
+  eq(cards(d), [['1120', '대차', ''], ['1113', '—', 'nosymptom']],
+    '앞 차는 내용 없음으로 남는다 (목록은 최신이 위)');
+}
+
+head('5. [없음] · [이전]');
+{
+  const d = await app(true);
+  await mic(d);
+  await say(d, '천백이십');
+  await until(() => $(d, 'plate').textContent === '1120', 100);
+  $(d, 'btnSkip').click();
+  await until(() => $(d, 'plate').textContent === '번호 대기', 60);
+  eq(cards(d).length, 0, '[없음] 은 카드를 만들지 않는다');
+
+  await say(d, '천백이십일 세차');
+  await until(() => cards(d).length === 1, 200);
+  $(d, 'btnBack').click();
+  await until(() => cards(d).length === 0, 60);
+  eq(cards(d).length, 0, '[이전] 이 방금 카드를 되돌린다');
+}
+
+head('6. 키패드');
+{
+  const d = await app(true);
+  $(d, 'btnPad').click();
+  eq($(d, 'pad').hidden, false, '열린다');
   tap(padKey(d, '7')); tap(padKey(d, '0'));
-  eq($(d, 'padEcho').textContent, '170·', '두 자리 눌렀다');
+  eq($(d, 'padEcho').textContent, '170·', '두 자리');
   tap(padKey(d, '지우기'));
   eq($(d, 'padEcho').textContent, '17··', '한 자리 지워진다');
-  tap(padKey(d, '4'));
-  tap(padKey(d, '9'));
-  await until(() => $(d, 'plate').textContent === '1749');
+  tap(padKey(d, '4')); tap(padKey(d, '9'));
+  await until(() => $(d, 'plate').textContent === '1749', 60);
   eq($(d, 'plate').textContent, '1749', '세 자리가 차면 번호가 된다');
 }
 
-head('8. 어휘 버튼 접기 — 받은 목록이 화면 밖으로 밀리지 않게');
+head('7. 명부에 없는 번호도 받는다');
 {
   const d = await app(true);
-  const more = () => $(d, 'moreWords');
-  eq($(d, 'words').children.length, 9, '자주 쓰는 8개 + 더 보기');
-  eq(words(d).slice(0, 2), ['대차', '세차'], '가장 많이 쓴 것부터');
-  eq(more().textContent, '더 보기 (19)', '남은 개수를 알려 준다');
+  await mic(d);
+  await say(d, '천구백구십구 엔진 고장');
+  await until(() => cards(d).length === 1, 200);
+  eq(cards(d), [['1999', '엔진 고장', 'unknown']], '막지 않고 unknown 으로 표시');
+}
 
-  more().click();
-  await until(() => $(d, 'words').children.length > 9);
-  eq($(d, 'words').children.length, 28, '펴면 27개 전부 + 접기');
-  eq(more().textContent, '접기', '라벨이 바뀐다');
+head('8. 기록 — 바뀌기 전 값이 남는다');
+{
+  const d = await app(true);
+  await mic(d);
+  await say(d, '천백이십 대차');
+  await until(() => cards(d).length === 1, 200);
+  await say(d, '천백이십 세차');                 // 같은 차를 다시 -> 덮어쓰기
+  await until(() => cards(d)[0] && cards(d)[0][1] === '세차', 200);
+  eq(cards(d), [['1120', '세차', '']], '카드는 하나, 내용은 새것');
 
-  more().click();
-  await until(() => $(d, 'words').children.length === 9);
-  eq($(d, 'words').children.length, 9, '다시 접힌다');
+  $(d, 'btnLog').click();
+  const rows = logRows(d);
+  eq(rows.some((r) => r.includes('수정') && r.includes('대차') && r.includes('세차')), true,
+    '"수정  1120  대차 → 세차" 가 남는다');
+  eq(rows.some((r) => r.includes('입력') && r.includes('대차')), true, '처음 입력도 남는다');
+  $(d, 'logClose').click();
+  eq($(d, 'logSheet').hidden, true, '닫힌다');
+}
+
+head('9. 지우기도 기록에 남는다');
+{
+  const d = await app(true);
+  await mic(d);
+  await say(d, '천백이십 대차');
+  await until(() => cards(d).length === 1, 200);
+  $(d, 'cards').querySelector('li').click();
+  await until(() => cards(d).length === 0, 60);
+
+  $(d, 'btnLog').click();
+  eq(logRows(d).some((r) => r.includes('지움') && r.includes('1120') && r.includes('대차')), true,
+    '지운 것도 내용과 함께 남는다');
+  $(d, 'logClose').click();
+}
+
+head('10. 진단 — 버전과 최신 버전 받기');
+{
+  const d = await app(true);
+  $(d, 'btnDiag').click();
+  eq($(d, 'diagSheet').hidden, false, '열린다');
+  const info = $(d, 'diagInfo').textContent;
+  eq(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(info), true, '빌드 시각이 보인다');
+  eq(info.includes('181대'), true, '명부 개수가 보인다');
+  eq(Boolean($(d, 'diagUpdate')), true, '"최신 버전 받기" 가 있다');
+  eq(frame.contentWindow.getComputedStyle($(d, 'diagSheet')).display, 'flex', '실제로 보인다');
+  $(d, 'diagClose').click();
+  eq(frame.contentWindow.getComputedStyle($(d, 'diagSheet')).display, 'none', '실제로 사라진다');
+}
+
+head('11. PC 로 보내기 — 막아야 할 때 막는다');
+{
+  const d = await app(true);
+  $(d, 'btnSend').click();
+  await until(() => $(d, 'sendNote').textContent.length > 0, 60);
+  eq($(d, 'sendNote').textContent, '보낼 것이 없습니다', '보낼 것이 없으면 올리지 않는다');
+
+  await mic(d);
+  await say(d, '천백이십 대차');
+  await until(() => cards(d).length === 1, 200);
+  $(d, 'btnSend').click();
+  await until(() => $(d, 'sendNote').textContent.includes('토큰'), 60);
+  eq($(d, 'sendNote').textContent.includes('토큰이 없습니다'), true, '토큰이 없으면 안내만 한다');
+}
+
+head('12. 앱을 다시 켜도 남아 있다');
+{
+  let d = await app(true);
+  await mic(d);
+  await say(d, '천백이십일 대차');
+  await until(() => cards(d).length === 1, 200);
+
+  d = await app();                                    // 지우지 않고 다시 켠다
+  eq(cards(d), [['1121', '대차', '']], '카드가 그대로');
+  eq($(d, 'plate').textContent, '번호 대기', '기다리던 번호 없이 시작');
+
+  $(d, 'btnClear').click();
+  await until(() => cards(d).length === 0, 60);
+  eq($(d, 'count').textContent, '0', '[오늘 지우기] 로 비었다');
+  $(d, 'btnLog').click();
+  eq(logRows(d).some((r) => r.includes('전체 지움')), true, '전체 지움도 기록에 남는다');
 }
 
 // ───────────────────────────────────────────────────────────

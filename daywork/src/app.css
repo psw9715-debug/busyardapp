@@ -12,29 +12,33 @@ body {
   user-select: none;
 }
 
+h3 { font-size: 13px; color: #8b9bab; font-weight: 600; margin: 16px 0 6px; }
+.muted { color: #5d6b7a; font-size: 13px; }
+
+/* ── 머리 ────────────────────────────────────────────── */
 header {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 2px 6px;
-  font-size: 13px; color: #8b9bab;
+  padding: 10px 2px 8px; gap: 8px;
 }
+header .left { display: flex; align-items: baseline; gap: 10px; font-size: 13px; color: #8b9bab; }
+header .right { display: flex; gap: 6px; }
 
-#status { display: flex; align-items: center; gap: 6px; }
-#status::before {
-  content: ''; width: 8px; height: 8px; border-radius: 50%;
-  background: #3d4752;
-}
+#status { display: flex; align-items: center; gap: 5px; }
+#status::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: #3d4752; }
 #status.on::before { background: #4ec9a0; box-shadow: 0 0 8px #4ec9a0; }
 #status.warn::before { background: #e8b84b; }
 #status.bad::before { background: #ff6b5a; }
 
+.icon-btn {
+  padding: 7px 12px; border: 1px solid #243040; border-radius: 9px;
+  background: #121821; color: #8b9bab; font-size: 13px;
+}
+.icon-btn:active { background: #1b2430; }
+
 /* ── 지금 받고 있는 것 ───────────────────────────────── */
 #stage {
-  background: #121821;
-  border: 1px solid #1e2836;
-  border-radius: 14px;
-  padding: 18px 16px;
-  text-align: center;
-  min-height: 132px;
+  background: #121821; border: 1px solid #1e2836; border-radius: 14px;
+  padding: 18px 16px; text-align: center; min-height: 136px;
   display: flex; flex-direction: column; justify-content: center; gap: 6px;
 }
 #stage.symptom { border-color: #2f6b55; background: #101d19; }
@@ -42,38 +46,36 @@ header {
 #plate {
   font-size: 46px; font-weight: 700; letter-spacing: 2px;
   font-variant-numeric: tabular-nums;
-  color: #e6ecf2;
 }
 #plate.unknown { color: #e8b84b; }
-#plate.idle { color: #39434f; font-size: 34px; }
+#plate.idle { color: #39434f; font-size: 34px; letter-spacing: 0; }
 
 #hint { font-size: 14px; color: #8b9bab; }
-#heard { font-size: 13px; color: #5d6b7a; min-height: 18px; }
+#heard { font-size: 13px; color: #5d6b7a; min-height: 18px; word-break: break-all; }
+
+/* ── 조작 버튼 ───────────────────────────────────────── */
+#controls { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; margin-top: 10px; }
+.ctl {
+  padding: 14px 4px; border: 1px solid #243040; border-radius: 11px;
+  background: #151c26; color: #cfd9e4; font-size: 14px;
+}
+.ctl:active { background: #24405c; }
+.ctl.ok { border-color: #2f6b55; color: #9fe0c6; }
+.ctl:disabled { opacity: 0.3; }
 
 /* ── 음성 버튼 ───────────────────────────────────────── */
 #mic {
-  width: 100%; margin: 12px 0;
-  padding: 18px; border: 0; border-radius: 14px;
-  background: #1d4ed8; color: #fff;
-  font-size: 18px; font-weight: 700;
+  width: 100%; margin: 10px 0;
+  padding: 20px; border: 0; border-radius: 14px;
+  background: #1d4ed8; color: #fff; font-size: 18px; font-weight: 700;
 }
 #mic.on { background: #b02a1e; }
 #mic:disabled { background: #2a3340; color: #6b7785; }
 
-/* ── 어휘 버튼 ───────────────────────────────────────── */
-#words { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
-#words button {
-  padding: 15px 8px; border: 1px solid #243040; border-radius: 11px;
-  background: #151c26; color: #cfd9e4; font-size: 15px;
-}
-#words button:active { background: #24405c; }
-#words.off button { opacity: 0.35; }
-
 /* ── 키패드 ──────────────────────────────────────────── */
-#pad { margin-top: 10px; }
 #padEcho {
   text-align: center; font-size: 30px; font-variant-numeric: tabular-nums;
-  letter-spacing: 6px; color: #e6ecf2; padding: 6px 0 10px;
+  letter-spacing: 6px; padding: 4px 0 10px;
 }
 #padKeys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 #padKeys button {
@@ -82,7 +84,6 @@ header {
   font-variant-numeric: tabular-nums;
 }
 #padKeys button:active { background: #24405c; }
-#padKeys button.wide { grid-column: span 2; font-size: 16px; font-weight: 500; }
 
 /* ── 받은 목록 ───────────────────────────────────────── */
 #list { margin-top: 18px; }
@@ -95,19 +96,80 @@ header {
 }
 #cards li.unknown { border-color: #6b5a1e; }
 #cards li.nosymptom { border-color: #7a3a2e; }
-#cards .no {
-  font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums;
-  min-width: 62px;
-}
+#cards .no { font-size: 19px; font-weight: 700; font-variant-numeric: tabular-nums; min-width: 62px; }
 #cards .what { flex: 1; color: #cfd9e4; }
 #cards .badge { font-size: 11px; color: #e8b84b; white-space: nowrap; }
 #cards li.nosymptom .badge { color: #ff8f6b; }
-
-footer { display: flex; gap: 8px; margin: 18px 0 6px; }
-footer button {
-  flex: 1; padding: 13px; border: 1px solid #243040; border-radius: 11px;
-  background: #121821; color: #8b9bab; font-size: 14px;
-}
-footer button:active { background: #1b2430; }
-
 #empty { color: #4b5663; font-size: 14px; text-align: center; padding: 14px 0; }
+
+/* ── 바닥 ────────────────────────────────────────────── */
+footer { display: flex; gap: 8px; margin: 16px 0 6px; }
+footer button {
+  flex: 1; padding: 15px; border: 1px solid #243040; border-radius: 11px;
+  background: #121821; color: #8b9bab; font-size: 15px;
+}
+footer button.primary { background: #1a3a2e; border-color: #2f6b55; color: #9fe0c6; font-weight: 600; }
+footer button:active { background: #1b2430; }
+footer button:disabled { opacity: 0.5; }
+
+#sendNote { font-size: 13px; text-align: center; min-height: 20px; color: #8b9bab; }
+#sendNote.ok { color: #4ec9a0; }
+#sendNote.warn { color: #e8b84b; }
+#sendNote.bad { color: #ff8f6b; }
+
+/* ── 시트 (기록 · 진단) ──────────────────────────────── */
+.sheet-bg {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: flex-end; z-index: 10;
+}
+/* display 를 주면 hidden 속성이 먹지 않는다 (UA 규칙보다 우선순위가 높다).
+   이것이 없으면 시트가 켜자마자 열려 있다. */
+.sheet-bg[hidden] { display: none; }
+.sheet {
+  width: 100%; max-height: 86vh; overflow-y: auto;
+  background: #0f141b; border-top: 1px solid #243040;
+  border-radius: 16px 16px 0 0;
+  padding: 0 14px calc(env(safe-area-inset-bottom) + 16px);
+}
+.sheet-head {
+  position: sticky; top: 0; background: #0f141b;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 0 10px; font-weight: 600;
+  border-bottom: 1px solid #1e2836; margin-bottom: 10px;
+}
+.sheet-close {
+  padding: 7px 12px; border: 1px solid #243040; border-radius: 9px;
+  background: #121821; color: #8b9bab; font-size: 13px;
+}
+.sheet-body { font-size: 14px; }
+.sheet-body button {
+  width: 100%; padding: 14px; margin: 8px 0;
+  border: 1px solid #243040; border-radius: 11px;
+  background: #151c26; color: #cfd9e4; font-size: 15px;
+}
+.sheet-body button:active { background: #24405c; }
+
+#logDays { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+#logDays .day {
+  width: auto; margin: 0; padding: 8px 11px; font-size: 13px;
+  background: #121821; color: #8b9bab;
+}
+#logDays .day.on { background: #24405c; color: #e6ecf2; border-color: #3a5a7a; }
+
+ul.plain { list-style: none; margin: 0; padding: 0; }
+ul.plain li {
+  padding: 8px 10px; margin-bottom: 4px;
+  background: #121821; border-radius: 8px;
+  font-size: 13px; font-variant-numeric: tabular-nums;
+  white-space: pre-wrap; word-break: break-all;
+}
+
+#diagInfo { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0 0 6px; }
+#diagInfo dt { color: #8b9bab; font-size: 13px; }
+#diagInfo dd { margin: 0; font-size: 13px; word-break: break-all; }
+
+#diagHeard { list-style: none; margin: 0; padding: 0; }
+#diagHeard li {
+  padding: 7px 10px; margin-bottom: 4px; background: #121821; border-radius: 8px;
+  font-size: 13px; font-family: ui-monospace, Consolas, monospace; word-break: break-all;
+}
