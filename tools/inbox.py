@@ -37,6 +37,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import unicodedata
 
 import openpyxl
 from openpyxl.worksheet.properties import PageSetupProperties
@@ -227,8 +228,10 @@ def take_files(log=print):
     공개 저장소라 사진을 오래 둘 곳이 아니다. 내리는 즉시 지운다.
     (가지 이력에는 남는다 — 그것까지 비우려면 따로 손봐야 한다.)
     """
-    r = git("ls-tree", "-r", "--name-only", INBOX_REF, "inbox/files/")
-    paths = [p for p in r.stdout.splitlines() if p.strip()] if r.returncode == 0 else []
+    # -z 로 받는다. 그냥 받으면 git 이 한글 이름을 "\341\204..." 꼴로 감싸 내주고,
+    # 그 이름으로는 파일을 꺼낼 수 없다 (카카오톡에서 보낸 PDF 가 그래서 안 내려왔다).
+    r = git("ls-tree", "-r", "-z", "--name-only", INBOX_REF, "inbox/files/")
+    paths = [p for p in r.stdout.split("\0") if p.strip()] if r.returncode == 0 else []
     if not paths:
         return []
     got = []
@@ -240,7 +243,9 @@ def take_files(log=print):
             log(f"⚠ [사진] {path} 를 꺼내지 못했다")
             continue
         # inbox/files/<날짜>/<이름> → 기록/받은파일/<날짜>/<이름>
-        rel = path[len("inbox/files/"):]
+        # 아이폰에서 온 한글 이름은 자모가 풀어져 있다(ㅈㅏㄱ...). 붙여서 저장해야
+        # 탐색기에서 제 이름으로 보인다.
+        rel = unicodedata.normalize("NFC", path[len("inbox/files/"):])
         out = os.path.join(FILE_DIR, *rel.split("/"))
         os.makedirs(os.path.dirname(out), exist_ok=True)
         with open(out, "wb") as f:
