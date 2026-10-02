@@ -58,6 +58,7 @@ class FakeSR {
 function wipe() {
   for (const k of Object.keys(localStorage)) if (k.startsWith('daywork:')) localStorage.removeItem(k);
   localStorage.removeItem('busyard:ghtoken');     // 검사 중에 진짜로 올리는 일이 없게
+  localStorage.removeItem('daywork:ghtoken');
 }
 
 let frame = null;
@@ -301,6 +302,31 @@ head('12. 앱을 다시 켜도 남아 있다');
   eq($(d, 'count').textContent, '0', '[오늘 지우기] 로 비었다');
   $(d, 'btnLog').click();
   eq(logRows(d).some((r) => r.includes('전체 지움')), true, '전체 지움도 기록에 남는다');
+}
+
+head('13. 토큰 — 이 앱에서 바로 넣을 수 있어야 한다');
+{
+  const d = await app(true);
+  $(d, 'btnDiag').click();
+  eq(Boolean($(d, 'btnToken')), true, '[진단]에 토큰 넣기 버튼이 있다');
+  eq($(d, 'diagInfo').textContent.includes('한 번만 넣으면'), true,
+    '없을 때 순회앱이 아니라 여기서 넣으라고 한다');
+
+  frame.contentWindow.prompt = () => 'ghp_테스트토큰';
+  $(d, 'btnToken').click();
+  await until(() => $(d, 'diagInfo').textContent.includes('있음'), 60);
+  eq($(d, 'diagInfo').textContent.includes('이 앱에 넣은 것'), true, '넣은 토큰을 쓴다고 알려 준다');
+
+  // 넣은 뒤에는 보내기가 토큰 타령을 하지 않는다 (실제로 올리지는 않는다)
+  $(d, 'diagClose').click();
+  eq(localStorage.getItem('daywork:ghtoken'), 'ghp_테스트토큰', '이 앱 키로 저장된다');
+
+  frame.contentWindow.prompt = () => '';
+  $(d, 'btnDiag').click();
+  $(d, 'btnToken').click();
+  await until(() => !localStorage.getItem('daywork:ghtoken'), 60);
+  eq(localStorage.getItem('daywork:ghtoken'), null, '비우면 지워진다');
+  $(d, 'diagClose').click();
 }
 
 // ───────────────────────────────────────────────────────────

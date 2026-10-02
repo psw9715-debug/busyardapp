@@ -10,15 +10,15 @@
 
 import {
   createState, handleUtterance, setPlate, removeCard, undo, sendable,
-} from './entry.js?v=202610030404';
-import { createListener, isSupported } from './listen.js?v=202610030404';
-import { loadSession, saveSession, clearSession, listDays, getToken } from './store.js?v=202610030404';
-import { workDate } from './workdate.js?v=202610030404';
-import { send as sendToPc } from './sync.js?v=202610030404';
-import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610030404';
-import * as logbook from './log.js?v=202610030404';
-import * as roster from './roster.js?v=202610030404';
-import { beep, primeAudio } from '../../src/voice.js?v=202610030404';
+} from './entry.js?v=202610030418';
+import { createListener, isSupported } from './listen.js?v=202610030418';
+import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610030418';
+import { workDate } from './workdate.js?v=202610030418';
+import { send as sendToPc } from './sync.js?v=202610030418';
+import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610030418';
+import * as logbook from './log.js?v=202610030418';
+import * as roster from './roster.js?v=202610030418';
+import { beep, primeAudio } from '../../src/voice.js?v=202610030418';
 
 // 내용을 받을 때 말이 멎고 이만큼 기다린다
 const SYMPTOM_WAIT = 2000;
@@ -257,7 +257,7 @@ function note(text, kind) {
 $('btnSend').addEventListener('click', async () => {
   const ready = sendable(state);
   if (!ready.length) { note('보낼 것이 없습니다', 'warn'); return; }
-  if (!getToken()) { note('토큰이 없습니다 — 순회앱 [진단]에서 먼저 넣어 주세요', 'bad'); return; }
+  if (!getToken()) { note('토큰이 없습니다 — [진단]에서 한 번만 넣어 주세요', 'bad'); return; }
 
   $('btnSend').disabled = true;
   note('보내는 중…');
@@ -325,7 +325,7 @@ function openDiag() {
     ['근무일', state.date],
     ['받은 것', `${state.cards.length}건 (보낼 것 ${sendable(state).length}건)`],
     ['명부', `${roster.size}대`],
-    ['PC 전송 토큰', getToken() ? '있음' : '없음 — 순회앱에서 넣어 주세요'],
+    ['PC 전송 토큰', getToken() ? `있음 (${tokenSource()})` : '없음 — 아래에서 한 번만 넣으면 됩니다'],
     ['음성', isSupported() ? '쓸 수 있음' : '이 브라우저는 안 됨'],
   ];
   $('diagInfo').innerHTML = rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('');
@@ -334,6 +334,16 @@ function openDiag() {
     : '<li class="muted">아직 들린 말이 없습니다</li>';
   $('diagSheet').hidden = false;
 }
+
+$('btnToken').addEventListener('click', () => {
+  // iOS 는 홈화면 웹앱마다 저장 공간을 따로 주므로 순회앱 토큰이 안 보일 수 있다.
+  // 그래서 이 앱에서도 한 번 넣을 수 있어야 한다. 한 번 넣으면 계속 쓴다.
+  const t = prompt('GitHub 토큰을 붙여 넣으세요 (PC로 보내기에 씁니다)', getToken());
+  if (t === null) return;
+  setToken(t);
+  openDiag();
+  note(getToken() ? '토큰을 넣었습니다' : '토큰을 지웠습니다', getToken() ? 'ok' : 'warn');
+});
 
 $('btnDiag').addEventListener('click', openDiag);
 $('diagClose').addEventListener('click', () => { $('diagSheet').hidden = true; });
