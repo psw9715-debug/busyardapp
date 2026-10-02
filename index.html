@@ -10,7 +10,7 @@
 <title>차고지 순회</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="src/app.css?v=202610020607">
+<link rel="stylesheet" href="src/app.css?v=202610022259">
 </head>
 <body>
 
@@ -26,6 +26,7 @@
       <button class="icon-btn" id="btnFind" aria-label="차량번호 찾기">찾기</button>
       <button class="icon-btn" id="btnTargets" aria-label="찾을 차량 목록">대상<span class="badge" id="targetBadge" hidden></span></button>
       <button class="icon-btn" id="btnLog" aria-label="일지 보관">일지</button>
+      <button class="icon-btn" id="btnFiles" aria-label="사진 보내기">사진</button>
       <button class="icon-btn" id="btnPrint" aria-label="인쇄">인쇄</button>
       <button class="icon-btn" id="btnDiag" aria-label="음성 진단">진단</button>
     </div>
@@ -194,13 +195,27 @@
       <button id="printFinal">최종 인쇄 (엑셀 양식 그대로)</button>
     </div>
     <div class="print-msg" id="printMsg"></div>
+  </div>
+</div>
 
-    <div class="send-files">
-      <div class="send-files-head">현장 사진 보내기</div>
-      <label class="pick" for="filePick">사진·파일 고르기</label>
-      <input type="file" id="filePick" multiple accept="image/*" hidden>
-      <div class="send-msg" id="fileMsg">고른 것을 PC 다운로드 폴더로 보냅니다</div>
+<!-- 사진·파일 보내기 — PC 다운로드 폴더로 간다 -->
+<div class="sheet-bg" id="fileSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <span>사진 보내기</span>
+      <button class="sheet-close" id="fileClose">닫기</button>
     </div>
+    <p class="send-help">
+      고른 것이 사무실 PC 의 <b>다운로드 폴더</b>로 갑니다.
+      여러 장을 한 번에 고를 수 있습니다.
+    </p>
+    <label class="pick" for="filePick">사진·파일 고르기</label>
+    <input type="file" id="filePick" multiple hidden>
+    <ul class="pick-list" id="fileList"></ul>
+    <div class="sheet-actions">
+      <button class="go" id="fileSend" disabled>보내기</button>
+    </div>
+    <div class="send-msg" id="fileMsg"></div>
   </div>
 </div>
 
@@ -240,6 +255,6 @@
 
 <!-- 인쇄 전용 레이아웃 -->
 
-<script type="module" src="src/app.js?v=202610020607"></script>
+<script type="module" src="src/app.js?v=202610022259"></script>
 </body>
 </html>

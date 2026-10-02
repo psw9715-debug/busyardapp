@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610020607';
-import { YARD_OLD } from './yard-old-data.js?v=202610020607';
-import { BUILD } from './build.js?v=202610020607';
-import { toKoreanSino, announceText } from './plate.js?v=202610020607';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610020607';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610022259';
+import { YARD_OLD } from './yard-old-data.js?v=202610022259';
+import { BUILD } from './build.js?v=202610022259';
+import { toKoreanSino, announceText } from './plate.js?v=202610022259';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610022259';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610020607';
-import { createSync, getToken, setToken } from './sync.js?v=202610020607';
+} from './store.js?v=202610022259';
+import { createSync, getToken, setToken } from './sync.js?v=202610022259';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1242,27 +1242,7 @@ function openPrint() {
 
 // ---------------------------------------------------------------- 사진 보내기
 
-/** 폰 사진은 3~5MB 다. 긴 쪽을 1600 으로 줄여 보낸다 — 파손 자리를 보기에는 넉넉하다. */
-const SHRINK_OVER = 700 * 1024;
-const MAX_SIDE = 1600;
-
-function shrink(file) {
-  return new Promise((resolve) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      const k = Math.min(1, MAX_SIDE / Math.max(img.width, img.height));
-      const cv = document.createElement('canvas');
-      cv.width = Math.round(img.width * k);
-      cv.height = Math.round(img.height * k);
-      cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-      cv.toBlob((b) => resolve(b || file), 'image/jpeg', 0.82);
-    };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };   // 못 읽으면 원본 그대로
-    img.src = url;
-  });
-}
+// 사진은 찍힌 그대로 보낸다. 파손 자리를 확대해서 봐야 하므로 줄이지 않는다.
 
 /** 바이트를 GitHub 이 받는 base64 로. 큰 파일에서 한 번에 펼치면 스택이 넘친다. */
 async function toBase64(blob) {
@@ -1280,32 +1260,70 @@ function fileMsg(text, kind) {
 }
 
 let sending = false;
+let picked = [];            // 고른 것 — [보내기] 를 누를 때까지 쥐고 있는다
 
-/** 고른 사진·파일을 하나씩 PC 다운로드 폴더로 보낸다 */
-async function sendFiles(files) {
-  if (sending || !files.length) return;
+const sizeText = (n) => (n >= 1048576 ? `${(n / 1048576).toFixed(1)}MB` : `${Math.max(1, Math.round(n / 1024))}KB`);
+
+/** 고른 목록을 보여 준다. state[i] 는 'ok' 보냄 / 'no' 못 보냄 */
+function renderPicked(state = {}) {
+  const ul = $('fileList');
+  ul.innerHTML = '';
+  for (const [i, f] of picked.entries()) {
+    const li = document.createElement('li');
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.textContent = f.name;
+    const sz = document.createElement('span');
+    sz.className = 'sz';
+    sz.textContent = sizeText(f.size);
+    const st = document.createElement('span');
+    st.className = 'st' + (state[i] ? ' ' + state[i] : '');
+    st.textContent = { ok: '보냄', no: '못 보냄' }[state[i]] || '';
+    li.append(nm, sz, st);
+    ul.appendChild(li);
+  }
+  $('fileSend').disabled = sending || picked.length === 0;
+  $('fileSend').textContent = picked.length ? `${picked.length}개 보내기` : '보내기';
+}
+
+/** 사진 보내기 시트를 연다 */
+function openFiles() {
+  picked = [];
+  renderPicked();
+  fileMsg(getToken() ? '' : '토큰이 없습니다 — [진단] → PC 전송에서 넣으세요',
+    getToken() ? '' : 'no');
+  $('fileSheet').hidden = false;
+}
+
+/** 쥐고 있던 것을 하나씩, 찍힌 그대로 PC 다운로드 폴더로 보낸다 */
+async function sendFiles() {
+  if (sending || !picked.length) return;
   if (!getToken()) {
     fileMsg('토큰이 없습니다 — [진단] → PC 전송에서 넣으세요', 'no');
     beep('error');
     return;
   }
   sending = true;
+  const state = {};
   let sent = 0;
+  renderPicked(state);
   try {
-    for (const [i, file] of files.entries()) {
-      fileMsg(`보내는 중 ${i + 1}/${files.length} — ${file.name}`);
-      const body = file.type.startsWith('image/') && file.size > SHRINK_OVER
-        ? await shrink(file) : file;
-      await sync.sendFile(file, await toBase64(body));
+    for (const [i, file] of picked.entries()) {
+      fileMsg(`보내는 중 ${i + 1}/${picked.length} — ${file.name} (${sizeText(file.size)})`);
+      await sync.sendFile(file, await toBase64(file));
+      state[i] = 'ok';
       sent += 1;
+      renderPicked(state);
     }
     fileMsg(`${sent}개를 PC 다운로드 폴더로 보냈습니다`, 'ok');
     beep('done');
   } catch (err) {
+    state[sent] = 'no';
     fileMsg(`${sent}개까지 보냈습니다 — ${err.message}`, 'no');
     beep('error');
   } finally {
     sending = false;
+    renderPicked(state);
   }
 }
 
@@ -1574,10 +1592,16 @@ function init() {
 
   $('printClose').addEventListener('click', () => { $('printSheet').hidden = true; });
 
+  $('btnFiles').addEventListener('click', openFiles);
+  $('fileClose').addEventListener('click', () => { $('fileSheet').hidden = true; });
+  $('fileSend').addEventListener('click', () => sendFiles());
+
   $('filePick').addEventListener('change', (ev) => {
-    const files = [...ev.target.files];
+    // 고른 것을 더한다 — 사진 보관함과 파일을 나눠 골라 함께 보낼 수 있어야 한다
+    picked = [...picked, ...ev.target.files];
     ev.target.value = '';          // 같은 사진을 다시 고를 수 있게 비운다
-    sendFiles(files);
+    fileMsg('');
+    renderPicked();
   });
 
   $('padClose').addEventListener('click', closePad);

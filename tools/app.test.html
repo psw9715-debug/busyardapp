@@ -28,6 +28,11 @@ const eq = (actual, expected, label) => {
   else { fail++; log(`  FAIL ${label}\n       기대 ${e}\n       실제 ${a}`, 'fail'); }
 };
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// 머리 없는 브라우저는 시간을 앞당겨 돌린다. 몇 초가 아니라 "그렇게 될 때까지" 기다린다.
+const until = async (ok, tries = 400) => {
+  for (let i = 0; i < tries; i++) { if (ok()) return true; await wait(20); }
+  return ok();
+};
 
 const DATE = (() => { const d = new Date(Date.now() - 9 * 3600e3); return d.toISOString().slice(0, 10); })();
 
@@ -204,7 +209,7 @@ log('▶ 일지 목록 묶기');
     ['busyard:v1:log:2026-08-30'], '연도 묶음도 지워진다');
 }
 
-// ── 8) 현장 사진 보내기 — 고른 것을 우편함에 올린다
+// ── 8) 현장 사진 보내기 — 여러 개를 골라 한 번에, 찍힌 그대로
 log('▶ 사진 보내기');
 {
   seed('new', { 1: { plate: '1501', status: 'filled', round: 1 } }, 1);
@@ -217,31 +222,48 @@ log('▶ 사진 보내기');
       puts.push({ url: String(url), body: JSON.parse(opt.body) });
       return Promise.resolve(new a.w.Response(JSON.stringify({ content: { sha: 'x' } }), { status: 201 }));
     }
-    if (String(url).includes('api.github.com')) {
-      return Promise.resolve(new a.w.Response('', { status: 404 }));
-    }
+    if (String(url).includes('api.github.com')) return Promise.resolve(new a.w.Response('', { status: 404 }));
     return real(url, opt);
   };
 
-  // 2x2 빨간 PNG 한 장 (작아서 줄이지 않고 그대로 간다)
+  a.$('btnFiles').click(); await wait(80);
+  eq(a.$('fileSheet').hidden, false, '[사진] 을 누르면 열린다 — 판이 비어 있어도');
+  eq(a.$('fileSend').disabled, true, '고른 것이 없으면 보낼 수 없다');
+
+  // 2x2 빨간 PNG 한 장 + 다른 파일 한 개
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAACZgbYnAAAAFElEQVR4AWP4z8DwHwxpBqkGyQYAzUIJuV0AUeUAAAAASUVORK5CYII=';
   const bytes = Uint8Array.from(atob(png), (c) => c.charCodeAt(0));
-  const file = new a.w.File([bytes], '파손 사진:1.png', { type: 'image/png' });
-  const dt = new a.w.DataTransfer();
-  dt.items.add(file);
-  a.$('filePick').files = dt.files;
-  a.$('filePick').dispatchEvent(new a.w.Event('change', { bubbles: true }));
-  await wait(600);
+  const pick = (...files) => {
+    const dt = new a.w.DataTransfer();
+    files.forEach((f) => dt.items.add(f));
+    a.$('filePick').files = dt.files;
+    a.$('filePick').dispatchEvent(new a.w.Event('change', { bubbles: true }));
+  };
 
-  const photo = puts.find((p) => p.url.includes('/files/'));
-  eq(!!photo, true, '사진도 우편함으로 올라간다');
+  pick(new a.w.File([bytes], '파손 사진:1.png', { type: 'image/png' }));
+  await wait(80);
+  eq(a.$('fileList').children.length, 1, '고른 것이 목록에 보인다');
+  eq(a.$('fileSend').textContent, '1개 보내기', '몇 개인지 버튼에 적힌다');
+
+  pick(new a.w.File([new Uint8Array(2048)], '뒷바퀴.jpg', { type: 'image/jpeg' }));
+  await wait(80);
+  eq(a.$('fileList').children.length, 2, '나눠 골라도 더해진다 (사진 보관함 + 파일)');
+  eq(a.$('fileSend').textContent, '2개 보내기', '두 개로 센다');
+  eq([...a.$('fileList').querySelectorAll('.sz')].map((e) => e.textContent), ['1KB', '2KB'],
+    '크기를 보여 준다');
+
+  a.$('fileSend').click();
+  await until(() => puts.length >= 2 && !a.$('fileSend').disabled);
+  eq(puts.length, 2, '고른 것을 모두 올린다');
+  const photo = puts[0];
   eq(photo.url.includes(`/files/${DATE}/`), true, '날짜 폴더 아래에 놓인다');
   eq(/\d{6}-%ED%8C%8C%EC%86%90%20%EC%82%AC%EC%A7%84_1\.png$/.test(photo.url), true, '이름에 시각이 붙고 쓸 수 없는 글자는 _ 로 바뀐다');
   eq(photo.body.branch, 'inbox', 'inbox 가지로 간다');
-  eq(photo.body.content, png, '그림이 한 바이트도 틀어지지 않고 담긴다');
-  eq(a.$('fileMsg').textContent, '1개를 PC 다운로드 폴더로 보냈습니다', '보낸 결과를 보여 준다');
+  eq(photo.body.content, png, '찍힌 그대로 — 한 바이트도 줄이지 않는다');
+  eq(a.$('fileMsg').textContent, '2개를 PC 다운로드 폴더로 보냈습니다', '보낸 결과를 보여 준다');
   eq(a.$('fileMsg').className, 'send-msg ok', '초록으로');
-  eq(a.$('filePick').value, '', '같은 사진을 다시 고를 수 있게 비운다');
+  eq([...a.$('fileList').querySelectorAll('.st')].map((e) => e.textContent), ['보냄', '보냄'],
+    '하나씩 보냈다고 표시된다');
 }
 
 // ── 9) 토큰이 없으면 사진을 보내지 않는다
@@ -255,12 +277,16 @@ log('▶ 토큰 없이 사진 보내기');
     if (opt && opt.method === 'PUT') { put++; return Promise.resolve(new a.w.Response('{}', { status: 201 })); }
     return real(url, opt);
   };
-  const file = new a.w.File([new Uint8Array([1, 2, 3])], 'x.jpg', { type: 'image/jpeg' });
+  a.$('btnFiles').click(); await wait(80);
+  eq(a.$('fileMsg').className, 'send-msg no', '열자마자 토큰이 없다고 알려 준다');
+
   const dt = new a.w.DataTransfer();
-  dt.items.add(file);
+  dt.items.add(new a.w.File([new Uint8Array([1, 2, 3])], 'x.jpg', { type: 'image/jpeg' }));
   a.$('filePick').files = dt.files;
   a.$('filePick').dispatchEvent(new a.w.Event('change', { bubbles: true }));
-  await wait(300);
+  await wait(80);
+  a.$('fileSend').click();
+  await until(() => a.$('fileMsg').textContent.includes('토큰'));
   eq(put, 0, '올리려 하지 않는다');
   eq(a.$('fileMsg').className, 'send-msg no', '왜 안 되는지 빨갛게 알려 준다');
 }
