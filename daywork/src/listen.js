@@ -14,7 +14,7 @@
 //   - 확정을 한참 뒤에야 주므로, 말이 멎으면 그 자리에서 확정으로 본다
 //   - 안내 음성이 나가는 동안은 자기 목소리를 되먹지 않게 막는다
 
-import { extractSequence } from '../../src/plate.js?v=202610040239';
+import { extractSequence } from '../../src/plate.js?v=202610040618';
 
 // 엔진은 모듈을 읽을 때가 아니라 **쓸 때** 찾는다.
 // 그래야 테스트에서 가짜 엔진을 끼워 넣고 전체 흐름을 그대로 돌려볼 수 있다.
@@ -33,6 +33,24 @@ const strip = (t) => t.replace(/[\s,.\-·]/g, '');
  * 번호가 끝에 오고 그것이 완성형이면 기다릴 이유가 없다.
  * (순수 함수라 테스트 페이지에서 그대로 검사한다)
  */
+// 숫자로만 이루어진 말인가 (한국식 수사·자리수사·아라비아 숫자)
+const NUMERIC_ONLY = /^[0-9영공빵일이삼사오육륙칠팔구천백십]+$/;
+
+/**
+ * 아직 번호가 되지 못한 숫자말인가 — "천", "천백", "일이" 처럼 더 이어질 말.
+ *
+ * 천천히 부르면 음절 사이에 침묵이 생긴다. 그때 반쯤 들린 것을 확정해 버리면
+ * 번호가 되지 못한 채 버려지고, 세션이 끊기면서 뒤에 이어 부른 말까지 잃는다.
+ * 그래서 이런 말은 확정하지 않고 조금 더 기다린다.
+ * (순수 함수라 테스트 페이지에서 그대로 검사한다)
+ */
+export function unfinishedNumber(text) {
+  const bare = strip(text);
+  if (!bare || !NUMERIC_ONLY.test(bare)) return false;
+  const plate = extractSequence(text).find((t) => t.type === 'plate');
+  return !plate || /^[천백십]+$/.test(plate.raw);     // 번호가 없거나, 단위만 불렀다
+}
+
 export function closedUtterance(text) {
   const tokens = extractSequence(text);
   const last = tokens[tokens.length - 1];
@@ -41,6 +59,10 @@ export function closedUtterance(text) {
   if (last.type === 'plate') return last.complete === true;
   return true;                                            // 명령어는 그 자체로 끝
 }
+
+// 번호가 아직 덜 불린 것 같을 때 더 기다리는 횟수. 한도를 넘으면 그냥 넘긴다
+// (영원히 기다리면 말이 끊긴 줄도 모르고 아무 일도 일어나지 않는다).
+const MAX_HOLD = 2;
 
 export function createListener({ onUtterance, onInterim, onStatus, settleMs = 700 }) {
   let rec = null;
@@ -52,6 +74,7 @@ export function createListener({ onUtterance, onInterim, onStatus, settleMs = 70
   let restartTimer = null;
   let settleTimer = null;
   let muteUntil = 0;
+  let held = 0;             // 덜 불린 번호를 몇 번 더 기다렸나
 
   const status = (state, detail) => onStatus && onStatus(state, detail);
 
@@ -73,6 +96,22 @@ export function createListener({ onUtterance, onInterim, onStatus, settleMs = 70
     if (andRecycle) recycle();
   }
 
+  /** 말이 멎으면 확정한다. 덜 불린 번호 같으면 한 번 더 기다린다. */
+  function schedule(whole) {
+    const wait = closedUtterance(whole) ? FAST_MS : settleMs;
+    settleTimer = setTimeout(() => {
+      settleTimer = null;
+      const now = settled + pending;
+      if (held < MAX_HOLD && unfinishedNumber(now.slice(consumed))) {
+        held += 1;
+        schedule(now);                  // "천백" 에서 멈췄다 — 뒤를 조금 더 기다린다
+        return;
+      }
+      held = 0;
+      take(true);
+    }, wait);
+  }
+
   function build() {
     const r = new (engine())();
     r.lang = 'ko-KR';
@@ -82,7 +121,7 @@ export function createListener({ onUtterance, onInterim, onStatus, settleMs = 70
 
     r.onstart = () => {
       running = true;
-      settled = ''; pending = ''; consumed = 0;
+      settled = ''; pending = ''; consumed = 0; held = 0;
       status('listening');
     };
 
@@ -107,8 +146,8 @@ export function createListener({ onUtterance, onInterim, onStatus, settleMs = 70
       clearTimeout(settleTimer);
       settleTimer = null;
       if (whole.length > consumed) {
-        settleTimer = setTimeout(() => { settleTimer = null; take(true); },
-          closedUtterance(whole) ? FAST_MS : settleMs);
+        held = 0;                       // 말이 이어졌으니 기다린 횟수를 되돌린다
+        schedule(whole);
       }
     };
 

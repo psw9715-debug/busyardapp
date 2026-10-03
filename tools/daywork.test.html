@@ -19,6 +19,7 @@
 import { createState, handleUtterance, undo, sendable } from '../daywork/src/entry.js';
 import * as roster from '../daywork/src/roster.js';
 import { workDate, sheetName } from '../daywork/src/workdate.js';
+import { unfinishedNumber, closedUtterance } from '../daywork/src/listen.js';
 import { workDate as yardWorkDate } from '../src/store.js';
 
 const out = document.getElementById('out');
@@ -231,6 +232,20 @@ head('15. 한 호흡에 불러도 번호와 내용이 섞이지 않는다');
   const v = fresh();
   handleUtterance(v, '천백이십 안내방송 없음');
   eq(cards(v), [['1120', '안내방송 없음', 'ok']], '"번호 + 내용(없음 포함)" 은 내용');
+}
+
+head('16. 덜 불린 번호는 확정하지 않는다 — 천천히 불러도 되게');
+{
+  for (const said of ['천', '천백', '천백십', '일', '일이', '공이']) {
+    eq(unfinishedNumber(said), true, `"${said}" 는 아직 번호가 아니다`);
+  }
+  for (const said of ['천백이십', '천삼백오십이', '공이이', '일이공']) {
+    eq(unfinishedNumber(said), false, `"${said}" 는 다 불렀다`);
+  }
+  // 말이 섞이면 번호를 기다리는 상황이 아니다
+  for (const said of ['대차', '천백이십 대차', '1305호로 대차', '없음']) {
+    eq(unfinishedNumber(said), false, `"${said}" 는 숫자말이 아니다`);
+  }
 }
 
 log('');

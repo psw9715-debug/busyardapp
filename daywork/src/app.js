@@ -10,20 +10,22 @@
 
 import {
   createState, handleUtterance, setPlate, removeCard, undo, sendable,
-} from './entry.js?v=202610040239';
-import { createListener, isSupported } from './listen.js?v=202610040239';
-import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610040239';
-import { workDate } from './workdate.js?v=202610040239';
-import { send as sendToPc } from './sync.js?v=202610040239';
-import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610040239';
-import * as logbook from './log.js?v=202610040239';
-import * as roster from './roster.js?v=202610040239';
-import { beep, primeAudio } from '../../src/voice.js?v=202610040239';
+} from './entry.js?v=202610040618';
+import { createListener, isSupported } from './listen.js?v=202610040618';
+import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610040618';
+import { workDate } from './workdate.js?v=202610040618';
+import { send as sendToPc } from './sync.js?v=202610040618';
+import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610040618';
+import * as logbook from './log.js?v=202610040618';
+import * as roster from './roster.js?v=202610040618';
+import { beep, primeAudio } from '../../src/voice.js?v=202610040618';
 
 // 내용을 받을 때 말이 멎고 이만큼 기다린다
 const SYMPTOM_WAIT = 2000;
-// 번호를 받을 때. 다 부른 번호는 listen.js 가 더 빨리(0.15초) 넘긴다
-const PLATE_WAIT = 700;
+// 번호를 받을 때. 다 부른 번호는 listen.js 가 더 빨리(0.15초) 넘긴다.
+// 짧으면 "천백… 이십" 처럼 끊어 부를 때 앞 토막이 확정돼 버려진다 —
+// 빨리 말해야만 들어가는 꼴이 된다. 천천히 불러도 되도록 넉넉히 둔다.
+const PLATE_WAIT = 1500;
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t == null ? '' : t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
@@ -66,7 +68,8 @@ function drawStage() {
   $('hint').textContent = p
     ? (p.known ? '특이사항을 말하세요 — 다 말했으면 [확인]' : '명부에 없는 번호입니다 — 그대로 적을 수 있습니다')
     : '차량번호를 "천백이십" 처럼 불러 주세요';
-  $('btnConfirm').disabled = !p;
+  // 번호를 기다릴 때도 쓸 수 있다 — 1.5초를 기다리지 않고 지금 넣는다
+  $('btnConfirm').disabled = !p && !listener.isOn();
   $('btnSkip').disabled = !p;
 }
 
@@ -163,6 +166,7 @@ const listener = createListener({
       : s === 'network' ? 'warn' : '';
     $('mic').classList.toggle('on', listener.isOn());
     $('mic').textContent = listener.isOn() ? '음성 입력 중지' : '음성 입력 시작';
+    drawStage();            // [확인] 은 듣는 중일 때 번호 자리에서도 눌려야 한다
   },
   settleMs: PLATE_WAIT,
 });
@@ -176,11 +180,14 @@ $('mic').addEventListener('click', () => {
 // ── 조작 버튼 ──────────────────────────────────────────
 $('btnConfirm').addEventListener('click', () => {
   primeAudio();
-  if (!state.pending) return;
-  // 들린 말이 아직 넘어오지 않았으면 그것부터 넘긴다 (2초를 기다리지 않는다)
+  // 들린 말을 기다리지 않고 지금 넘긴다.
+  // 번호는 "천백이십" 처럼 단위로 끝나면 더 이어질 수 있어 1.5초를 기다리는데,
+  // 다 불렀으면 이 버튼으로 건너뛴다. 내용도 마찬가지(2초).
+  const before = `${state.cards.length}|${state.pending ? state.pending.plate : ''}`;
   listener.flushNow();
-  if (state.pending) {                         // 넘어온 것이 없었다 = 아직 아무 말도 안 했다
-    $('hint').textContent = '특이사항을 말한 다음 눌러 주세요';
+  if (before === `${state.cards.length}|${state.pending ? state.pending.plate : ''}`) {
+    $('hint').textContent = state.pending
+      ? '특이사항을 말한 다음 눌러 주세요' : '번호를 말한 다음 눌러 주세요';
     beep('error');
   }
 });

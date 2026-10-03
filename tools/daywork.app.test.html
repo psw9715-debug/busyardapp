@@ -340,7 +340,48 @@ head('13. 토큰 — 이 앱에서 바로 넣을 수 있어야 한다');
   $(d, 'diagClose').click();
 }
 
+head('14. 천천히 끊어 불러도 번호가 사라지지 않는다');
+{
+  const d = await app(true);
+  await mic(d);
+
+  // "천백…" 에서 한 번 멈춘다 (사파리는 아직 말하는 중으로 흘려 준다)
+  FakeSR.last.emit([['천백', false]]);
+  await wait(1900);
+  eq($(d, 'plate').textContent, '번호 대기', '반쯤 들린 것을 번호로 확정하지 않는다');
+
+  // 이어서 마저 부른다
+  FakeSR.last.emit([['천백이십', false]]);
+  await until(() => $(d, 'plate').textContent === '1120', 200);
+  eq($(d, 'plate').textContent, '1120', '이어 부른 뒤에 1120 이 된다');
+}
+
+head('15. 그래도 끝내 말이 없으면 넘어간다 (영원히 기다리지 않는다)');
+{
+  const d = await app(true);
+  await mic(d);
+  FakeSR.last.emit([['천백', false]]);
+  await wait(5200);                       // 1.5초 x (1 + 기다림 2회)
+  eq($(d, 'plate').textContent, '번호 대기', '번호가 되지 못한 채 넘어간다');
+  eq(cards(d).length, 0, '엉뚱한 카드를 만들지 않는다');
+}
+
 // ───────────────────────────────────────────────────────────
+head('16. [확인] 으로 번호도 바로 넣는다');
+{
+  const d = await app(true);
+  await mic(d);
+  eq($(d, 'btnConfirm').disabled, false, '듣는 중이면 번호 자리에서도 눌린다');
+
+  FakeSR.last.emit([['천백이십', false]]);
+  await wait(200);
+  eq($(d, 'plate').textContent, '번호 대기', '아직 기다리는 중 (단위로 끝나 더 이어질 수 있다)');
+
+  $(d, 'btnConfirm').click();
+  await until(() => $(d, 'plate').textContent === '1120', 100);
+  eq($(d, 'plate').textContent, '1120', '누르면 기다리지 않고 들어간다');
+}
+
 wipe();
 log('');
 log(`${pass} 통과 / ${fail} 실패`, fail ? 'fail' : 'ok');
