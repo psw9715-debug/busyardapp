@@ -84,14 +84,14 @@ head('5. 한 호흡에 부르기 — 띄어쓰기를 살려야 한다');
 }
 
 // ───────────────────────────────────────────────────────────
-head('6. 내용을 기다리는 중에 숫자가 들리면 = 다음 차');
+head('6. 번호만 달랑 말하면 다음 차로 넘어간다');
 {
   const s = fresh();
   handleUtterance(s, '천백십삼');
-  const ev = handleUtterance(s, '천백이십 대차');
-  eq(cards(s), [['1113', '', 'nosymptom'], ['1120', '대차', 'ok']],
-    '앞 차는 내용 없음으로 남고 사라지지 않는다');
+  const ev = handleUtterance(s, '천백이십');          // 번호 하나뿐 = 다음 차
+  eq(cards(s), [['1113', '', 'nosymptom']], '앞 차는 내용 없음으로 남고 사라지지 않는다');
   eq(ev.parked && ev.parked.card.plate, '1113', '남겨진 카드를 알려 준다');
+  eq([ev.type, ev.plate], ['pending', '1120'], '새 번호를 받는다');
 }
 
 head('7. 특이사항 없는 차');
@@ -148,7 +148,8 @@ head('11. PC 로 보낼 것 추리기');
 {
   const s = fresh();
   handleUtterance(s, '천백십삼');
-  handleUtterance(s, '천백이십 대차');      // 1113 은 내용 없이 남는다
+  handleUtterance(s, '천백이십');           // 번호만 = 다음 차. 1113 은 내용 없이 남는다
+  handleUtterance(s, '대차');
   eq(sendable(s).map((c) => c.plate), ['1120'], '내용 없는 카드는 보내지 않는다');
 }
 
@@ -170,6 +171,66 @@ head('12. 근무일 — PC 의 daywork.py 와 같은 규칙(06:30)이어야 한�
   const seven = new Date(2026, 9, 2, 7, 0);
   eq(workDate(seven), '2026-10-02', '07:00 은 daywork 기준으로 그날');
   eq(yardWorkDate(seven), '2026-10-01', '같은 시각을 순회앱은 전날로 본다 — 섞으면 하루 밀린다');
+}
+
+head('13. 내용 안의 번호는 내용이다 — 실제 일지에서 나온 말들');
+{
+  // 두 달치 220건 중 98건(45%)이 내용에 번호를 담고 있고, 55건(25%)은 번호로 시작한다.
+  for (const [plateSaid, said, plate, issue] of [
+    ['천삼백오십이', '1305호로 대차', '1352', '1305호로 대차'],      // 실제로 막혔던 그 말
+    ['천백이십구', '1118 대차 출력저하', '1129', '1118 대차 출력저하'],
+    ['천백사십이', '1138-> 1142 차량 교체', '1142', '1138-> 1142 차량 교체'],
+    ['천칠백칠', '1305 대차', '1707', '1305 대차'],
+    ['천이십구', '1029호 기어불량 1116호로 운행', '1029', '1029호 기어불량 1116호로 운행'],
+  ]) {
+    const s = fresh();
+    handleUtterance(s, plateSaid);
+    handleUtterance(s, said);
+    eq(cards(s), [[plate, issue, 'ok']], `"${plateSaid}" 뒤에 "${said}"`);
+  }
+}
+
+head('14. 내용 안의 명령어도 내용이다');
+{
+  for (const [said, issue] of [
+    ['노선 안내방송 없음', '노선 안내방송 없음'],      // '없음' 이 들어 있지만 건너뛰기가 아니다
+    ['운행 취소', '운행 취소'],                        // '취소' 가 들어 있지만 되돌리기가 아니다
+    ['충전구 1개 안됨', '충전구 1개 안됨'],
+  ]) {
+    const s = fresh();
+    handleUtterance(s, '천백이십');
+    handleUtterance(s, said);
+    eq(cards(s), [['1120', issue, 'ok']], `"${said}"`);
+  }
+
+  // 그래도 말 전체가 명령이면 명령이다
+  const a = fresh();
+  handleUtterance(a, '천백이십');
+  eq(handleUtterance(a, '없음').type, 'skip', '"없음" 한 마디는 건너뛰기');
+  eq(cards(a), [], '카드가 생기지 않는다');
+
+  const b = fresh();
+  handleUtterance(b, '천백이십');
+  eq(handleUtterance(b, '정정').type, 'undo', '"정정" 한 마디는 되돌리기');
+}
+
+head('15. 한 호흡에 불러도 번호와 내용이 섞이지 않는다');
+{
+  const s = fresh();
+  handleUtterance(s, '천삼백오십이 1305호로 대차');
+  eq(cards(s), [['1352', '1305호로 대차', 'ok']], '첫 낱말만 번호로 본다');
+
+  const t = fresh();
+  handleUtterance(t, '천백이십구 1118 대차 출력저하');
+  eq(cards(t), [['1129', '1118 대차 출력저하', 'ok']], '내용의 번호는 건드리지 않는다');
+
+  const u = fresh();
+  handleUtterance(u, '천백이십 없음');
+  eq(cards(u), [], '"번호 + 없음" 은 그대로 건너뛰기');
+
+  const v = fresh();
+  handleUtterance(v, '천백이십 안내방송 없음');
+  eq(cards(v), [['1120', '안내방송 없음', 'ok']], '"번호 + 내용(없음 포함)" 은 내용');
 }
 
 log('');

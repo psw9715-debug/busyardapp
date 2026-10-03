@@ -13,9 +13,9 @@
 //
 // 브라우저 API를 쓰지 않는 순수 로직이라 테스트 페이지에서 그대로 검사한다.
 
-import { extractSequence } from '../../src/plate.js?v=202610030418';
-import { isKnown } from './roster.js?v=202610030418';
-import { workDate } from './workdate.js?v=202610030418';
+import { extractSequence } from '../../src/plate.js?v=202610040239';
+import { isKnown } from './roster.js?v=202610040239';
+import { workDate } from './workdate.js?v=202610040239';
 
 // 공백·쉼표는 extractSequence 가 지우고 본다. 같은 규칙으로 지워야 위치가 맞는다.
 const SKIP_CHARS = /[\s,.\-·]/;
@@ -39,6 +39,40 @@ function stripMap(text) {
     at.push(i);
   }
   return { stripped, at };
+}
+
+/** 들린 말 전체가 번호 하나뿐인가. 그렇다면 그 번호를, 아니면 null */
+function onlyPlate(text) {
+  const tokens = extractSequence(text);
+  if (tokens.length !== 1) return null;
+  const t = tokens[0];
+  if (t.type !== 'plate' || UNIT_ONLY.test(t.raw)) return null;
+  return stripMap(text).stripped === t.raw ? t : null;
+}
+
+/**
+ * 들린 말 전체가 명령 하나뿐인가. 'back' | 'skip' | null
+ *
+ * 말 중간에 들어 있는 것은 명령으로 보지 않는다 — "노선 안내방송 없음" 이
+ * 건너뛰기로, "운행 취소" 가 되돌리기로 읽히면 내용이 통째로 사라진다.
+ */
+function onlyCommand(text) {
+  const tokens = extractSequence(text);
+  if (tokens.length !== 1) return null;
+  const t = tokens[0];
+  if (t.type !== 'back' && t.type !== 'skip') return null;
+  return stripMap(text).stripped === t.raw ? t.type : null;
+}
+
+/** 첫 낱말과 나머지 */
+function splitFirstWord(text) {
+  const m = String(text).match(/^\s*(\S+)\s*([\s\S]*)$/);
+  return m ? [m[1], m[2].trim()] : [String(text).trim(), ''];
+}
+
+/** 그 말 안의 첫 번호 토큰 */
+function firstPlate(text) {
+  return extractSequence(text).find((t) => t.type === 'plate' && !UNIT_ONLY.test(t.raw)) || null;
 }
 
 /** 번호 뒤에 남은 말을 원문에서 떼어낸다 */
@@ -98,24 +132,50 @@ function parkPending(state, now) {
  */
 export function handleUtterance(state, text, now = new Date()) {
   const raw = String(text || '');
-  const tokens = extractSequence(raw);
+  const cmd = onlyCommand(raw);          // 말 전체가 명령일 때만 명령이다
+  const back = cmd === 'back';
+  const skip = cmd === 'skip';
 
-  const plateTok = tokens.find((t) => t.type === 'plate' && !UNIT_ONLY.test(t.raw));
-  const back = tokens.some((t) => t.type === 'back');
-  const skip = tokens.some((t) => t.type === 'skip');
+  // ── 내용을 기다리는 중 ────────────────────────────────────────────
+  // 들린 말은 그냥 내용이다. 번호가 섞여 있어도 마찬가지다 —
+  // 실제 일지 220건 중 98건(45%)이 내용 안에 번호를 담고 있고
+  // ("1118 대차", "1138-> 1142 차량 교체"), 55건(25%)은 번호로 시작한다.
+  // 번호만 달랑 말했을 때에만 다음 차로 넘어간다. 내용이 번호 하나뿐인 경우는
+  // 그 220건에 한 건도 없었으므로 이 예외는 안전하다.
+  if (state.phase === 'symptom' && state.pending) {
+    if (back) return undo(state);
+    if (skip) {
+      const had = state.pending;
+      state.pending = null;
+      state.phase = 'plate';
+      return { type: 'skip', plate: had.plate, parked: null };
+    }
+    if (!onlyPlate(raw)) {
+      const plate = state.pending.plate;
+      state.pending = null;
+      state.phase = 'plate';
+      return put(state, makeCard(plate, raw, now));
+    }
+    // 번호만 말했다 — 아래로 내려가 다음 차로 넘어간다 (앞 차는 '내용 없음' 으로 남는다)
+  }
 
-  // 1) 번호가 들렸다 — 새 차로 넘어간다
+  // ── 번호를 기다리는 중 ────────────────────────────────────────────
+  // 한 호흡에 "천삼백오십이 1305호로 대차" 처럼 부르면, 번호와 내용의 숫자가 붙어
+  // 한 덩어리로 읽혀 엉뚱한 번호가 나온다. 그래서 **첫 낱말만** 번호로 보고
+  // 나머지는 내용으로 둔다. 띄어 말하지 않았을 때만 말 전체에서 찾는다.
+  const [head, tail] = splitFirstWord(raw);
+  const headPlate = firstPlate(head);
+  const plateTok = headPlate || firstPlate(raw);
+  const rest = headPlate ? tail : (plateTok ? restAfter(raw, plateTok.raw) : '');
+
   if (plateTok) {
     const parked = state.pending && state.pending.plate !== plateTok.plate
       ? parkPending(state, now) : null;
     state.pending = null;
 
-    const rest = restAfter(raw, plateTok.raw);
-    const restTokens = extractSequence(rest);
-    const restIsCommand = restTokens.some((t) => t.type === 'skip' || t.type === 'back');
-
     // "천백이십 없음" — 특이사항 없는 차. 적지 않고 넘어간다.
-    if (restIsCommand) {
+    // 뒤에 붙은 말이 통째로 명령일 때만이다 ("천백이십 안내방송 없음" 은 내용이다).
+    if (rest && onlyCommand(rest)) {
       state.phase = 'plate';
       return { type: 'skip', plate: plateTok.plate, parked };
     }
@@ -133,25 +193,13 @@ export function handleUtterance(state, text, now = new Date()) {
     return { type: 'pending', plate: plateTok.plate, known: state.pending.known, parked };
   }
 
-  // 2) 되돌리기
-  if (back) {
-    return undo(state);
-  }
+  if (back) return undo(state);
 
-  // 3) 특이사항 없는 차로 넘기기
   if (skip) {
     const had = state.pending;
     state.pending = null;
     state.phase = 'plate';
     return { type: 'skip', plate: had ? had.plate : null, parked: null };
-  }
-
-  // 4) 그냥 말 — 내용을 기다리는 중이면 특이사항이다
-  if (state.phase === 'symptom' && state.pending) {
-    const plate = state.pending.plate;
-    state.pending = null;
-    state.phase = 'plate';
-    return put(state, makeCard(plate, raw, now));
   }
 
   return { type: 'ignored', heard: raw };
