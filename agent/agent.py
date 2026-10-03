@@ -57,6 +57,12 @@ def poll_sec(now=None):
     return POLL_BUSY if h >= BUSY_FROM or h < BUSY_TO else POLL_IDLE
 STALE = datetime.timedelta(minutes=10)      # 이보다 오래된 요청은 적지 않는다
 
+# 새벽 2시 5분에 운영관리 엑셀을 저장하고 닫는다.
+#   2시 10분에 B(사무실) PC 가 출퇴근 관리 프로그램으로 그 엑셀을 열어야 하는데,
+#   여기서 열어 두고 있으면 저쪽은 읽기 전용으로만 열린다.
+CLOSE_AT = (2, 5)
+CLOSE_ASK_SEC = 60                          # 묻고 1분 뒤에는 저절로 닫는다
+
 BASE = r"Z:\교통사업처_버스운영센터\상황실"
 # Z: 로 연결돼 있지 않은 PC 도 있다. 그럴 때는 공유 폴더를 바로 찾아간다.
 BASE_UNC = r"\\192.168.35.22\sctc17\교통사업처_버스운영센터\상황실"
@@ -73,6 +79,7 @@ YARDS = {
 HOME = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "차고지받아쓰기")
 LOG_FILE = os.path.join(HOME, "받아쓰기.log")
 LAST_FILE = os.path.join(HOME, "마지막요청.txt")
+CLOSED_FILE = os.path.join(HOME, "닫은날.txt")       # 하루에 한 번만 닫게
 
 
 def log(msg):
@@ -486,6 +493,87 @@ def handle(req):
         log(f"⚠ 적기는 했는데 결과를 놓지 못했습니다 — {type(e).__name__}: {e}")
 
 
+# ---- 2시 5분, 저장하고 닫기 -----------------------------------------------
+
+def ops_date(now):
+    """그 시각에 쓰고 있는 운영관리 엑셀의 날짜 (순찰한 근무일 + 1)"""
+    day = now.date() - datetime.timedelta(days=1) if now.hour < 9 else now.date()
+    return day + datetime.timedelta(days=1)
+
+
+def closed_day():
+    try:
+        with io.open(CLOSED_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def due_to_close(now):
+    """닫을 때가 되었는가. 늦게 켜도(2시 20분에 켜도) 그날 것은 한 번 닫는다."""
+    if now.hour != CLOSE_AT[0] or now.minute < CLOSE_AT[1]:
+        return False
+    return closed_day() != now.date().isoformat()
+
+
+def ask_close(name, secs=CLOSE_ASK_SEC):
+    """[확인]/[취소] 를 묻는다. 1분 동안 아무도 누르지 않으면 닫는 것으로 본다.
+
+    창을 띄우지 못하는 때에도 닫는다 — 2시 10분에 저쪽이 열려야 하는 쪽이 더 중하다.
+    """
+    text = (f"{name}\n\n"
+            "잠시 뒤 출퇴근 관리 프로그램이 이 엑셀을 열어야 합니다.\n"
+            "여기서 열어 두고 있으면 그쪽은 읽기 전용으로만 열립니다.\n\n"
+            "[확인] 지금 저장하고 닫기\n"
+            "[취소] 그냥 열어 두기\n\n"
+            f"{secs}초 뒤에는 저절로 저장하고 닫습니다.")
+    try:
+        import ctypes
+        box = ctypes.windll.user32.MessageBoxTimeoutW
+        box.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
+                        ctypes.c_uint, ctypes.c_ushort, ctypes.c_uint]
+        flags = 0x1 | 0x30 | 0x1000 | 0x10000 | 0x40000   # 확인/취소 · 경고음 · 맨 앞으로
+        answer = box(None, text, f"{APP_NAME} — 저장하고 닫습니다", flags, 0, secs * 1000)
+        return answer != 2                                 # 2 = 취소. 확인(1)·시간지남(32000)은 닫는다
+    except Exception:
+        return True
+
+
+def close_ops(now=None, ask=ask_close):
+    """열어 둔 운영관리 엑셀을 저장하고 닫는다. 통합문서만 닫고 엑셀은 두어,
+    그 창에서 보던 다른 문서는 그대로 남는다."""
+    now = now or datetime.datetime.now()
+    mark = lambda: io.open(CLOSED_FILE, "w", encoding="utf-8").write(now.date().isoformat())
+    try:
+        path = find_excel(ops_date(now))
+    except FileNotFoundError as e:
+        log(f"⏭ 닫을 엑셀을 찾지 못했습니다 — {e}")
+        mark()
+        return False
+
+    import pythoncom
+    pythoncom.CoInitialize()
+    wb = running_workbook(path)
+    if wb is None:
+        mark()
+        return False                       # 열려 있지 않다 — 할 일이 없다
+
+    if not ask(os.path.basename(path)):
+        log("⏭ 닫지 말라고 하셔서 그대로 둡니다")
+        mark()
+        return False
+    try:
+        if not wb.ReadOnly:
+            wb.Save()
+        wb.Close(SaveChanges=False)        # 방금 저장했다
+        log(f"🔒 {os.path.basename(path)} 저장하고 닫았습니다")
+        mark()
+        return True
+    except Exception as e:
+        log(f"⚠ 닫지 못했습니다 — {type(e).__name__}: {e}")
+        return False
+
+
 def tick():
     req = fetch("print.json")
     if req is None:
@@ -506,6 +594,8 @@ def loop(stop):
     while not stop.is_set():
         try:
             tell_alive()
+            if due_to_close(datetime.datetime.now()):
+                close_ops()
             tick()
             last_err = None
         except Exception as e:
