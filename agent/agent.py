@@ -501,6 +501,24 @@ def ops_date(now):
     return day + datetime.timedelta(days=1)
 
 
+def duty_dates():
+    """내가 출근하는 날들. 사무실 PC(sctc-copy)가 공유 폴더에 적어 둔 것을 읽는다.
+
+    알 수 없으면 빈 set 을 준다 — 모르면 닫지 않는다. 내가 없는 밤에 남이 보고
+    있는 엑셀을 함부로 닫는 것보다, 안 닫고 마는 편이 낫다.
+    """
+    try:
+        with io.open(os.path.join(result_dir(), "근무일.json"), encoding="utf-8") as f:
+            return set(json.load(f).get("dates", []))
+    except Exception:
+        return set()
+
+
+def shift_day(now):
+    """그 시각이 속한 근무일. 새벽은 전날 밤 근무다 (sctc-copy 와 같은 6시 경계)."""
+    return now.date() - datetime.timedelta(days=1) if now.hour < 6 else now.date()
+
+
 def closed_day():
     try:
         with io.open(CLOSED_FILE, encoding="utf-8") as f:
@@ -509,11 +527,18 @@ def closed_day():
         return ""
 
 
-def due_to_close(now):
-    """닫을 때가 되었는가. 늦게 켜도(2시 20분에 켜도) 그날 것은 한 번 닫는다."""
+def due_to_close(now, dates=None):
+    """닫을 때가 되었는가. 늦게 켜도(2시 20분에 켜도) 그날 것은 한 번 닫는다.
+
+    내가 출근한 밤에만 닫는다 — 2시 10분에 출퇴근 관리 프로그램을 여는 것도
+    그 밤의 일이기 때문이다.
+    """
     if now.hour != CLOSE_AT[0] or now.minute < CLOSE_AT[1]:
         return False
-    return closed_day() != now.date().isoformat()
+    if closed_day() == now.date().isoformat():
+        return False
+    known = duty_dates() if dates is None else dates
+    return shift_day(now).isoformat() in known
 
 
 def ask_close(name, secs=CLOSE_ASK_SEC):
