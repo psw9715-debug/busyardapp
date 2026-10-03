@@ -409,8 +409,26 @@ def agent_note(req_id):
     return note if note.get("id") == req_id else None
 
 
+def agent_alive(within=300):
+    """A 컴퓨터의 받아쓰기가 돌고 있는가. 1분에 한 번 남기는 표시를 본다."""
+    import ops_fill
+    try:
+        with open(ops_fill.AGENT_ALIVE, encoding="utf-8") as f:
+            at = json.load(f)["at"]
+        when = datetime.datetime.fromisoformat(at.replace("Z", "+00:00"))
+        return (datetime.datetime.now(datetime.timezone.utc) - when).total_seconds() < within
+    except Exception:
+        return False
+
+
 def wait_for_agent(req_id, log, secs=30):
-    """A 컴퓨터가 적고 쪽지를 놓을 때까지 잠깐 기다린다. 안 오면 내가 한다."""
+    """A 컴퓨터가 적고 쪽지를 놓을 때까지 잠깐 기다린다. 안 오면 내가 한다.
+
+    A 가 돌고 있지 않으면 기다릴 까닭이 없다 — 바로 내가 한다.
+    """
+    if not agent_alive():
+        log("💤 [순회판] A 컴퓨터 받아쓰기가 꺼져 있다 — 이 PC 가 한다")
+        return None
     until = time.time() + secs
     while time.time() < until:
         note = agent_note(req_id)
@@ -418,6 +436,7 @@ def wait_for_agent(req_id, log, secs=30):
             log(f"📨 [순회판] A 컴퓨터: {note['msg']}")
             return note
         time.sleep(2)
+    log("⌛ [순회판] A 컴퓨터가 켜져 있는데 쪽지가 없다 — 이 PC 가 한다")
     return None
 
 
@@ -443,8 +462,12 @@ def handle(req, log, notify=None):
             if note and note["state"] != "done":
                 raise RuntimeError(note["msg"])        # A 가 못 했다면 그대로 폰에 알린다
             if kind == "excel":
-                state, msg = ("done", note["msg"]) if note else (
-                    "done", ops_fill.run(board_date=req["date"], log=log, yard=yard))
+                if note:
+                    state, msg = "done", note["msg"]
+                else:
+                    summary = ops_fill.run(board_date=req["date"], log=log, yard=yard)
+                    tail = "" if agent_alive() else " · A 컴퓨터 받아쓰기가 꺼져 있었음"
+                    state, msg = "done", summary + tail
             else:
                 state, msg = "done", ops_fill.run_final(
                     board_date=req["date"], log=log, yard=yard,

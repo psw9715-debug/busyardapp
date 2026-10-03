@@ -58,10 +58,12 @@ def poll_sec(now=None):
 STALE = datetime.timedelta(minutes=10)      # 이보다 오래된 요청은 적지 않는다
 
 BASE = r"Z:\교통사업처_버스운영센터\상황실"
+# Z: 로 연결돼 있지 않은 PC 도 있다. 그럴 때는 공유 폴더를 바로 찾아간다.
+BASE_UNC = r"\\192.168.35.22\sctc17\교통사업처_버스운영센터\상황실"
 KEYWORD = "입출차 운영관리"
-# 했다/못 했다를 놓아 두는 자리. 사무실 PC 가 여기를 보고 폰에 전해 준다.
-RESULT_DIR = os.path.join(BASE, "받아쓰기")
-RESULT_FILE = os.path.join(RESULT_DIR, "결과.json")
+# 했다/못 했다를 놓아 두는 자리 (사무실 PC 가 여기를 보고 폰에 전해 준다).
+# 어느 PC 든 같은 곳을 보게, 경로는 그때그때 고른다 — base_dir() 참고.
+RESULT_NAME = "받아쓰기"
 SHEET = "고정차고지_입력"
 YARDS = {
     "new": {"data": "yard-data.js", "offset": 35},
@@ -123,13 +125,13 @@ def report(req, state, msg):
     올리는 길(GitHub)은 권한이 있어야 하지만, 사무실 PC 는 이미 그 권한을 들고
     돌고 있다. 두 PC 가 함께 보는 Z: 에 한 줄 놓아 두는 것이 가장 짧은 길이다.
     """
-    os.makedirs(RESULT_DIR, exist_ok=True)
+    os.makedirs(result_dir(), exist_ok=True)
     at = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds")
-    tmp = RESULT_FILE + ".tmp"
+    tmp = result_file() + ".tmp"
     with io.open(tmp, "w", encoding="utf-8") as f:
         json.dump({"id": req["id"], "what": req.get("what"), "state": state,
                    "msg": msg, "at": at.replace("+00:00", "Z")}, f, ensure_ascii=False)
-    os.replace(tmp, RESULT_FILE)          # 반만 쓰인 쪽지를 사무실 PC 가 읽지 않게
+    os.replace(tmp, result_file())        # 반만 쓰인 쪽지를 사무실 PC 가 읽지 않게
     log(f"📨 결과를 놓았습니다 — {state} · {msg}")
 
 
@@ -237,10 +239,55 @@ def work_date(now=None):
     return day
 
 
+def base_dir():
+    """상황실 공유 폴더. Z: 로 연결돼 있으면 그쪽, 아니면 공유 폴더를 바로."""
+    if os.path.isdir(BASE):
+        return BASE
+    return BASE_UNC
+
+
+def result_dir():
+    return os.path.join(base_dir(), RESULT_NAME)
+
+
+def result_file():
+    return os.path.join(result_dir(), "결과.json")
+
+
+def alive_file():
+    return os.path.join(result_dir(), "살아있음.json")
+
+
+_told_alive = [0.0]
+
+
+def tell_alive(every=60):
+    """"나 여기 돌고 있다" 를 공유 폴더에 남긴다.
+
+    꺼져 있어서 못 적은 것인지, 켜져 있는데 못 적은 것인지 사무실 PC 가 가려
+    폰에 제대로 알려 줄 수 있어야 한다. 1분에 한 번이면 넉넉하다.
+    """
+    if time.time() - _told_alive[0] < every:
+        return
+    _told_alive[0] = time.time()
+    try:
+        os.makedirs(result_dir(), exist_ok=True)
+        tmp = alive_file() + ".tmp"
+        with io.open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"pc": os.environ.get("COMPUTERNAME", "?"),
+                       "at": datetime.datetime.now(datetime.timezone.utc)
+                       .isoformat(timespec="seconds").replace("+00:00", "Z")},
+                      f, ensure_ascii=False)
+        os.replace(tmp, alive_file())
+    except Exception:
+        pass          # 공유 폴더가 잠깐 끊겨도 하던 일은 계속한다
+
+
 def find_excel(date):
     year = str(date.year)
-    root = next((os.path.join(BASE, d) for d in sorted(os.listdir(BASE))
-                 if d.split()[-1:] == [year] and os.path.isdir(os.path.join(BASE, d))), None)
+    base = base_dir()
+    root = next((os.path.join(base, d) for d in sorted(os.listdir(base))
+                 if d.split()[-1:] == [year] and os.path.isdir(os.path.join(base, d))), None)
     if not root:
         raise FileNotFoundError(f"{year} 연도 폴더 없음")
     month = os.path.join(root, f"00 {date:%Y%m}")
@@ -260,6 +307,30 @@ def find_excel(date):
 
 # ---- 엑셀에 적기 ---------------------------------------------------------
 
+_MAP = {}
+
+
+def unc(path):
+    r"""Z:\... 를 \\서버\공유\... 로 바꾼다 (연결이 없으면 그대로).
+
+    엑셀은 열어 둔 파일을 UNC 로 올려 두는데 우리 경로는 연결된 드라이브 문자라,
+    그대로 견주면 같은 파일을 서로 다른 것으로 본다.
+    """
+    full = os.path.abspath(path)
+    drive, rest = os.path.splitdrive(full)
+    if len(drive) == 2 and drive.endswith(":"):
+        if drive.upper() not in _MAP:
+            try:
+                import win32wnet
+                _MAP[drive.upper()] = win32wnet.WNetGetConnection(drive.upper()) or ""
+            except Exception:
+                _MAP[drive.upper()] = ""
+        remote = _MAP[drive.upper()]
+        if remote:
+            full = remote.rstrip("\\") + rest
+    return os.path.normcase(full)
+
+
 def running_workbook(path):
     """지금 열려 있는 그 통합문서를 찾는다. 없으면 None.
 
@@ -270,7 +341,7 @@ def running_workbook(path):
     import pythoncom
     import win32com.client
 
-    want = os.path.normcase(os.path.abspath(path))
+    want = unc(path)
     try:
         rot = pythoncom.GetRunningObjectTable()
         ctx = pythoncom.CreateBindCtx(0)
@@ -284,7 +355,7 @@ def running_workbook(path):
         if not name.lower().endswith((".xlsx", ".xlsm", ".xls")):
             continue
         try:
-            if os.path.normcase(os.path.abspath(name)) != want:
+            if unc(name) != want:
                 continue
             obj = rot.GetObject(moniker)
             return win32com.client.Dispatch(obj.QueryInterface(pythoncom.IID_IDispatch))
@@ -434,6 +505,7 @@ def loop(stop):
     last_err = None
     while not stop.is_set():
         try:
+            tell_alive()
             tick()
             last_err = None
         except Exception as e:
@@ -461,12 +533,12 @@ def selftest():
         bad += 1
         log(f"점검 · 우편함 읽기 실패 — {type(e).__name__}: {e}")
     try:
-        os.makedirs(RESULT_DIR, exist_ok=True)
-        probe = os.path.join(RESULT_DIR, "점검.tmp")
+        os.makedirs(result_dir(), exist_ok=True)
+        probe = os.path.join(result_dir(), "점검.tmp")
         with io.open(probe, "w", encoding="utf-8") as f:
             f.write("ok")
         os.remove(probe)
-        log("점검 · 결과를 놓을 자리 정상 (Z: 에 쓸 수 있다)")
+        log(f"점검 · 결과를 놓을 자리 정상 ({result_dir()})")
     except Exception as e:
         bad += 1
         log(f"점검 · 결과를 놓을 수 없다 — {type(e).__name__}: {e}")
