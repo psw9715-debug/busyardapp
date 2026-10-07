@@ -10,22 +10,24 @@
 
 import {
   createState, handleUtterance, setPlate, removeCard, undo, sendable, barePlate,
-} from './entry.js?v=202610080038';
-import { createListener, isSupported } from './listen.js?v=202610080038';
-import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610080038';
-import { workDate } from './workdate.js?v=202610080038';
-import { send as sendToPc } from './sync.js?v=202610080038';
-import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610080038';
-import * as logbook from './log.js?v=202610080038';
-import * as roster from './roster.js?v=202610080038';
-import { beep, primeAudio } from '../../src/voice.js?v=202610080038';
+} from './entry.js?v=202610080206';
+import { createListener, isSupported } from './listen.js?v=202610080206';
+import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610080206';
+import { workDate } from './workdate.js?v=202610080206';
+import { send as sendToPc } from './sync.js?v=202610080206';
+import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610080206';
+import * as logbook from './log.js?v=202610080206';
+import * as roster from './roster.js?v=202610080206';
+import { beep, primeAudio } from '../../src/voice.js?v=202610080206';
 
-// 내용을 받을 때 말이 멎고 이만큼 기다린다
-const SYMPTOM_WAIT = 2000;
+// 내용을 받을 때 말이 멎고 이만큼 기다린다.
+// 길수록 중간에 쉬어도 한 줄로 들어오지만 그만큼 굼뜨다. 뒷말이 따로 들어와도
+// 방금 그 차에 이어 붙이므로(entry.js) 짧게 잡아도 잃지 않는다.
+const SYMPTOM_WAIT = 1100;
 // 번호를 받을 때. 다 부른 번호는 listen.js 가 더 빨리(0.15초) 넘긴다.
 // 짧으면 "천백… 이십" 처럼 끊어 부를 때 앞 토막이 확정돼 버려진다 —
 // 빨리 말해야만 들어가는 꼴이 된다. 천천히 불러도 되도록 넉넉히 둔다.
-const PLATE_WAIT = 1500;
+const PLATE_WAIT = 900;
 
 const $ = (id) => document.getElementById(id);
 const esc = (t) => String(t == null ? '' : t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));

@@ -327,6 +327,30 @@ head('21. 사파리가 "경" 을 숫자로 바꿔 놓는 것을 되돌린다');
   eq(Boolean(c && /세종여자중학교/.test(c.symptom) && /대차/.test(c.symptom)), true, '나머지 말은 그대로');
 }
 
+head('22. 말이 끊겨도 뒷말을 잃지 않는다 (기다리는 시간을 줄일 수 있는 근거)');
+{
+  const s = fresh();
+  handleUtterance(s, '천백이십 브레이크에서');
+  handleUtterance(s, '소리가 난다');            // 번호 없이 따라온 뒷말
+  eq(cards(s), [['1120', '브레이크에서 소리가 난다', 'ok']], '방금 그 차에 이어 붙는다');
+
+  handleUtterance(s, '정비실 입고');
+  eq(cards(s)[0][1], '브레이크에서 소리가 난다 정비실 입고', '여러 번 이어 붙는다');
+
+  // 새 번호가 오면 거기서 끊긴다
+  handleUtterance(s, '천백이십일 세차');
+  eq(cards(s).length, 2, '새 차는 새 카드');
+  handleUtterance(s, '뒤늦은 말');
+  eq(cards(s)[1][1], '세차 뒤늦은 말', '이어 붙는 대상은 가장 최근 카드');
+}
+
+head('23. 붙일 카드가 없으면 그냥 흘린다');
+{
+  const s = fresh();
+  eq(handleUtterance(s, '아무 말').type, 'ignored', '받은 것이 없으면 무시');
+  eq(cards(s), [], '카드가 생기지 않는다');
+}
+
 log('');
 log(`${pass} 통과 / ${fail} 실패`, fail ? 'fail' : 'ok');
 document.title = fail ? `FAIL ${fail}` : `PASS ${pass}`;

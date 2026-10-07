@@ -13,9 +13,9 @@
 //
 // 브라우저 API를 쓰지 않는 순수 로직이라 테스트 페이지에서 그대로 검사한다.
 
-import { extractSequence } from '../../src/plate.js?v=202610080038';
-import { isKnown } from './roster.js?v=202610080038';
-import { workDate } from './workdate.js?v=202610080038';
+import { extractSequence } from '../../src/plate.js?v=202610080206';
+import { isKnown } from './roster.js?v=202610080206';
+import { workDate } from './workdate.js?v=202610080206';
 
 // 공백·쉼표는 extractSequence 가 지우고 본다. 같은 규칙으로 지워야 위치가 맞는다.
 const SKIP_CHARS = /[\s,.\-·]/;
@@ -126,6 +126,10 @@ function tidy(text) {
   for (const [re, word] of BIG_NUMBER_WORDS) out = out.replace(re, word);
   return out.replace(/\s{2,}/g, ' ').trim();
 }
+
+// 말이 끊겨 뒷말이 따로 들어왔을 때, 방금 그 차에 이어 붙일 수 있는 시간.
+// 이것이 있어야 기다리는 시간을 줄여도 잃는 말이 없다.
+const APPEND_WINDOW_MS = 20000;
 
 function makeCard(plate, symptom, now) {
   const text = tidy(symptom || '');
@@ -249,6 +253,17 @@ export function handleUtterance(state, text, now = new Date()) {
     state.pending = null;
     state.phase = 'plate';
     return { type: 'skip', plate: had ? had.plate : null, parked: null };
+  }
+
+  // 번호 없는 말이 방금 적은 차 뒤에 따라왔다 — 그 차에 이어 붙인다.
+  // "브레이크에서… (쉼) …소리가 난다" 처럼 중간에 쉬면 뒷말이 따로 들어오는데,
+  // 예전에는 번호가 없다고 버렸다. 이어 붙이니 기다리는 시간을 줄여도 잃지 않는다.
+  const last = state.cards[state.cards.length - 1];
+  if (last && last.symptom && now - new Date(last.at) < APPEND_WINDOW_MS) {
+    const before = last.symptom;
+    last.symptom = tidy(`${before} ${raw}`);
+    last.at = now.toISOString();
+    return { type: 'card', card: last, updated: true, before, appended: true };
   }
 
   return { type: 'ignored', heard: raw };
