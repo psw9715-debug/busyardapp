@@ -13,9 +13,9 @@
 //
 // 브라우저 API를 쓰지 않는 순수 로직이라 테스트 페이지에서 그대로 검사한다.
 
-import { extractSequence } from '../../src/plate.js?v=202610072212';
-import { isKnown } from './roster.js?v=202610072212';
-import { workDate } from './workdate.js?v=202610072212';
+import { extractSequence } from '../../src/plate.js?v=202610072226';
+import { isKnown } from './roster.js?v=202610072226';
+import { workDate } from './workdate.js?v=202610072226';
 
 // 공백·쉼표는 extractSequence 가 지우고 본다. 같은 규칙으로 지워야 위치가 맞는다.
 const SKIP_CHARS = /[\s,.\-·]/;
@@ -166,13 +166,24 @@ export function handleUtterance(state, text, now = new Date()) {
   }
 
   // ── 번호를 기다리는 중 ────────────────────────────────────────────
-  // 한 호흡에 "천삼백오십이 1305호로 대차" 처럼 부르면, 번호와 내용의 숫자가 붙어
-  // 한 덩어리로 읽혀 엉뚱한 번호가 나온다. 그래서 **첫 낱말만** 번호로 보고
-  // 나머지는 내용으로 둔다. 띄어 말하지 않았을 때만 말 전체에서 찾는다.
+  // 원문에서 번호 바로 뒤를 떼어내 내용으로 둔다.
+  //
+  // 다만 띄어 말한 두 번호가 한 덩어리로 읽히는 일이 있다 — 공백이 지워지면
+  // "천삼백오십이 1305" 가 "천삼백오십이1305" 가 되어 22655 처럼 엉뚱한 값이 된다.
+  // 그때만 첫 낱말을 믿는다. (첫 낱말로 찾은 번호와 전체에서 찾은 번호가 다르면
+  // 그런 경우다.)
+  const wholePlate = firstPlate(raw);
   const [head, tail] = splitFirstWord(raw);
   const headPlate = firstPlate(head);
-  const plateTok = headPlate || firstPlate(raw);
-  const rest = headPlate ? tail : (plateTok ? restAfter(raw, plateTok.raw) : '');
+
+  let plateTok = wholePlate;
+  let rest = wholePlate ? restAfter(raw, wholePlate.raw) : '';
+  if (headPlate && wholePlate && headPlate.plate !== wholePlate.plate) {
+    plateTok = headPlate;
+    rest = tail;
+  }
+  // "천백이십오호," 의 '호' 와 뒤따르는 쉼표는 번호에 붙는 말이지 내용이 아니다
+  rest = rest.replace(/^[\s,.·]+/, '').replace(/^호[\s,.·]*/, '').trim();
 
   if (plateTok) {
     const parked = state.pending && state.pending.plate !== plateTok.plate

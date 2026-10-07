@@ -7,7 +7,7 @@
 // 파일 이름을 'daywork-' 로 시작하게 해 순회앱이 쓰는 판과 섞이지 않게 한다.
 // 토큰은 순회앱에 이미 넣어 둔 것을 **읽기만** 한다 (폰에 다시 넣을 필요가 없다).
 
-import { getToken } from './store.js?v=202610072212';
+import { getToken } from './store.js?v=202610072226';
 
 const API = 'https://api.github.com/repos/psw9715-debug/busyardapp/contents/inbox';
 const BRANCH = 'inbox';

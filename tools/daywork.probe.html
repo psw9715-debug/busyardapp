@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>받아쓰기 진단 — 실제 말이 어떻게 들어가나</title>
+<style>
+  body { font: 13px/1.7 ui-monospace, Consolas, monospace; background:#14140f; color:#e8e2d2; padding:16px; }
+  table { border-collapse: collapse; width: 100%; }
+  td, th { border-bottom:1px solid #2a2a20; padding:5px 8px; vertical-align: top; text-align:left; }
+  th { color:#d9c98a; }
+  .bad { color:#ff8f6b; }
+  .ok { color:#a9d18e; }
+  h2 { color:#d9c98a; font-size:13px; margin:18px 0 6px; }
+  .said { color:#9fb4c7; }
+</style>
+</head>
+<body>
+<h1 style="font-size:15px">"천백이십오호 천백삼십사호와 대차" 가 어떻게 들어가나</h1>
+<div id="out"></div>
+<script type="module">
+// 추측 대신 실제 파이프라인에 여러 전사 형태를 흘려 넣어 결과를 본다.
+// 기대값: 번호 1125, 내용 "1134호와 대차" (또는 그에 준하는 온전한 말)
+import { createState, handleUtterance } from '../daywork/src/entry.js';
+import { unfinishedNumber, closedUtterance } from '../daywork/src/listen.js';
+import { isKnown } from '../daywork/src/roster.js';
+
+const out = document.getElementById('out');
+
+function section(title) {
+  const h = document.createElement('h2');
+  h.textContent = title;
+  out.appendChild(h);
+  const t = document.createElement('table');
+  t.innerHTML = '<tr><th style="width:38%">사파리가 준 말</th><th>번호</th><th>내용</th><th>판정</th></tr>';
+  out.appendChild(t);
+  return t;
+}
+
+/** 한 마디로 통째 들어올 때 */
+function once(table, said) {
+  const s = createState('2026-10-07');
+  handleUtterance(s, said);
+  show(table, said, s);
+}
+
+/** 번호와 내용이 따로 들어올 때 */
+function twice(table, a, b) {
+  const s = createState('2026-10-07');
+  handleUtterance(s, a);
+  handleUtterance(s, b);
+  show(table, `${a}  ⏎  ${b}`, s);
+}
+
+function show(table, said, s) {
+  const c = s.cards[0];
+  const plate = c ? c.plate : (s.pending ? s.pending.plate + ' (내용 대기)' : '—');
+  const issue = c ? c.symptom : '—';
+  const good = c && c.plate === '1125' && /1134|천백삼십사/.test(issue) && /대차/.test(issue);
+  const row = table.insertRow();
+  row.innerHTML = `<td class="said">${esc(said)}</td><td>${esc(plate)}</td>`
+    + `<td>${esc(issue)}</td><td class="${good ? 'ok' : 'bad'}">${good ? 'OK' : '어긋남'}</td>`;
+}
+
+const esc = (t) => String(t).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+// ── 한 호흡에 통째로 ────────────────────────────────────────
+let t = section('1. 한 호흡에 통째로 들어올 때');
+[
+  '1125호 1134호와 대차',
+  '천백이십오호 천백삼십사호와 대차',
+  '1125 호 1134 호와 대차',
+  '1125호1134호와 대차',
+  '1125호 1134호와대차',
+  '천백이십오호천백삼십사호와대차',
+  '1125호 1134호와 대차.',
+  '1125호, 1134호와 대차',
+].forEach((s) => once(t, s));
+
+// ── 번호와 내용이 나뉘어 들어올 때 ──────────────────────────
+t = section('2. 번호와 내용이 나뉘어 들어올 때');
+[
+  ['1125호', '1134호와 대차'],
+  ['천백이십오호', '천백삼십사호와 대차'],
+  ['1125', '1134호와 대차'],
+  ['1125호', '1134호와'],
+  ['1125호', '대차'],
+].forEach(([a, b]) => twice(t, a, b));
+
+// ── 음성 래퍼가 중간에 끊을까 ───────────────────────────────
+t = section('3. 음성 래퍼 판정 (끊기면 여기서 끊긴다)');
+const t3 = t;
+t3.innerHTML = '<tr><th style="width:38%">중간 전사</th><th>다 부른 말인가</th><th>덜 불린 번호인가</th><th>명부</th></tr>';
+[
+  '1125', '1125호', '1125호 1134', '1125호 1134호', '1125호 1134호와', '1125호 1134호와 대차',
+  '천백이십오', '천백이십오호', '1000', '1100', '1120',
+].forEach((s) => {
+  const row = t3.insertRow();
+  const bare = s.replace(/[\s,.·-]/g, '');
+  const known = /^\d{4}$/.test(bare) ? (isKnown(bare) ? '있음' : '없음') : '—';
+  row.innerHTML = `<td class="said">${esc(s)}</td><td>${closedUtterance(s) ? '예 (0.15초만 기다림)' : '아니오'}</td>`
+    + `<td>${unfinishedNumber(s) ? '예 (더 기다림)' : '아니오'}</td><td>${known}</td>`;
+});
+
+document.title = '진단 완료';
+</script>
+</body>
+</html>

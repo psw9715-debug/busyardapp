@@ -259,6 +259,38 @@ head('17. 번호 하나만 불렀는지 가려낸다 (명부 판단의 입구)')
   eq(barePlate('천'), null, '단위만 부른 것은 번호가 아니다');
 }
 
+head('18. "천백이십오호 천백삼십사호와 대차" — 실제로 안 되던 말');
+{
+  // 사파리가 어떤 모양으로 주든 번호 1125 와 내용이 온전히 들어가야 한다.
+  for (const said of [
+    '1125호 1134호와 대차',
+    '천백이십오호 천백삼십사호와 대차',
+    '1125 호 1134 호와 대차',
+    '1125호1134호와 대차',              // 공백 없이 붙어 와도
+    '천백이십오호천백삼십사호와대차',    // 통째로 붙어 와도
+    '1125호, 1134호와 대차',
+    '1125호 1134호와 대차.',
+  ]) {
+    const s = fresh();
+    handleUtterance(s, said);
+    const c = s.cards[0];
+    eq(c && c.plate, '1125', `"${said}" -> 번호`);
+    eq(Boolean(c && /113[4]|천백삼십사/.test(c.symptom) && /대차/.test(c.symptom)), true,
+      `"${said}" -> 내용이 온전하다 (${c ? c.symptom : '없음'})`);
+  }
+}
+
+head('19. 번호가 들렸다고 말을 끊지 않는다');
+{
+  // 여기서 '예' 가 나오면 말하는 도중에 0.15초 만에 끊겨 뒷말이 날아간다.
+  for (const mid of ['1125', '천백이십오', '1125호 1134', '1120', '1000']) {
+    eq(closedUtterance(mid), false, `"${mid}" 에서 서둘러 끊지 않는다`);
+  }
+  // 명령어는 그 자체로 끝이므로 바로 받는다
+  eq(closedUtterance('없음'), true, '"없음" 은 바로');
+  eq(closedUtterance('정정'), true, '"정정" 은 바로');
+}
+
 log('');
 log(`${pass} 통과 / ${fail} 실패`, fail ? 'fail' : 'ok');
 document.title = fail ? `FAIL ${fail}` : `PASS ${pass}`;

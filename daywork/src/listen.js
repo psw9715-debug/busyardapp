@@ -14,7 +14,7 @@
 //   - 확정을 한참 뒤에야 주므로, 말이 멎으면 그 자리에서 확정으로 본다
 //   - 안내 음성이 나가는 동안은 자기 목소리를 되먹지 않게 막는다
 
-import { extractSequence } from '../../src/plate.js?v=202610072212';
+import { extractSequence } from '../../src/plate.js?v=202610072226';
 
 // 엔진은 모듈을 읽을 때가 아니라 **쓸 때** 찾는다.
 // 그래야 테스트에서 가짜 엔진을 끼워 넣고 전체 흐름을 그대로 돌려볼 수 있다.
@@ -60,9 +60,13 @@ export function closedUtterance(text) {
   const tokens = extractSequence(text);
   const last = tokens[tokens.length - 1];
   if (!last) return false;
-  if (!strip(text).endsWith(last.raw)) return false;      // 번호 뒤에 말이 더 붙었다
-  if (last.type === 'plate') return last.complete === true;
-  return true;                                            // 명령어는 그 자체로 끝
+  if (!strip(text).endsWith(last.raw)) return false;      // 뒤에 말이 더 붙었다
+  // **번호는 여기에 들지 않는다.** 순회앱에서는 자리마다 번호 하나만 부르고 멈추니
+  // 번호가 들리는 순간 넘겨도 됐지만, 여기서는 "천백이십오호 천백삼십사호와 대차"
+  // 처럼 번호 뒤에 곧바로 내용이 이어진다. 번호가 들렸다고 0.15초 만에 확정하고
+  // 세션을 끊으면 말하는 도중에 끊겨 뒷말이 통째로 날아간다. 실제로 그랬다.
+  // 명령어("없음", "정정")만 그 자체로 끝이다.
+  return last.type !== 'plate';
 }
 
 // 번호가 아직 덜 불린 것 같을 때 더 기다리는 횟수. 한도를 넘으면 그냥 넘긴다
