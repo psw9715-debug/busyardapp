@@ -10,15 +10,15 @@
 
 import {
   createState, handleUtterance, setPlate, removeCard, undo, sendable, barePlate,
-} from './entry.js?v=202610072204';
-import { createListener, isSupported } from './listen.js?v=202610072204';
-import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610072204';
-import { workDate } from './workdate.js?v=202610072204';
-import { send as sendToPc } from './sync.js?v=202610072204';
-import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610072204';
-import * as logbook from './log.js?v=202610072204';
-import * as roster from './roster.js?v=202610072204';
-import { beep, primeAudio } from '../../src/voice.js?v=202610072204';
+} from './entry.js?v=202610072212';
+import { createListener, isSupported } from './listen.js?v=202610072212';
+import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610072212';
+import { workDate } from './workdate.js?v=202610072212';
+import { send as sendToPc } from './sync.js?v=202610072212';
+import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610072212';
+import * as logbook from './log.js?v=202610072212';
+import * as roster from './roster.js?v=202610072212';
+import { beep, primeAudio } from '../../src/voice.js?v=202610072212';
 
 // 내용을 받을 때 말이 멎고 이만큼 기다린다
 const SYMPTOM_WAIT = 2000;
@@ -169,6 +169,12 @@ function holdWhile(text) {
 const listener = createListener({
   onUtterance,
   holdWhile,
+  /** 번호가 되다 만 토막은 넣지 않고 버린다 — 무엇을 버렸는지는 보여 준다 */
+  onDropped: (text) => {
+    heardLog.push(`${new Date().toTimeString().slice(0, 8)}  (버림) ${text}`);
+    if (heardLog.length > 60) heardLog.shift();
+    $('heard').textContent = `${text} — 번호가 덜 들렸습니다. 다시 불러 주세요`;
+  },
   onInterim: (text) => { $('heard').textContent = text; },
   onStatus: (s, detail) => {
     const label = {

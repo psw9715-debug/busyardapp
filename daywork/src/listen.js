@@ -14,7 +14,7 @@
 //   - 확정을 한참 뒤에야 주므로, 말이 멎으면 그 자리에서 확정으로 본다
 //   - 안내 음성이 나가는 동안은 자기 목소리를 되먹지 않게 막는다
 
-import { extractSequence } from '../../src/plate.js?v=202610072204';
+import { extractSequence } from '../../src/plate.js?v=202610072212';
 
 // 엔진은 모듈을 읽을 때가 아니라 **쓸 때** 찾는다.
 // 그래야 테스트에서 가짜 엔진을 끼워 넣고 전체 흐름을 그대로 돌려볼 수 있다.
@@ -69,7 +69,8 @@ export function closedUtterance(text) {
 // (영원히 기다리면 말이 끊긴 줄도 모르고 아무 일도 일어나지 않는다).
 const MAX_HOLD = 2;
 
-export function createListener({ onUtterance, onInterim, onStatus, holdWhile, settleMs = 700 }) {
+export function createListener({ onUtterance, onInterim, onStatus, holdWhile, onDropped,
+                                settleMs = 700 }) {
   let rec = null;
   let wanted = false;       // 사용자가 켜 둔 상태인가
   let running = false;      // 실제 엔진이 도는 중인가
@@ -180,7 +181,19 @@ export function createListener({ onUtterance, onInterim, onStatus, holdWhile, se
       settleTimer = null;
       // 확정을 안 준 채 세션이 끝나는 경우가 있다 — 남은 말을 살린다.
       // 이미 끊긴 뒤라 recycle 은 하지 않는다.
-      take(false);
+      //
+      // 다만 아직 번호가 되지 못한 토막은 넣지 않는다. 사파리는 발화가 끝나면
+      // 세션을 끊으므로 번호를 부르다 쉬면 이 길로 들어오는데, 여기서 넣어 버리면
+      // "천" 이라고만 했는데 1000 이 들어간다. 세션이 끊긴 뒤라 더 기다릴 수는
+      // 없으니 버리고, 무엇을 버렸는지만 남긴다.
+      const whole = settled + pending;
+      const leftover = whole.slice(consumed).trim();
+      if (leftover && (unfinishedNumber(leftover) || (holdWhile && holdWhile(leftover)))) {
+        consumed = whole.length;
+        if (Date.now() >= muteUntil) onDropped && onDropped(leftover);
+      } else {
+        take(false);
+      }
       settled = ''; pending = ''; consumed = 0;
       if (wanted) {
         clearTimeout(restartTimer);

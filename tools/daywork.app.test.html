@@ -413,6 +413,34 @@ head('18. 명부에 없는 번호도 끝내 그 번호면 받는다');
   eq($(d, 'plate').classList.contains('unknown'), true, '명부에 없다고 노랗게 표시만');
 }
 
+head('19. 사파리가 세션을 끊어도 1000 이 들어가지 않는다');
+{
+  // 사파리는 발화가 끝나면 인식 세션을 끊는다. 번호를 부르다 쉬면 그 길로 들어온다.
+  const d = await app(true);
+  await mic(d);
+  FakeSR.last.emit([['1000', true]]);
+  FakeSR.last.ended();                      // 사파리가 세션을 닫는다
+  await wait(900);
+  eq($(d, 'plate').textContent, '번호 대기', '덜 불린 번호를 넣지 않는다');
+  eq(cards(d).length, 0, '카드도 만들지 않는다');
+  eq($(d, 'heard').textContent.includes('덜 들렸습니다'), true, '버렸다고 알려 준다');
+
+  $(d, 'btnDiag').click();
+  eq([...$(d, 'diagHeard').querySelectorAll('li')].some((li) => li.textContent.includes('(버림) 1000')),
+    true, '[진단]에 무엇을 버렸는지 남는다');
+  $(d, 'diagClose').click();
+}
+
+head('20. 세션이 끊겨도 다 부른 번호는 들어간다');
+{
+  const d = await app(true);
+  await mic(d);
+  FakeSR.last.emit([['1120', true]]);
+  FakeSR.last.ended();
+  await until(() => $(d, 'plate').textContent === '1120', 150);
+  eq($(d, 'plate').textContent, '1120', '명부에 있는 번호는 그대로 받는다');
+}
+
 wipe();
 log('');
 log(`${pass} 통과 / ${fail} 실패`, fail ? 'fail' : 'ok');
