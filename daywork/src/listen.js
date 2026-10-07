@@ -14,7 +14,7 @@
 //   - 확정을 한참 뒤에야 주므로, 말이 멎으면 그 자리에서 확정으로 본다
 //   - 안내 음성이 나가는 동안은 자기 목소리를 되먹지 않게 막는다
 
-import { extractSequence } from '../../src/plate.js?v=202610040618';
+import { extractSequence } from '../../src/plate.js?v=202610072204';
 
 // 엔진은 모듈을 읽을 때가 아니라 **쓸 때** 찾는다.
 // 그래야 테스트에서 가짜 엔진을 끼워 넣고 전체 흐름을 그대로 돌려볼 수 있다.
@@ -42,6 +42,11 @@ const NUMERIC_ONLY = /^[0-9영공빵일이삼사오육륙칠팔구천백십]+$/;
  * 천천히 부르면 음절 사이에 침묵이 생긴다. 그때 반쯤 들린 것을 확정해 버리면
  * 번호가 되지 못한 채 버려지고, 세션이 끊기면서 뒤에 이어 부른 말까지 잃는다.
  * 그래서 이런 말은 확정하지 않고 조금 더 기다린다.
+ *
+ * 다만 이것만으로는 모자란다. 사파리는 "천" 을 글자가 아니라 숫자 1000 으로
+ * 받아 적어서, 전사는 1000 -> 1100 -> 1120 으로 흘러간다. 1000 도 네 자리라
+ * 여기서는 '다 부른 번호' 로 보인다. 그 판단은 명부를 아는 쪽(앱)이 해야 하므로
+ * createListener 의 holdWhile 로 받는다.
  * (순수 함수라 테스트 페이지에서 그대로 검사한다)
  */
 export function unfinishedNumber(text) {
@@ -64,7 +69,7 @@ export function closedUtterance(text) {
 // (영원히 기다리면 말이 끊긴 줄도 모르고 아무 일도 일어나지 않는다).
 const MAX_HOLD = 2;
 
-export function createListener({ onUtterance, onInterim, onStatus, settleMs = 700 }) {
+export function createListener({ onUtterance, onInterim, onStatus, holdWhile, settleMs = 700 }) {
   let rec = null;
   let wanted = false;       // 사용자가 켜 둔 상태인가
   let running = false;      // 실제 엔진이 도는 중인가
@@ -96,15 +101,22 @@ export function createListener({ onUtterance, onInterim, onStatus, settleMs = 70
     if (andRecycle) recycle();
   }
 
-  /** 말이 멎으면 확정한다. 덜 불린 번호 같으면 한 번 더 기다린다. */
-  function schedule(whole) {
-    const wait = closedUtterance(whole) ? FAST_MS : settleMs;
+  /**
+   * 말이 멎으면 확정한다. 덜 불린 번호 같으면 한 번 더 기다린다.
+   *
+   * holding=true 면 짧은 길(0.15초)을 쓰지 않는다. "1000" 은 네 자리라
+   * '다 부른 번호' 로 보여 짧은 길로 가는데, 기다리기로 해 놓고 또 0.15초 뒤에
+   * 물으면 세 번이 0.45초 만에 소진돼 기다린 보람이 없다.
+   */
+  function schedule(whole, holding) {
+    const wait = (!holding && closedUtterance(whole)) ? FAST_MS : settleMs;
     settleTimer = setTimeout(() => {
       settleTimer = null;
       const now = settled + pending;
-      if (held < MAX_HOLD && unfinishedNumber(now.slice(consumed))) {
+      const fresh = now.slice(consumed);
+      if (held < MAX_HOLD && (unfinishedNumber(fresh) || (holdWhile && holdWhile(fresh)))) {
         held += 1;
-        schedule(now);                  // "천백" 에서 멈췄다 — 뒤를 조금 더 기다린다
+        schedule(now, true);            // "천백" 에서 멈췄다 — 뒤를 넉넉히 기다린다
         return;
       }
       held = 0;

@@ -382,6 +382,37 @@ head('16. [확인] 으로 번호도 바로 넣는다');
   eq($(d, 'plate').textContent, '1120', '누르면 기다리지 않고 들어간다');
 }
 
+head('17. 사파리가 숫자로 받아 적을 때 — 실제 기기에서 막혔던 그 길');
+{
+  // "천" 은 글자가 아니라 1000 으로 전사된다. 1000 도 네 자리라 '다 부른 번호' 로
+  // 보여 0.15초 만에 확정돼 버렸다. 명부에 없으므로 더 기다려야 한다.
+  const d = await app(true);
+  await mic(d);
+
+  FakeSR.last.emit([['1000', false]]);
+  await wait(600);
+  eq($(d, 'plate').textContent, '번호 대기', '"천"(1000) 을 번호로 확정하지 않는다');
+  eq(cards(d).length, 0, '카드도 만들지 않는다');
+
+  FakeSR.last.emit([['1100', false]]);
+  await wait(600);
+  eq($(d, 'plate').textContent, '번호 대기', '"천백"(1100) 도 아직 아니다');
+
+  FakeSR.last.emit([['1120', false]]);
+  await until(() => $(d, 'plate').textContent === '1120', 200);
+  eq($(d, 'plate').textContent, '1120', '다 부르면 1120 이 된다');
+}
+
+head('18. 명부에 없는 번호도 끝내 그 번호면 받는다');
+{
+  const d = await app(true);
+  await mic(d);
+  FakeSR.last.emit([['1999', false]]);
+  await until(() => $(d, 'plate').textContent === '1999', 400);
+  eq($(d, 'plate').textContent, '1999', '기다린 뒤 그대로 받는다');
+  eq($(d, 'plate').classList.contains('unknown'), true, '명부에 없다고 노랗게 표시만');
+}
+
 wipe();
 log('');
 log(`${pass} 통과 / ${fail} 실패`, fail ? 'fail' : 'ok');

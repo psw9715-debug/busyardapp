@@ -20,6 +20,7 @@ import { createState, handleUtterance, undo, sendable } from '../daywork/src/ent
 import * as roster from '../daywork/src/roster.js';
 import { workDate, sheetName } from '../daywork/src/workdate.js';
 import { unfinishedNumber, closedUtterance } from '../daywork/src/listen.js';
+import { barePlate } from '../daywork/src/entry.js';
 import { workDate as yardWorkDate } from '../src/store.js';
 
 const out = document.getElementById('out');
@@ -246,6 +247,16 @@ head('16. 덜 불린 번호는 확정하지 않는다 — 천천히 불러도 �
   for (const said of ['대차', '천백이십 대차', '1305호로 대차', '없음']) {
     eq(unfinishedNumber(said), false, `"${said}" 는 숫자말이 아니다`);
   }
+}
+
+head('17. 번호 하나만 불렀는지 가려낸다 (명부 판단의 입구)');
+{
+  eq(barePlate('1120'), '1120', '숫자로 받아 적힌 번호');
+  eq(barePlate('천백이십'), '1120', '글자로 받아 적힌 번호');
+  eq(barePlate('1000'), '1000', '"천" 도 번호 하나로는 잡힌다 (명부가 걸러낸다)');
+  eq(barePlate('1305호로 대차'), null, '말이 섞이면 번호 하나가 아니다');
+  eq(barePlate('대차'), null, '숫자가 없으면 null');
+  eq(barePlate('천'), null, '단위만 부른 것은 번호가 아니다');
 }
 
 log('');

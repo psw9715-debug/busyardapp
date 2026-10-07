@@ -9,7 +9,7 @@
 //   갱신될 때 순회앱의 오프라인 캐시와 워커까지 날아간다. 그래서 여기서는
 //   'daywork-' 캐시와 scope 가 /daywork/ 인 워커만 건드린다.
 
-import { BUILD } from './build.js?v=202610040618';
+import { BUILD } from './build.js?v=202610072204';
 
 const TRIED_KEY = 'daywork:triedBuild';
 

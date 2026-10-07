@@ -9,16 +9,16 @@
 // 다 말했으면 [확인] 을 눌러 기다리지 않고 넣는다.
 
 import {
-  createState, handleUtterance, setPlate, removeCard, undo, sendable,
-} from './entry.js?v=202610040618';
-import { createListener, isSupported } from './listen.js?v=202610040618';
-import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610040618';
-import { workDate } from './workdate.js?v=202610040618';
-import { send as sendToPc } from './sync.js?v=202610040618';
-import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610040618';
-import * as logbook from './log.js?v=202610040618';
-import * as roster from './roster.js?v=202610040618';
-import { beep, primeAudio } from '../../src/voice.js?v=202610040618';
+  createState, handleUtterance, setPlate, removeCard, undo, sendable, barePlate,
+} from './entry.js?v=202610072204';
+import { createListener, isSupported } from './listen.js?v=202610072204';
+import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610072204';
+import { workDate } from './workdate.js?v=202610072204';
+import { send as sendToPc } from './sync.js?v=202610072204';
+import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610072204';
+import * as logbook from './log.js?v=202610072204';
+import * as roster from './roster.js?v=202610072204';
+import { beep, primeAudio } from '../../src/voice.js?v=202610072204';
 
 // 내용을 받을 때 말이 멎고 이만큼 기다린다
 const SYMPTOM_WAIT = 2000;
@@ -151,8 +151,24 @@ function onUtterance(text) {
 }
 
 // ── 음성 ───────────────────────────────────────────────
+/**
+ * 아직 다 부르지 않은 번호 같으면 더 기다리라고 알려 준다.
+ *
+ * 사파리는 "천" 을 숫자 1000 으로 받아 적는다. "천백이십" 을 부르는 동안 전사는
+ * 1000 -> 1100 -> 1120 으로 흘러가는데, 1000 도 네 자리라 '다 부른 번호' 로 보여
+ * 0.15초 만에 확정돼 버렸다 — "천" 이라고 말하자마자 1000 이 들어간 이유다.
+ * 명부를 보면 갈린다: 1000·1100 은 없고 1120 은 있다.
+ * 끝내 그 번호면 그대로 받는다 (명부에 없다고 막지는 않는다).
+ */
+function holdWhile(text) {
+  if (state.pending) return false;        // 내용을 받는 중이면 기다릴 일이 아니다
+  const plate = barePlate(text);          // 번호 하나만 불렀을 때만 판단한다
+  return Boolean(plate) && !roster.isKnown(plate);
+}
+
 const listener = createListener({
   onUtterance,
+  holdWhile,
   onInterim: (text) => { $('heard').textContent = text; },
   onStatus: (s, detail) => {
     const label = {
