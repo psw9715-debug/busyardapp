@@ -13,9 +13,9 @@
 //
 // 브라우저 API를 쓰지 않는 순수 로직이라 테스트 페이지에서 그대로 검사한다.
 
-import { extractSequence } from '../../src/plate.js?v=202610072226';
-import { isKnown } from './roster.js?v=202610072226';
-import { workDate } from './workdate.js?v=202610072226';
+import { extractSequence } from '../../src/plate.js?v=202610080038';
+import { isKnown } from './roster.js?v=202610080038';
+import { workDate } from './workdate.js?v=202610080038';
 
 // 공백·쉼표는 extractSequence 가 지우고 본다. 같은 규칙으로 지워야 위치가 맞는다.
 const SKIP_CHARS = /[\s,.\-·]/;
@@ -81,6 +81,24 @@ function firstPlate(text) {
   return extractSequence(text).find((t) => t.type === 'plate' && !UNIT_ONLY.test(t.raw)) || null;
 }
 
+/**
+ * 번호가 원문에서 실제로 차지한 글자.
+ *
+ * 토큰의 raw 는 숫자 뭉치 **전체**다. 공백이 지워지면 "1122 15" 가 "112215" 로
+ * 붙어 한 덩어리가 되는데, 번호로 쓰인 것은 앞 네 자리뿐이다. raw 를 그대로
+ * 믿고 건너뛰면 뒤의 "15" 가 내용에서 사라진다 — 실제로 그랬다.
+ */
+function plateSpan(tok) {
+  if (/^\d+$/.test(tok.raw)) return tok.raw.slice(0, Math.min(4, tok.raw.length));
+  // 한국식 수사는 글자 수로 자를 수 없다. 그 번호가 되는 가장 짧은 앞부분을 찾는다.
+  for (let i = 1; i <= tok.raw.length; i++) {
+    const head = tok.raw.slice(0, i);
+    const t = extractSequence(head);
+    if (t.length === 1 && t[0].type === 'plate' && t[0].plate === tok.plate) return head;
+  }
+  return tok.raw;
+}
+
 /** 번호 뒤에 남은 말을 원문에서 떼어낸다 */
 function restAfter(text, raw) {
   const { stripped, at } = stripMap(text);
@@ -95,8 +113,22 @@ export function createState(date = workDate()) {
   return { date, phase: 'plate', pending: null, cards: [] };
 }
 
+// 사파리는 자릿수를 나타내는 말을 숫자로 바꿔 버린다.
+// "사십분경" -> "40분 10,000,000,000,000,000" (경 = 10^16). 일지에 그런 수가 쓰일
+// 일은 없으므로 말로 되돌린다. 억·만은 "삼만원" 처럼 실제로 쓰일 수 있어 두 개만 본다.
+const BIG_NUMBER_WORDS = [
+  [/10,?000,?000,?000,?000,?000/g, '경'],
+  [/1,?000,?000,?000,?000/g, '조'],
+];
+
+function tidy(text) {
+  let out = text;
+  for (const [re, word] of BIG_NUMBER_WORDS) out = out.replace(re, word);
+  return out.replace(/\s{2,}/g, ' ').trim();
+}
+
 function makeCard(plate, symptom, now) {
-  const text = (symptom || '').trim();
+  const text = tidy(symptom || '');
   return {
     plate,
     symptom: text,
@@ -177,7 +209,7 @@ export function handleUtterance(state, text, now = new Date()) {
   const headPlate = firstPlate(head);
 
   let plateTok = wholePlate;
-  let rest = wholePlate ? restAfter(raw, wholePlate.raw) : '';
+  let rest = wholePlate ? restAfter(raw, plateSpan(wholePlate)) : '';
   if (headPlate && wholePlate && headPlate.plate !== wholePlate.plate) {
     plateTok = headPlate;
     rest = tail;

@@ -4,7 +4,7 @@
 // 키 앞에 'daywork:' 를 붙여 완전히 갈라 두고, 순회앱의 'busyard:' 키는
 // 토큰 하나만 **읽기만** 한다 (폰에 이미 넣어 둔 것을 다시 넣지 않게).
 
-import { workDate } from './workdate.js?v=202610072226';
+import { workDate } from './workdate.js?v=202610080038';
 
 const PREFIX = 'daywork:v1';
 const key = (date) => `${PREFIX}:${date}`;

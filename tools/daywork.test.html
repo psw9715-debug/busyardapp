@@ -16,12 +16,16 @@
 // daywork/src/entry.js · roster.js 의 순수 로직 검사.
 // 끝나면 document.title 이 "PASS n" / "FAIL n" 이 된다 — 다른 테스트 페이지와 같다.
 // 서버가 있어야 모듈을 읽는다:  python -m http.server 5181  뒤 /tools/daywork.test.html
-import { createState, handleUtterance, undo, sendable } from '../daywork/src/entry.js';
-import * as roster from '../daywork/src/roster.js';
-import { workDate, sheetName } from '../daywork/src/workdate.js';
-import { unfinishedNumber, closedUtterance } from '../daywork/src/listen.js';
-import { barePlate } from '../daywork/src/entry.js';
-import { workDate as yardWorkDate } from '../src/store.js';
+// 캐시된 옛 코드를 검사하지 않도록 늘 새로 읽는다.
+// (이 페이지의 import 에는 배포 버전 도장이 붙지 않아, 고친 뒤에도 옛 파일을
+//  읽어 '통과' 하는 일이 실제로 있었다.)
+const _v = `?test=${Date.now()}`;
+const { createState, handleUtterance, undo, sendable } = await import(`../daywork/src/entry.js${_v}`);
+const { workDate, sheetName } = await import(`../daywork/src/workdate.js${_v}`);
+const { unfinishedNumber, closedUtterance } = await import(`../daywork/src/listen.js${_v}`);
+const { barePlate } = await import(`../daywork/src/entry.js${_v}`);
+const { workDate: yardWorkDate } = await import(`../src/store.js${_v}`);
+const roster = await import(`../daywork/src/roster.js${_v}`);
 
 const out = document.getElementById('out');
 let pass = 0, fail = 0;
@@ -289,6 +293,38 @@ head('19. 번호가 들렸다고 말을 끊지 않는다');
   // 명령어는 그 자체로 끝이므로 바로 받는다
   eq(closedUtterance('없음'), true, '"없음" 은 바로');
   eq(closedUtterance('정정'), true, '"정정" 은 바로');
+}
+
+head('20. "1122 15시40분경 … 대차 1123" — 번호 뒤 숫자를 삼키지 않는다');
+{
+  // 공백이 지워지면 "1122 15" 가 "112215" 한 덩어리가 된다. 번호는 앞 네 자리만
+  // 쓰는데 토큰의 raw 는 덩어리 전체라, 그대로 건너뛰면 "15" 가 내용에서 사라졌다.
+  for (const [said, want] of [
+    ['1122 15시40분경 세종여자중학교 기아 변속 고장 대차 1123', '15시40분경'],
+    ['1122 15시 40분경 세종여자중학교 기아 변속 고장 대차 1123', '15시 40분경'],
+    ['1122 1540 세종여자중학교 기아 변속 고장 대차 1123', '1540 세종'],
+    ['천백이십이 십오시 사십분경 세종여자중학교 기아 변속 고장 대차 천백이십삼', '십오시'],
+  ]) {
+    const s = fresh();
+    handleUtterance(s, said);
+    const c = s.cards[0];
+    eq(c && c.plate, '1122', `"${said.slice(0, 18)}…" -> 번호`);
+    eq(Boolean(c && c.symptom.startsWith(want)), true,
+      `내용이 "${want}" 부터 온전하다 (${c ? c.symptom.slice(0, 24) : '없음'}…)`);
+    eq(Boolean(c && /대차/.test(c.symptom)), true, '끝의 "대차" 까지 들어간다');
+  }
+}
+
+head('21. 사파리가 "경" 을 숫자로 바꿔 놓는 것을 되돌린다');
+{
+  const s = fresh();
+  handleUtterance(s, '1122 15시 40분 10,000,000,000,000,000 세종여자중학교 기아 변속 고장 대차 1123');
+  const c = s.cards[0];
+  eq(c && c.plate, '1122', '번호');
+  eq(Boolean(c && c.symptom.includes('40분 경')) || Boolean(c && c.symptom.includes('40분경')), true,
+    `"경" 으로 되돌아온다 (${c ? c.symptom.slice(0, 30) : '없음'})`);
+  eq(Boolean(c && !/000,000/.test(c.symptom)), true, '거대한 숫자가 남지 않는다');
+  eq(Boolean(c && /세종여자중학교/.test(c.symptom) && /대차/.test(c.symptom)), true, '나머지 말은 그대로');
 }
 
 log('');

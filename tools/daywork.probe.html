@@ -20,9 +20,11 @@
 <script type="module">
 // 추측 대신 실제 파이프라인에 여러 전사 형태를 흘려 넣어 결과를 본다.
 // 기대값: 번호 1125, 내용 "1134호와 대차" (또는 그에 준하는 온전한 말)
-import { createState, handleUtterance } from '../daywork/src/entry.js';
-import { unfinishedNumber, closedUtterance } from '../daywork/src/listen.js';
-import { isKnown } from '../daywork/src/roster.js';
+// 늘 지금 코드를 보도록 캐시를 건너뛰고 읽는다 (이 페이지 import 에는 버전 도장이 안 붙는다)
+const v = `?probe=${Date.now()}`;
+const { createState, handleUtterance } = await import(`../daywork/src/entry.js${v}`);
+const { unfinishedNumber, closedUtterance } = await import(`../daywork/src/listen.js${v}`);
+const { isKnown } = await import(`../daywork/src/roster.js${v}`);
 
 const out = document.getElementById('out');
 
@@ -37,10 +39,10 @@ function section(title) {
 }
 
 /** 한 마디로 통째 들어올 때 */
-function once(table, said) {
+function once(table, said, want) {
   const s = createState('2026-10-07');
   handleUtterance(s, said);
-  show(table, said, s);
+  show(table, said, s, want);
 }
 
 /** 번호와 내용이 따로 들어올 때 */
@@ -51,11 +53,12 @@ function twice(table, a, b) {
   show(table, `${a}  ⏎  ${b}`, s);
 }
 
-function show(table, said, s) {
+function show(table, said, s, want) {
+  want = want || { plate: '1125', has: [/1134|천백삼십사/, /대차/] };
   const c = s.cards[0];
   const plate = c ? c.plate : (s.pending ? s.pending.plate + ' (내용 대기)' : '—');
   const issue = c ? c.symptom : '—';
-  const good = c && c.plate === '1125' && /1134|천백삼십사/.test(issue) && /대차/.test(issue);
+  const good = Boolean(c) && c.plate === want.plate && want.has.every((re) => re.test(issue));
   const row = table.insertRow();
   row.innerHTML = `<td class="said">${esc(said)}</td><td>${esc(plate)}</td>`
     + `<td>${esc(issue)}</td><td class="${good ? 'ok' : 'bad'}">${good ? 'OK' : '어긋남'}</td>`;
@@ -75,6 +78,16 @@ let t = section('1. 한 호흡에 통째로 들어올 때');
   '1125호 1134호와 대차.',
   '1125호, 1134호와 대차',
 ].forEach((s) => once(t, s));
+
+// ── 실제로 안 되던 두 번째 말 ───────────────────────────────
+t = section('1-2. "1122 15시40분경 세종여자중학교 기아 변속 고장 대차 1123"');
+[
+  '1122 15시40분경 세종여자중학교 기아 변속 고장 대차 1123',
+  '1122 15시 40분경 세종여자중학교 기아 변속 고장 대차 1123',
+  '천백이십이 십오시 사십분경 세종여자중학교 기아 변속 고장 대차 천백이십삼',
+  '1122 15시40분 세종여자중학교 기아 변속 고장 대차 1123',
+  '1122 1540 세종여자중학교 기아 변속 고장 대차 1123',
+].forEach((s) => once(t, s, { plate: '1122', has: [/15|십오|1540/, /세종여자중학교/, /대차/] }));
 
 // ── 번호와 내용이 나뉘어 들어올 때 ──────────────────────────
 t = section('2. 번호와 내용이 나뉘어 들어올 때');
