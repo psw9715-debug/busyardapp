@@ -371,6 +371,57 @@ def running_workbook(path):
     return None
 
 
+# 엑셀이 "지금은 못 받는다" 고 되돌리는 코드들. 셀을 편집 중이거나, 메뉴를 열어
+# 두었거나, 다른 긴 일을 하고 있을 때다. 잘못된 것이 아니라 "잠깐 기다려" 라는 뜻이다.
+BUSY = (-2147418111, -2147417846, -2147417851, 0x80010001, 0x8001010A, 0x80010005)
+
+
+def is_busy(err):
+    code = getattr(err, "hresult", None)
+    if code is None:
+        args = getattr(err, "args", ())
+        code = args[0] if args else None
+    return code in BUSY
+
+
+def wait_ready(do, label, secs=45, log=log):
+    """엑셀이 받아 줄 때까지 기다리며 되풀이한다. 끝내 안 되면 그대로 올린다."""
+    import pythoncom
+    until = time.time() + secs
+    told = False
+    while True:
+        try:
+            return do()
+        except pythoncom.com_error as e:
+            if not is_busy(e) or time.time() > until:
+                raise
+            if not told:
+                log(f"⌛ 엑셀이 바쁩니다({label}) — 편집이 끝나기를 기다립니다")
+                told = True
+            time.sleep(1.5)
+
+
+def notice(text, secs, title=None):
+    """안내 창을 잠깐 띄운다 (딴 일을 막지 않게 딴 가닥에서).
+
+    창이 앞으로 나오면 자판이 그 창으로 가므로, 적는 동안 엑셀 칸에 글자가
+    잘못 들어가는 일을 막아 준다.
+    """
+    def run():
+        try:
+            import ctypes
+            box = ctypes.windll.user32.MessageBoxTimeoutW
+            box.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
+                            ctypes.c_uint, ctypes.c_ushort, ctypes.c_uint]
+            box(None, text, title or APP_NAME,
+                0x40 | 0x1000 | 0x10000 | 0x40000, 0, int(secs * 1000))
+        except Exception:
+            pass
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+    return t
+
+
 def write_board(board, path, log=log):
     """판을 그 엑셀에 적고 저장한다. (넣은 대수, 이미 열려 있었는가)"""
     import pythoncom
@@ -410,8 +461,21 @@ def write_board(board, path, log=log):
             quit_excel(excel, wb)
             raise PermissionError("엑셀이 읽기 전용으로 열립니다 — 다른 곳에서 쓰고 있는 파일입니다")
 
+    if was_open:
+        # 누군가 이 엑셀을 보고 있다. 적는 동안 손이 멎도록 안내 창을 띄운다.
+        notice(f"{os.path.basename(path)}\n\n"
+               "순회판 차량번호를 지금 받아 적고 있습니다.\n"
+               "10초쯤 엑셀을 건드리지 말아 주세요.\n\n"
+               "(저절로 닫힙니다)", 15, f"{APP_NAME} — 받아 적는 중")
+
     calc = None
     try:
+        # 셀을 편집 중이면 엑셀이 아무 요청도 받지 않는다. 먼저 두드려 보고,
+        # 끝내 안 받으면 한 칸도 건드리지 않은 채로 그만둔다 — 반쯤 적는 것이 가장 나쁘다.
+        try:
+            wait_ready(lambda: wb.Name, "확인", 45, log)
+        except Exception:
+            raise RuntimeError("A 컴퓨터에서 엑셀을 입력 중입니다 — 셀 편집을 마친 뒤 다시 눌러 주세요")
         try:
             calc = excel.Calculation
             excel.Calculation = -4135      # 수식이 많아 한 칸씩 다시 계산하면 몇 분 걸린다
@@ -419,10 +483,12 @@ def write_board(board, path, log=log):
             calc = None
         ws = wb.Worksheets(SHEET)
         for row, col, run in runs(want):
-            ws.Range(ws.Cells(row, col), ws.Cells(row, col + len(run) - 1)).Value = (tuple(run),)
+            def put(r=row, c=col, v=run):
+                ws.Range(ws.Cells(r, c), ws.Cells(r, c + len(v) - 1)).Value = (tuple(v),)
+            wait_ready(put, f"{row}행", 30, log)
         if calc is not None:
-            excel.Calculation = -4105
-        wb.Save()
+            excel.Calculation = calc       # 쓰시던 그대로 되돌린다 (수동이면 수동으로)
+        wait_ready(wb.Save, "저장", 60, log)
     finally:
         if mine:
             # 우리가 띄운 엑셀이다. 남겨 두면 보이지 않는 채로 이 파일을 쥐고 있어
