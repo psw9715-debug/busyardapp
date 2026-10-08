@@ -421,7 +421,7 @@ def agent_alive(within=300):
         return False
 
 
-def wait_for_agent(req_id, log, secs=30):
+def wait_for_agent(req_id, log, secs=180):
     """A 컴퓨터가 적고 쪽지를 놓을 때까지 잠깐 기다린다. 안 오면 내가 한다.
 
     A 가 돌고 있지 않으면 기다릴 까닭이 없다 — 바로 내가 한다.
@@ -435,8 +435,11 @@ def wait_for_agent(req_id, log, secs=30):
         if note:
             log(f"📨 [순회판] A 컴퓨터: {note['msg']}")
             return note
-        time.sleep(2)
-    log("⌛ [순회판] A 컴퓨터가 켜져 있는데 쪽지가 없다 — 이 PC 가 한다")
+        if not agent_alive():                  # 도중에 꺼졌다 — 더 기다릴 까닭이 없다
+            log("💤 [순회판] A 컴퓨터가 멎었다 — 이 PC 가 한다")
+            return None
+        time.sleep(1)
+    log("⌛ [순회판] A 컴퓨터가 켜져 있는데 끝내 쪽지가 없다 — 이 PC 가 한다")
     return None
 
 

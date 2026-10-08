@@ -47,8 +47,8 @@ RAW = f"https://raw.githubusercontent.com/{REPO}/inbox/inbox/{{name}}"
 #   그래서 이쪽에서 우편함을 들여다보는 수밖에 없는데, 아무도 순찰하지 않는
 #   낮에까지 10초마다 볼 일은 없다. 순찰하는 밤에만 바짝 보고, 낮에는 길게 쉰다.
 #   낮에 급히 넣어야 하면 시작 메뉴에서 한 번 껐다 켜면 그 자리에서 본다.
-POLL_BUSY = 10            # 21시~9시 — 순찰하고 엑셀에 넣는 시간
-POLL_IDLE = 900           # 그 밖 — 15분에 한 번만 (하루 요청 수가 1/90 로 줄어든다)
+POLL_BUSY = 3             # 21시~9시 — 순찰하고 엑셀에 넣는 시간 (누르면 곧바로 받게)
+POLL_IDLE = 900           # 그 밖 — 15분에 한 번만 (하루 요청 수가 크게 줄어든다)
 BUSY_FROM, BUSY_TO = 21, 9
 
 
@@ -174,19 +174,24 @@ def quit_excel(excel, *objs):
 
     if not pid:
         return
-    for _ in range(20):            # 제대로 나가는 데 1~2초쯤 걸린다
+    for _ in range(30):            # 제대로 나가는 데 1~2초쯤 걸린다 (한 번 보는 데 0.1ms)
         if not _alive(pid):
             return
-        time.sleep(0.1)
+        time.sleep(0.05)
     subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True,
                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 def _alive(pid):
-    r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace",
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    return "EXCEL" in (r.stdout or "").upper()
+    """그 프로세스가 아직 있는가. tasklist 는 한 번에 0.5초씩 걸려 쓰지 않는다."""
+    import ctypes
+    h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)   # QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+    ctypes.windll.kernel32.CloseHandle(h)
+    return code.value == 259                                      # STILL_ACTIVE
 
 
 # ---- 자리와 칸 -----------------------------------------------------------
@@ -354,6 +359,9 @@ def running_workbook(path):
         ctx = pythoncom.CreateBindCtx(0)
     except Exception:
         return None
+
+    opened = []                       # 지금 열려 있는 통합문서들 (못 찾았을 때 기록용)
+    same_name = []
     for moniker in rot:
         try:
             name = moniker.GetDisplayName(ctx, None)
@@ -361,13 +369,29 @@ def running_workbook(path):
             continue
         if not name.lower().endswith((".xlsx", ".xlsm", ".xls")):
             continue
+        opened.append(name)
         try:
-            if unc(name) != want:
-                continue
-            obj = rot.GetObject(moniker)
-            return win32com.client.Dispatch(obj.QueryInterface(pythoncom.IID_IDispatch))
+            if unc(name) == want:
+                obj = rot.GetObject(moniker)
+                return win32com.client.Dispatch(obj.QueryInterface(pythoncom.IID_IDispatch))
+            if os.path.basename(name).lower() == os.path.basename(path).lower():
+                same_name.append(moniker)
         except Exception:
             continue
+
+    # 경로 모양이 또 달라졌을 수 있다. 파일 이름이 꼭 하나만 같으면 그것으로 본다 —
+    # 운영관리 파일 이름은 날짜까지 들어가 있어 헷갈릴 일이 없다.
+    if len(same_name) == 1:
+        try:
+            obj = rot.GetObject(same_name[0])
+            log("ℹ 경로 모양은 다르지만 파일 이름이 같아 그 문서로 봅니다")
+            return win32com.client.Dispatch(obj.QueryInterface(pythoncom.IID_IDispatch))
+        except Exception:
+            pass
+
+    if opened:
+        log(f"ℹ 열려 있는 통합문서 {len(opened)}개 중에 찾는 것이 없습니다 — {opened[:3]}")
+        log(f"   (찾던 것: {want})")
     return None
 
 
@@ -481,6 +505,14 @@ def write_board(board, path, log=log):
             excel.Calculation = -4135      # 수식이 많아 한 칸씩 다시 계산하면 몇 분 걸린다
         except Exception:
             calc = None
+        # 칸마다 딸려 도는 것(이벤트·화면 고치기)을 멈춘다. 이것 하나로 7초가 1초가 된다.
+        events = None
+        try:
+            events = excel.EnableEvents
+            excel.EnableEvents = False
+            excel.ScreenUpdating = False
+        except Exception:
+            events = None
         ws = wb.Worksheets(SHEET)
         for row, col, run in runs(want):
             def put(r=row, c=col, v=run):
@@ -488,8 +520,27 @@ def write_board(board, path, log=log):
             wait_ready(put, f"{row}행", 30, log)
         if calc is not None:
             excel.Calculation = calc       # 쓰시던 그대로 되돌린다 (수동이면 수동으로)
+            calc = None                    # 되돌렸다 — 저장 뒤에 또 건드리면 "안 저장됨" 이 된다
+        if events is not None:
+            excel.EnableEvents = events
+            excel.ScreenUpdating = True
+            events = None
         wait_ready(wb.Save, "저장", 60, log)
     finally:
+        # 바꿔 놓은 것이 남아 있으면 되돌린다 (위에서 끝까지 못 갔을 때).
+        # 계산 방식은 통합문서에 함께 저장되는 값이라, 저장을 마친 뒤에는 건드리지 않는다.
+        if events is not None:
+            for back in (lambda: setattr(excel, "EnableEvents", events),
+                         lambda: setattr(excel, "ScreenUpdating", True)):
+                try:
+                    back()
+                except Exception:
+                    pass
+        if calc is not None:
+            try:
+                excel.Calculation = calc
+            except Exception:
+                pass
         if mine:
             # 우리가 띄운 엑셀이다. 남겨 두면 보이지 않는 채로 이 파일을 쥐고 있어
             # 사람이 열 때 읽기 전용으로 뜬다 — 확실히 내보낸다.

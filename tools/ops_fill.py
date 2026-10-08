@@ -125,19 +125,24 @@ def quit_excel(excel, *objs):
 
     if not pid:
         return
-    for _ in range(20):            # 제대로 나가는 데 1~2초쯤 걸린다
+    for _ in range(30):            # 제대로 나가는 데 1~2초쯤 걸린다 (한 번 보는 데 0.1ms)
         if not _alive(pid):
             return
-        time.sleep(0.1)
+        time.sleep(0.05)
     subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True,
                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
 
 def _alive(pid):
-    r = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True,
-                       encoding="utf-8", errors="replace",
-                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
-    return "EXCEL" in (r.stdout or "").upper()
+    """그 프로세스가 아직 있는가. tasklist 는 한 번에 0.5초씩 걸려 쓰지 않는다."""
+    import ctypes
+    h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)   # QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+    ctypes.windll.kernel32.CloseHandle(h)
+    return code.value == 259                                      # STILL_ACTIVE
 
 
 def copy_path(orig, date):
@@ -262,6 +267,10 @@ def fill(path, board, cells=None, show_sheet=False):
         # 이 통합문서는 VLOOKUP 이 많아, 한 칸 쓸 때마다 다시 계산하면 몇 분씩 걸린다.
         # 다 쓰고 나서 한 번만 계산한다 (통합문서를 연 뒤에야 바꿀 수 있는 설정이다).
         excel.Calculation = -4135      # xlCalculationManual
+        try:
+            excel.EnableEvents = False     # 칸마다 딸려 도는 것을 멈춘다 (7초 → 1초)
+        except Exception:
+            pass
         if wb.ReadOnly:
             who = opened_by(path) or "누군가"
             raise PermissionError(f"{who} 님이 엑셀을 열어 두어 쓸 수 없습니다 — 닫은 뒤 다시 눌러 주세요")
@@ -342,11 +351,20 @@ def run(board_date=None, date=None, log=print, yard="new"):
     orig = find_excel(date)
     log(f"📋 [엑셀] {os.path.basename(orig)}")
 
+    # 원본에 바로 적는다. 전에는 복사본에 적고 원본에 또 적어, 같은 값을 두 벌 넣느라
+    # 두 배로 걸렸다. 누가 열어 두어 원본을 못 고칠 때만 복사본으로 돌아간다.
+    who = opened_by(orig)
+    if not who:
+        written, _ = fill(orig, board)
+        log(f"✅ [엑셀] 원본에 {written}대 넣음")
+        return f"{date:%m/%d} 원본에 {written}대 넣음"
+
+    log(f"🔒 [엑셀] 원본은 {who} 님이 열어 두어 복사본에 넣는다")
     dst = make_copy(orig, date)
     written, _ = fill(dst, board, show_sheet=True)
     log(f"📄 [엑셀] {os.path.basename(dst)} — {written}대")
-
-    return f"{date:%m/%d} {written}대 — {os.path.basename(dst)} / " + fill_original(board, orig, log=log)
+    return (f"{date:%m/%d} {written}대 — {os.path.basename(dst)} "
+            f"(원본은 {who} 님이 열어 두어 그대로 둠)")
 
 
 def fill_original(board, orig=None, date=None, log=print):
