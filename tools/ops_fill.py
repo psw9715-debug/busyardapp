@@ -243,7 +243,47 @@ def _name_in(raw):
             return name
     return None
 
-def fill(path, board, cells=None, show_sheet=False):
+FIND_SHEET = "차량및키확인"      # 내일 운행차량이 차고지에 있는지 보는 시트
+FIND_FROM, FIND_TO = 4, 137     # C열 차량번호 · D열 "차찾아"
+FIND_MARK = "차찾아"
+
+
+def cars_to_find(wb, log=None):
+    """내일 운행인데 차고지에 없는 차들. 없으면 빈 목록, 그 시트가 없으면 None.
+
+    우리가 넣은 값에 딸린 수식이라 먼저 한 번 계산시킨다 (수동으로 쓰고 계실 수 있다).
+    """
+    try:
+        ws = wb.Worksheets(FIND_SHEET)
+    except Exception:
+        return None
+    try:
+        wb.Application.Calculate()
+    except Exception:
+        pass
+    try:
+        rows = ws.Range(ws.Cells(FIND_FROM, 3), ws.Cells(FIND_TO, 4)).Value
+    except Exception as e:
+        if log:
+            log(f"⚠ 차찾아를 보지 못했습니다 — {type(e).__name__}: {e}")
+        return None
+    out = []
+    for plate, mark in rows:
+        if mark and FIND_MARK in str(mark) and plate not in (None, ""):
+            out.append(str(int(plate)) if isinstance(plate, float) else str(plate).strip())
+    return out
+
+
+def find_text(cars):
+    """폰에 보여 줄 한 마디"""
+    if cars is None:
+        return ""
+    if not cars:
+        return " · 차찾아 없음"
+    return f" · ⚠ 차찾아 {len(cars)}대: " + ", ".join(cars)
+
+
+def fill(path, board, cells=None, show_sheet=False, found=None):
     """그 차고지 칸을 싹 비우고 판대로 써 넣는다. (넣은 대수, 빈 칸 수) 를 돌려준다.
 
     승용차는 넣지 않는다 — 2차 순찰 전에 빠질 차라 운영관리에 남길 것이 아니다.
@@ -302,6 +342,10 @@ def fill(path, board, cells=None, show_sheet=False):
                 pass
         excel.Calculation = -4105  # xlCalculationAutomatic — 저장 전에 수식을 채운다
         wb.Save()
+        if found is not None:
+            cars = cars_to_find(wb)
+            if cars is not None:
+                found[:] = cars
     finally:
         try:
             wb.Close(SaveChanges=False)
@@ -355,9 +399,11 @@ def run(board_date=None, date=None, log=print, yard="new"):
     # 두 배로 걸렸다. 누가 열어 두어 원본을 못 고칠 때만 복사본으로 돌아간다.
     who = opened_by(orig)
     if not who:
-        written, _ = fill(orig, board)
-        log(f"✅ [엑셀] 원본에 {written}대 넣음")
-        return f"{date:%m/%d} 원본에 {written}대 넣음"
+        found = []
+        written, _ = fill(orig, board, found=found)
+        tail = find_text(found)
+        log(f"✅ [엑셀] 원본에 {written}대 넣음{tail}")
+        return f"{date:%m/%d} 원본에 {written}대 넣음{tail}"
 
     log(f"🔒 [엑셀] 원본은 {who} 님이 열어 두어 복사본에 넣는다")
     dst = make_copy(orig, date)

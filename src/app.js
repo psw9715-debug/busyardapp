@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610030404';
-import { YARD_OLD } from './yard-old-data.js?v=202610030404';
-import { BUILD } from './build.js?v=202610030404';
-import { toKoreanSino, announceText } from './plate.js?v=202610030404';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610030404';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610090226';
+import { YARD_OLD } from './yard-old-data.js?v=202610090226';
+import { BUILD } from './build.js?v=202610090226';
+import { toKoreanSino, announceText } from './plate.js?v=202610090226';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610090226';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610030404';
-import { createSync, getToken, setToken } from './sync.js?v=202610030404';
+} from './store.js?v=202610090226';
+import { createSync, getToken, setToken } from './sync.js?v=202610090226';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1328,10 +1328,47 @@ async function sendFiles() {
 }
 
 const PRINT_LABEL = {
-  paper: ['인쇄했습니다', 'PC가 인쇄하기를 기다리는 중…'],
-  excel: ['엑셀에 넣었습니다', 'PC가 엑셀에 넣는 중… (파일이 커서 1~2분 걸립니다)'],
-  final: ['최종 인쇄했습니다', 'PC가 엑셀에 넣고 그대로 뽑는 중… (1~2분 걸립니다)'],
+  paper: ['인쇄했습니다', 'PC가 인쇄하는 중…', '인쇄를 보냈습니다'],
+  excel: ['엑셀에 넣었습니다', 'PC가 엑셀에 넣는 중…', '엑셀에 넣으라고 보냈습니다'],
+  final: ['최종 인쇄했습니다', 'PC가 엑셀에 넣고 그대로 뽑는 중…', '최종 인쇄를 보냈습니다'],
 };
+
+// 보낸 것을 적어 둔다. 폰을 닫아도 PC 는 하던 일을 마치고, 다음에 앱을 열면
+// 그때 결과를 찾아서 보여 준다 — 손에 들고 기다리지 않아도 된다.
+const SENT_KEY = 'busyard:sent';
+
+const loadSent = () => { try { return JSON.parse(localStorage.getItem(SENT_KEY)); } catch (_) { return null; } };
+const saveSent = (v) => { if (v) localStorage.setItem(SENT_KEY, JSON.stringify(v)); else localStorage.removeItem(SENT_KEY); };
+
+/** 결과 한 줄을 화면에 쓴다. "차찾아" 가 있으면 눈에 띄게 (다시 나가야 하므로) */
+function showResult(what, st) {
+  const label = (PRINT_LABEL[what] || PRINT_LABEL.paper)[0];
+  if (st.state !== 'done') {
+    printMsg(`PC가 하지 못했습니다: ${st.msg}`, 'no');
+    beep('error');
+    return;
+  }
+  const hunt = (st.msg || '').includes('차찾아') && !(st.msg || '').includes('차찾아 없음');
+  printMsg(`${label} — ${st.msg}`, hunt ? 'no' : 'ok');
+  beep(hunt ? 'warn' : 'done');
+}
+
+/** 보내 둔 것이 있으면 결과를 찾아본다 (앱을 열 때, 그리고 화면을 다시 켤 때) */
+async function checkSent({ quiet = false } = {}) {
+  const sent = loadSent();
+  if (!sent) return;
+  // 하루가 지난 것은 잊는다 — 그 결과는 이미 PC 쪽에서 끝난 일이다
+  if (Date.now() - sent.at > 86400000) { saveSent(null); return; }
+  let st = null;
+  try { st = await sync.readStatus(); } catch (_) { return; }
+  if (!st || st.id !== sent.id) {
+    if (!quiet) printMsg(`${(PRINT_LABEL[sent.what] || PRINT_LABEL.paper)[1]}`);
+    return;                       // 아직 하는 중 — 그대로 둔다
+  }
+  saveSent(null);
+  $('printSheet').hidden = false;
+  showResult(sent.what, st);
+}
 
 async function doPrint(what) {
   if (printing) return;   // 이미 보낸 것을 기다리는 중 — 두 번 하지 않는다
@@ -1352,28 +1389,23 @@ async function doPrint(what) {
     beep('error');
     return;
   }
-  printMsg(PRINT_LABEL[what][1]);
+  printing = false;
+  saveSent({ id, what, at: Date.now() });
+  printMsg(`${PRINT_LABEL[what][2]} — 폰을 닫으셔도 됩니다. PC가 알아서 마칩니다.`, 'ok');
+  beep('done');
 
+  // 화면을 보고 있는 동안에는 결과가 오면 바로 보여 준다. 꺼도 그만이다.
   const until = Date.now() + WAIT_MS[what];
   while (Date.now() < until) {
     await new Promise((r) => setTimeout(r, 3000));
+    if (!loadSent()) return;                       // 다른 곳에서 이미 받아 보여 줬다
     let st = null;
-    try { st = await sync.readStatus(); } catch (_) { continue; }   // 전파가 잠깐 끊겨도 계속 기다린다
+    try { st = await sync.readStatus(); } catch (_) { continue; }
     if (!st || st.id !== id) continue;
-    printing = false;
-    if (st.state === 'done') {
-      printMsg(`${PRINT_LABEL[what][0]} — ${st.msg}`, 'ok');
-      beep('done');
-    } else {
-      printMsg(`PC가 하지 못했습니다: ${st.msg}`, 'no');
-      beep('error');
-    }
+    saveSent(null);
+    showResult(what, st);
     return;
   }
-  printing = false;
-  printMsg('PC 응답이 없습니다 — PC의 sctc-copy 가 켜져 있는지 확인하세요. '
-    + '10분 안에 켜지면 그때 처리됩니다.', 'no');
-  beep('warn');
 }
 
 // ---------------------------------------------------------------- 시작
@@ -1708,6 +1740,7 @@ function init() {
       if (sync.pending()) sync.flush();
       return;
     }
+    checkSent({ quiet: true });        // 주머니에 넣어 둔 사이에 PC 가 끝냈는지 본다
     if (Date.now() - lastCheck < 300000) return;
     lastCheck = Date.now();
     checkForUpdate();
@@ -1728,6 +1761,7 @@ function init() {
       .catch(() => {});
   }
   checkForUpdate();
+  checkSent({ quiet: true });   // 지난번에 보내 둔 것이 끝났으면 그 결과를 보여 준다
 }
 
 init();

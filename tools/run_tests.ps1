@@ -16,10 +16,14 @@ Start-Sleep -Seconds 2
 try {
     foreach ($page in $Pages) {
         $out = Join-Path $env:TEMP "claude\dom_$page.html"
+        # Fresh profile every run. A kept profile holds the app's service worker,
+        # which then serves the OLD files and the new checks never run (seen 2026-10-09).
+        $prof = "$env:TEMP\claude\edgeprof_$page"
+        if (Test-Path $prof) { Remove-Item $prof -Recurse -Force -ErrorAction SilentlyContinue }
         $argv = @(
             '--headless=new', '--disable-gpu', '--no-first-run',
             "--user-data-dir=$env:TEMP\claude\edgeprof_$page",
-            '--virtual-time-budget=20000',
+            '--virtual-time-budget=60000',
             '--dump-dom', "http://localhost:$Port/tools/$page.html"
         )
         Start-Process $edge -ArgumentList $argv -RedirectStandardOutput $out -NoNewWindow -Wait | Out-Null

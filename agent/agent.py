@@ -446,8 +446,51 @@ def notice(text, secs, title=None):
     return t
 
 
-def write_board(board, path, log=log):
-    """판을 그 엑셀에 적고 저장한다. (넣은 대수, 이미 열려 있었는가)"""
+FIND_SHEET = "차량및키확인"      # 내일 운행차량이 차고지에 있는지 보는 시트
+FIND_FROM, FIND_TO = 4, 137     # C열 차량번호 · D열 "차찾아"
+FIND_MARK = "차찾아"
+
+
+def cars_to_find(wb, log=None):
+    """내일 운행인데 차고지에 없는 차들. 없으면 빈 목록, 그 시트가 없으면 None.
+
+    우리가 넣은 값에 딸린 수식이라 먼저 한 번 계산시킨다 (수동으로 쓰고 계실 수 있다).
+    """
+    try:
+        ws = wb.Worksheets(FIND_SHEET)
+    except Exception:
+        return None
+    try:
+        wb.Application.Calculate()
+    except Exception:
+        pass
+    try:
+        rows = ws.Range(ws.Cells(FIND_FROM, 3), ws.Cells(FIND_TO, 4)).Value
+    except Exception as e:
+        if log:
+            log(f"⚠ 차찾아를 보지 못했습니다 — {type(e).__name__}: {e}")
+        return None
+    out = []
+    for plate, mark in rows:
+        if mark and FIND_MARK in str(mark) and plate not in (None, ""):
+            out.append(str(int(plate)) if isinstance(plate, float) else str(plate).strip())
+    return out
+
+
+def find_text(cars):
+    """폰에 보여 줄 한 마디"""
+    if cars is None:
+        return ""
+    if not cars:
+        return " · 차찾아 없음"
+    return f" · ⚠ 차찾아 {len(cars)}대: " + ", ".join(cars)
+
+
+def write_board(board, path, log=log, found=None):
+    """판을 그 엑셀에 적고 저장한다. (넣은 대수, 이미 열려 있었는가)
+
+    found 에 목록을 주면 넣은 뒤의 "차찾아" 를 거기에 담아 준다.
+    """
     import pythoncom
     import win32com.client
     pythoncom.CoInitialize()
@@ -526,6 +569,10 @@ def write_board(board, path, log=log):
             excel.ScreenUpdating = True
             events = None
         wait_ready(wb.Save, "저장", 60, log)
+        if found is not None:
+            cars = cars_to_find(wb, log)
+            if cars is not None:
+                found[:] = cars
     finally:
         # 바꿔 놓은 것이 남아 있으면 되돌린다 (위에서 끝까지 못 갔을 때).
         # 계산 방식은 통합문서에 함께 저장되는 값이라, 저장을 마친 뒤에는 건드리지 않는다.
@@ -594,7 +641,8 @@ def handle(req):
         if board is None:
             raise FileNotFoundError(f"{req['date']} {yard} 판을 못 받았습니다")
         path = find_excel(date)
-        n, was_open = write_board(board, path)
+        found = []
+        n, was_open = write_board(board, path, found=found)
     except Exception as e:
         log(f"⚠ {type(e).__name__}: {e}")
         try:
@@ -603,9 +651,10 @@ def handle(req):
             log(f"⚠ 결과를 놓지 못했습니다 — {type(e2).__name__}: {e2}")
         return
 
-    log(f"✅ {date:%m/%d} {'열려 있던 ' if was_open else ''}엑셀에 {n}대 적고 저장했습니다")
+    tail = find_text(found)
+    log(f"✅ {date:%m/%d} {'열려 있던 ' if was_open else ''}엑셀에 {n}대 적고 저장했습니다{tail}")
     try:
-        report(req, "done", f"A 컴퓨터가 {'열어 둔 ' if was_open else ''}엑셀에 {n}대 적음")
+        report(req, "done", f"A 컴퓨터가 {'열어 둔 ' if was_open else ''}엑셀에 {n}대 적음{tail}")
     except Exception as e:
         log(f"⚠ 적기는 했는데 결과를 놓지 못했습니다 — {type(e).__name__}: {e}")
 
@@ -699,6 +748,18 @@ def close_ops(now=None, ask=ask_close):
     if wb is None:
         mark()
         return False                       # 열려 있지 않다 — 할 일이 없다
+
+    # 아직 찾을 차가 남아 있으면 닫지 않는다 — 다시 순찰을 나가 더 적어야 한다.
+    cars = cars_to_find(wb, log)
+    if cars:
+        log(f"⏭ 차찾아 {len(cars)}대({', '.join(cars)})가 남아 닫지 않습니다")
+        notice(f"{os.path.basename(path)}\n\n"
+               f"아직 찾지 못한 차가 {len(cars)}대 있습니다.\n"
+               f"{', '.join(cars)}\n\n"
+               "차고지 입력이 끝나지 않아 엑셀을 닫지 않았습니다.", 60,
+               f"{APP_NAME} — 차찾아 {len(cars)}대")
+        mark()
+        return False
 
     if not ask(os.path.basename(path)):
         log("⏭ 닫지 말라고 하셔서 그대로 둡니다")

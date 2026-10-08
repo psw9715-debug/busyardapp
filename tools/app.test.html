@@ -291,6 +291,73 @@ log('▶ 토큰 없이 사진 보내기');
   eq(a.$('fileMsg').className, 'send-msg no', '왜 안 되는지 빨갛게 알려 준다');
 }
 
+// ── 10) 인쇄·엑셀 넣기는 보내고 끝 — 손에 들고 기다리지 않는다
+log('▶ 보내고 주머니에 넣기');
+{
+  seed('new', { 1: { plate: '1501', status: 'filled', round: 1 } }, 1);
+  localStorage.setItem('busyard:ghtoken', '시험토큰');
+  const a = await app();
+  let status = null;
+  const real = a.w.fetch;
+  a.w.fetch = (url, opt) => {
+    const u = String(url);
+    if (opt && opt.method === 'PUT') {
+      return Promise.resolve(new a.w.Response(JSON.stringify({ content: { sha: 'x' } }), { status: 201 }));
+    }
+    if (u.includes('status.json')) {
+      return status
+        ? Promise.resolve(new a.w.Response(JSON.stringify(status), { status: 200 }))
+        : Promise.resolve(new a.w.Response('', { status: 404 }));
+    }
+    if (u.includes('api.github.com')) return Promise.resolve(new a.w.Response('', { status: 404 }));
+    return real(url, opt);
+  };
+
+  a.$('btnPrint').click(); await wait(80);
+  a.$('printExcel').click();
+  await until(() => a.$('printMsg').textContent.includes('보냈습니다'));
+  eq(a.$('printMsg').textContent.includes('폰을 닫으셔도 됩니다'), true,
+    '보내자마자 "닫으셔도 됩니다" 라고 알려 준다');
+  eq(a.$('printMsg').className, 'print-msg ok', '보낸 것은 초록으로');
+  const sent = JSON.parse(localStorage.getItem('busyard:sent'));
+  eq(sent.what, 'excel', '무엇을 보냈는지 적어 둔다 (앱을 닫아도 남게)');
+
+  // 주머니에 넣었다가 꺼내 본다. 그 사이 PC 가 끝냈다.
+  a.$('printSheet').hidden = true;
+  status = { id: sent.id, state: 'done', msg: 'A 컴퓨터가 열어 둔 엑셀에 121대 적음 · 차찾아 없음',
+             at: new Date().toISOString() };
+  a.d.dispatchEvent(new a.w.Event('visibilitychange'));
+  await until(() => a.$('printMsg').textContent.includes('121대'));
+  eq(a.$('printSheet').hidden, false, '꺼내 보면 결과 화면이 저절로 열린다');
+  eq(a.$('printMsg').className, 'print-msg ok', '탈이 없으면 초록으로');
+  eq(localStorage.getItem('busyard:sent'), null, '보여 준 뒤에는 적어 둔 것을 지운다');
+}
+
+// ── 11) 차찾아가 있으면 눈에 띄게 (다시 순찰을 나가야 하므로)
+log('▶ 차찾아 알림');
+{
+  seed('new', { 1: { plate: '1501', status: 'filled', round: 1 } }, 1);
+  localStorage.setItem('busyard:ghtoken', '시험토큰');
+  localStorage.setItem('busyard:sent', JSON.stringify({ id: 'xyz', what: 'excel', at: Date.now() }));
+  const a = await app();
+  const real = a.w.fetch;
+  a.w.fetch = (url, opt) => {
+    if (String(url).includes('status.json')) {
+      return Promise.resolve(new a.w.Response(JSON.stringify({
+        id: 'xyz', state: 'done', msg: '원본에 118대 넣음 · ⚠ 차찾아 2대: 1234, 5678',
+        at: new Date().toISOString(),
+      }), { status: 200 }));
+    }
+    if (String(url).includes('api.github.com')) return Promise.resolve(new a.w.Response('', { status: 404 }));
+    return real(url, opt);
+  };
+  a.d.dispatchEvent(new a.w.Event('visibilitychange'));
+  await until(() => a.$('printMsg').textContent.includes('차찾아'));
+  eq(a.$('printMsg').className, 'print-msg no', '찾을 차가 남았으면 빨갛게 — 다시 나가야 한다');
+  eq(a.$('printMsg').textContent.includes('1234, 5678'), true, '어느 차인지 번호까지 보여 준다');
+  eq(a.$('printSheet').hidden, false, '결과 화면이 열려 있다');
+}
+
 log(`\n통과 ${pass} / 실패 ${fail}`);
 document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
 </script>
