@@ -13,9 +13,9 @@
 //
 // 브라우저 API를 쓰지 않는 순수 로직이라 테스트 페이지에서 그대로 검사한다.
 
-import { extractSequence } from '../../src/plate.js?v=202610090226';
-import { isKnown } from './roster.js?v=202610090226';
-import { workDate } from './workdate.js?v=202610090226';
+import { extractSequence } from '../../src/plate.js?v=202610090511';
+import { isKnown } from './roster.js?v=202610090511';
+import { workDate } from './workdate.js?v=202610090511';
 
 // 공백·쉼표는 extractSequence 가 지우고 본다. 같은 규칙으로 지워야 위치가 맞는다.
 const SKIP_CHARS = /[\s,.\-·]/;
@@ -292,6 +292,40 @@ export function setPlate(state, plate, now = new Date()) {
   state.pending = { plate, known: isKnown(plate) };
   state.phase = 'symptom';
   return { type: 'pending', plate, known: state.pending.known, parked };
+}
+
+/**
+ * 목록의 카드 한 장을 손으로 고친다.
+ *
+ * next.symptom / next.plate 중 준 것만 바꾼다.
+ * 돌려주는 값
+ *   { type:'card', card, updated:true, before, beforePlate }  고쳤다
+ *   { type:'rejected', why:'plate'|'duplicate', plate }       고치지 않았다
+ *   { type:'ignored' }                                        그런 카드가 없다
+ *
+ * 적은 시각(at)은 건드리지 않는다. 그것을 새로 찍으면 뒤이어 들린 말이 이 카드에
+ * 이어 붙을 수 있다(APPEND_WINDOW_MS) — 손으로 고쳐 놓은 줄에 엉뚱한 말이 붙는다.
+ */
+export function editCard(state, plate, next) {
+  const i = state.cards.findIndex((c) => c.plate === plate);
+  if (i < 0) return { type: 'ignored', heard: plate };
+
+  const card = state.cards[i];
+  const before = card.symptom;
+  const beforePlate = card.plate;
+  const nextPlate = String(next.plate == null ? beforePlate : next.plate).trim();
+  const symptom = tidy(String(next.symptom == null ? before : next.symptom));
+
+  if (!/^\d{4}$/.test(nextPlate)) return { type: 'rejected', why: 'plate', plate: nextPlate };
+  // 이미 목록에 있는 번호로 바꾸면 멀쩡한 다른 차의 기록을 덮어쓰게 된다
+  if (nextPlate !== beforePlate && state.cards.some((c) => c.plate === nextPlate)) {
+    return { type: 'rejected', why: 'duplicate', plate: nextPlate };
+  }
+
+  card.plate = nextPlate;
+  card.symptom = symptom;
+  card.status = !symptom ? 'nosymptom' : (isKnown(nextPlate) ? 'ok' : 'unknown');
+  return { type: 'card', card, updated: true, before, beforePlate, edited: true };
 }
 
 /** 카드 한 장을 지운다 (목록에서 손으로). 지운 카드를 돌려준다 — 기록에 남기려고. */

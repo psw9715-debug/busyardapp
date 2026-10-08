@@ -10,7 +10,7 @@
 <title>특이사항 받아쓰기</title>
 <link rel="manifest" href="./manifest.json">
 <link rel="apple-touch-icon" href="../icons/icon-180.png">
-<link rel="stylesheet" href="./src/app.css?v=202610090226">
+<link rel="stylesheet" href="./src/app.css?v=202610090511">
 </head>
 <body>
 
@@ -46,7 +46,7 @@
 </section>
 
 <section id="list">
-  <h2><span id="count">0</span>건 받음</h2>
+  <h2><span id="count">0</span>건 받음 <span class="muted">· 눌러서 고치기</span></h2>
   <ul id="cards"></ul>
 </section>
 
@@ -89,6 +89,29 @@
   </div>
 </div>
 
-<script type="module" src="./src/app.js?v=202610090226"></script>
+<!-- 고치기 ─────────────────────────────────────────── -->
+<div class="sheet-bg" id="editSheet" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <span>고치기</span>
+      <button class="sheet-close" id="editClose">닫기</button>
+    </div>
+    <div class="sheet-body">
+      <label class="field">차량번호
+        <input id="editPlate" type="tel" inputmode="numeric" maxlength="4" autocomplete="off">
+      </label>
+      <label class="field">내용
+        <textarea id="editText" rows="3" autocomplete="off"></textarea>
+      </label>
+      <div id="editNote" class="muted"></div>
+      <div class="edit-btns">
+        <button id="editSave" class="primary">저장</button>
+        <button id="editDelete">지우기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script type="module" src="./src/app.js?v=202610090511"></script>
 </body>
 </html>

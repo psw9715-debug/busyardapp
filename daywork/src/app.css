@@ -173,3 +173,22 @@ ul.plain li {
   padding: 7px 10px; margin-bottom: 4px; background: #121821; border-radius: 8px;
   font-size: 13px; font-family: ui-monospace, Consolas, monospace; word-break: break-all;
 }
+
+/* ── 고치기 ──────────────────────────────────────────── */
+.field { display: block; margin: 12px 0 0; font-size: 13px; color: #8b9bab; }
+.field input, .field textarea {
+  display: block; width: 100%; margin-top: 6px; padding: 11px 12px;
+  border: 1px solid #243040; border-radius: 10px;
+  background: #0b1016; color: #e6ecf2;
+  font-family: inherit; font-size: 16px;   /* 16px 밑으로 내려가면 iOS 가 화면을 확대한다 */
+  -webkit-user-select: text; user-select: text;
+}
+.field input {
+  font-size: 24px; font-weight: 700; letter-spacing: 3px;
+  font-variant-numeric: tabular-nums; text-align: center;
+}
+#editNote { min-height: 18px; margin-top: 8px; }
+#editNote.bad { color: #ff8f6b; }
+.edit-btns { display: flex; gap: 8px; margin-top: 10px; }
+.edit-btns button { flex: 1; margin: 0; }
+.edit-btns .primary { background: #1a3a2e; border-color: #2f6b55; color: #9fe0c6; font-weight: 600; }

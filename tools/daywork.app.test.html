@@ -259,7 +259,9 @@ head('9. 지우기도 기록에 남는다');
   await mic(d);
   await say(d, '천백이십 대차');
   await until(() => cards(d).length === 1, 200);
+  // 지우기는 고치기 창 안에 있다 — 목록을 잘못 눌렀다고 기록이 날아가지 않게
   $(d, 'cards').querySelector('li').click();
+  $(d, 'editDelete').click();
   await until(() => cards(d).length === 0, 60);
 
   $(d, 'btnLog').click();
@@ -439,6 +441,75 @@ head('20. 세션이 끊겨도 다 부른 번호는 들어간다');
   FakeSR.last.ended();
   await until(() => $(d, 'plate').textContent === '1120', 150);
   eq($(d, 'plate').textContent, '1120', '명부에 있는 번호는 그대로 받는다');
+}
+
+head('21. 카드를 눌러 그 자리에서 고친다');
+{
+  const d = await app(true);
+  await mic(d);
+  await say(d, '1021 요 소수 보충');
+  await until(() => cards(d).length === 1);
+  eq(cards(d)[0].slice(0, 2), ['1021', '요 소수 보충'], '잘못 들어간 채로 쌓였다');
+
+  const li = $(d, 'cards').querySelector('li');
+  li.click();
+  eq(d.defaultView.getComputedStyle($(d, 'editSheet')).display !== 'none', true, '고치기 창이 열린다');
+  eq($(d, 'editPlate').value, '1021', '번호가 들어 있다');
+  eq($(d, 'editText').value, '요 소수 보충', '내용이 들어 있다');
+  await until(() => $(d, 'status').textContent === '꺼짐');
+  eq($(d, 'status').textContent, '꺼짐', '고치는 동안 음성을 멈춘다');
+
+  $(d, 'editText').value = '요소수 보충';
+  $(d, 'editSave').click();
+  eq(cards(d)[0].slice(0, 2), ['1021', '요소수 보충'], '고쳐진다');
+  eq(cards(d).length, 1, '카드가 늘지 않는다');
+  eq(d.defaultView.getComputedStyle($(d, 'editSheet')).display, 'none', '창이 닫힌다');
+  await until(() => $(d, 'status').textContent === '듣는 중');
+  eq($(d, 'status').textContent, '듣는 중', '멈췄던 음성이 다시 켜진다');
+
+  // 바뀌기 전 내용이 기록에 남는다
+  $(d, 'btnLog').click();
+  eq($(d, 'logRows').textContent.includes('요 소수 보충 → 요소수 보충'), true, '기록에 전후가 남는다');
+  $(d, 'logClose').click();
+}
+
+head('22. 고치기 창에서 번호도 바꾸고, 지우기도 한다');
+{
+  const d = await app(true);
+  await mic(d);
+  await say(d, '1021 대차');
+  await until(() => cards(d).length === 1);
+
+  $(d, 'cards').querySelector('li').click();
+  $(d, 'editPlate').value = '1022';
+  $(d, 'editSave').click();
+  eq(cards(d)[0].slice(0, 2), ['1022', '대차'], '번호가 바뀐다');
+
+  $(d, 'cards').querySelector('li').click();
+  $(d, 'editDelete').click();
+  eq(cards(d).length, 0, '지우기는 고치기 창 안에 있다');
+  eq($(d, 'empty') !== null, true, '빈 목록 안내가 뜬다');
+}
+
+head('23. 이미 있는 번호로는 바꾸지 않는다');
+{
+  const d = await app(true);
+  await mic(d);
+  await say(d, '1021 대차');
+  await until(() => cards(d).length === 1);
+  await say(d, '1022 세차');
+  await until(() => cards(d).length === 2);
+
+  // 목록은 최근 것이 위 — 아래쪽이 1021
+  const li = [...$(d, 'cards').querySelectorAll('li')].find((x) => x.textContent.startsWith('1021'));
+  li.click();
+  $(d, 'editPlate').value = '1022';
+  $(d, 'editSave').click();
+  eq($(d, 'editNote').textContent.includes('1022'), true, '왜 안 되는지 알려 준다');
+  eq(d.defaultView.getComputedStyle($(d, 'editSheet')).display !== 'none', true, '창이 닫히지 않는다');
+  eq(cards(d).length, 2, '목록은 그대로');
+  $(d, 'editClose').click();
+  eq(cards(d).map((c) => c[0]).sort(), ['1021', '1022'], '두 카드가 멀쩡하다');
 }
 
 wipe();

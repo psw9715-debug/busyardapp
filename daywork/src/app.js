@@ -9,16 +9,16 @@
 // 다 말했으면 [확인] 을 눌러 기다리지 않고 넣는다.
 
 import {
-  createState, handleUtterance, setPlate, removeCard, undo, sendable, barePlate,
-} from './entry.js?v=202610090226';
-import { createListener, isSupported } from './listen.js?v=202610090226';
-import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610090226';
-import { workDate } from './workdate.js?v=202610090226';
-import { send as sendToPc } from './sync.js?v=202610090226';
-import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610090226';
-import * as logbook from './log.js?v=202610090226';
-import * as roster from './roster.js?v=202610090226';
-import { beep, primeAudio } from '../../src/voice.js?v=202610090226';
+  createState, handleUtterance, setPlate, removeCard, editCard, undo, sendable, barePlate,
+} from './entry.js?v=202610090511';
+import { createListener, isSupported } from './listen.js?v=202610090511';
+import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202610090511';
+import { workDate } from './workdate.js?v=202610090511';
+import { send as sendToPc } from './sync.js?v=202610090511';
+import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202610090511';
+import * as logbook from './log.js?v=202610090511';
+import * as roster from './roster.js?v=202610090511';
+import { beep, primeAudio } from '../../src/voice.js?v=202610090511';
 
 // 내용을 받을 때 말이 멎고 이만큼 기다린다.
 // 길수록 중간에 쉬어도 한 줄로 들어오지만 그만큼 굼뜨다. 뒷말이 따로 들어와도
@@ -102,14 +102,7 @@ function drawCards() {
       badge.textContent = card.status === 'unknown' ? '명부에 없음' : '내용 없음';
       li.appendChild(badge);
     }
-    li.addEventListener('click', () => {
-      if (!confirm(`${card.plate} ${card.symptom || ''} — 지울까요?`)) return;
-      const gone = removeCard(state, card.plate);
-      if (gone) record('delete', { plate: gone.plate, from: gone.symptom });
-      saveSession(state);
-      draw();
-      beep('back');
-    });
+    li.addEventListener('click', () => openEdit(card));
     ul.appendChild(li);
   }
 }
@@ -315,6 +308,80 @@ $('btnClear').addEventListener('click', () => {
   beep('error');
 });
 
+// ── 고치기 ─────────────────────────────────────────────
+// 띄어쓰기 하나가 틀렸다고 지웠다 번호부터 다시 부르는 것은 군더더기다. 눌러서 고친다.
+// 지우기도 여기 안에 둔다 — 목록을 잘못 눌렀다고 기록이 날아가지 않게.
+let editing = null;          // 고치는 중인 카드의 (고치기 전) 번호
+let resumeAfterEdit = false; // 고치려고 음성을 멈췄는가
+
+function openEdit(card) {
+  editing = card.plate;
+  // 글자를 치는 동안 받아쓰기까지 들어오면 엉킨다
+  resumeAfterEdit = listener.isOn();
+  if (resumeAfterEdit) listener.stop();
+
+  $('editPlate').value = card.plate;
+  $('editText').value = card.symptom;
+  $('editNote').textContent = resumeAfterEdit ? '고치는 동안 음성을 멈췄습니다' : '';
+  $('editNote').className = 'muted';
+  $('editSheet').hidden = false;
+
+  const t = $('editText');
+  t.focus();
+  t.setSelectionRange(t.value.length, t.value.length);   // 커서를 끝에
+}
+
+function closeEdit() {
+  $('editSheet').hidden = true;
+  editing = null;
+  if (resumeAfterEdit) { listener.start(); tuneWait(); }
+  resumeAfterEdit = false;
+}
+
+$('editSave').addEventListener('click', () => {
+  if (!editing) return;
+  const plate = $('editPlate').value.replace(/\D/g, '');
+  const ev = editCard(state, editing, { plate, symptom: $('editText').value });
+
+  if (ev.type === 'rejected') {
+    $('editNote').textContent = ev.why === 'duplicate'
+      ? `${ev.plate} 는 이미 목록에 있습니다 — 그 카드를 고치세요`
+      : '차량번호는 네 자리입니다';
+    $('editNote').className = 'bad';
+    beep('error');
+    return;
+  }
+  if (ev.type !== 'card') { closeEdit(); return; }
+
+  record('update', {
+    plate: ev.card.plate,
+    from: ev.beforePlate === ev.card.plate ? ev.before : `${ev.beforePlate} ${ev.before}`,
+    to: ev.card.symptom,
+  });
+  saveSession(state);
+  draw();
+  beep('done');
+  closeEdit();
+  note(ev.card.symptom
+    ? `${ev.card.plate} 고쳤습니다`
+    : `${ev.card.plate} 내용이 비었습니다 — PC로 보내지 않습니다`,
+    ev.card.symptom ? 'ok' : 'warn');
+});
+
+$('editDelete').addEventListener('click', () => {
+  if (!editing) return;
+  if (!confirm(`${editing} — 지울까요?`)) return;
+  const gone = removeCard(state, editing);
+  if (gone) record('delete', { plate: gone.plate, from: gone.symptom });
+  saveSession(state);
+  draw();
+  beep('back');
+  closeEdit();
+  note(gone ? `${gone.plate} 지웠습니다` : '', 'warn');
+});
+
+$('editClose').addEventListener('click', closeEdit);
+
 // ── 기록 ───────────────────────────────────────────────
 function openLog(date = state.date) {
   const days = new Set([...logbook.days(), ...listDays().map((d) => d.date), state.date]);
@@ -388,6 +455,7 @@ $('diagUpdate').addEventListener('click', async () => {
 for (const id of ['logSheet', 'diagSheet']) {
   $(id).addEventListener('click', (e) => { if (e.target === $(id)) $(id).hidden = true; });
 }
+$('editSheet').addEventListener('click', (e) => { if (e.target === $('editSheet')) closeEdit(); });
 
 // ── 시작 ───────────────────────────────────────────────
 $('date').textContent = state.date;

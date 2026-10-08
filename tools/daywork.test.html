@@ -20,7 +20,7 @@
 // (이 페이지의 import 에는 배포 버전 도장이 붙지 않아, 고친 뒤에도 옛 파일을
 //  읽어 '통과' 하는 일이 실제로 있었다.)
 const _v = `?test=${Date.now()}`;
-const { createState, handleUtterance, undo, sendable } = await import(`../daywork/src/entry.js${_v}`);
+const { createState, handleUtterance, undo, sendable, editCard } = await import(`../daywork/src/entry.js${_v}`);
 const { workDate, sheetName } = await import(`../daywork/src/workdate.js${_v}`);
 const { unfinishedNumber, closedUtterance } = await import(`../daywork/src/listen.js${_v}`);
 const { barePlate } = await import(`../daywork/src/entry.js${_v}`);
@@ -349,6 +349,59 @@ head('23. 붙일 카드가 없으면 그냥 흘린다');
   const s = fresh();
   eq(handleUtterance(s, '아무 말').type, 'ignored', '받은 것이 없으면 무시');
   eq(cards(s), [], '카드가 생기지 않는다');
+}
+
+head('24. 목록에서 손으로 고친다 — 지웠다 다시 부르지 않는다');
+{
+  const s = fresh();
+  handleUtterance(s, '천이십일 요 소수 보충');
+  eq(cards(s), [['1021', '요 소수 보충', 'ok']], '띄어쓰기가 잘못 들어간 채로 쌓였다');
+
+  const ev = editCard(s, '1021', { symptom: '요소수 보충' });
+  eq(ev.type, 'card', '고쳤다고 알려 준다');
+  eq([ev.before, ev.card.symptom], ['요 소수 보충', '요소수 보충'], '바뀌기 전후를 다 돌려준다');
+  eq(cards(s), [['1021', '요소수 보충', 'ok']], '그 카드만 바뀐다');
+  eq(s.cards.length, 1, '카드가 늘지 않는다');
+}
+
+{
+  const s = fresh();
+  handleUtterance(s, '천이십일 세차');
+  const at = s.cards[0].at;
+  editCard(s, '1021', { symptom: '세차 완료' });
+  eq(s.cards[0].at, at, '적은 시각은 건드리지 않는다 (뒷말이 엉겨 붙지 않게)');
+}
+
+head('25. 번호도 고칠 수 있다');
+{
+  const s = fresh();
+  handleUtterance(s, '천이십일 대차');
+  const ev = editCard(s, '1021', { plate: '1022' });
+  eq([ev.type, ev.card.plate, ev.beforePlate], ['card', '1022', '1021'], '번호가 바뀐다');
+  eq(cards(s), [['1022', '대차', 'ok']], '내용은 그대로');
+
+  // 명부에 없는 번호로 바꾸면 표시가 따라 바뀐다
+  editCard(s, '1022', { plate: '1999' });
+  eq(cards(s), [['1999', '대차', 'unknown']], '명부에 없으면 unknown');
+  // 내용을 비우면 '내용 없음'
+  editCard(s, '1999', { symptom: '' });
+  eq(cards(s), [['1999', '', 'nosymptom']], '내용을 비우면 nosymptom');
+  eq(sendable(s).length, 0, '내용 없는 것은 PC로 보내지 않는다');
+}
+
+head('26. 고치다 망가뜨리지 않는다');
+{
+  const s = fresh();
+  handleUtterance(s, '천이십일 대차');
+  handleUtterance(s, '천이십이 세차');
+
+  eq(editCard(s, '1021', { plate: '1022' }).type, 'rejected', '이미 있는 번호로는 못 바꾼다');
+  eq(editCard(s, '1021', { plate: '1022' }).why, 'duplicate', '왜 안 되는지 알려 준다');
+  eq(cards(s), [['1021', '대차', 'ok'], ['1022', '세차', 'ok']], '아무것도 바뀌지 않는다');
+
+  eq(editCard(s, '1021', { plate: '10' }).why, 'plate', '네 자리가 아니면 못 바꾼다');
+  eq(editCard(s, '9999', { symptom: '없는 카드' }).type, 'ignored', '없는 카드는 조용히 넘긴다');
+  eq(cards(s), [['1021', '대차', 'ok'], ['1022', '세차', 'ok']], '목록은 그대로');
 }
 
 log('');
