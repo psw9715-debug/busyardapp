@@ -474,7 +474,8 @@ def handle(req, log, notify=None):
             else:
                 state, msg = "done", ops_fill.run_final(
                     board_date=req["date"], log=log, yard=yard,
-                    recorded=note["msg"] if note else None)
+                    recorded=note["msg"] if note else None,
+                    printed=bool(note and note.get("printed")))
         else:
             summary = save_and_print(req["date"], yard=req.get("yard", "new"))
             state, msg = ("nodata", f"{req['date']} 판이 GitHub 에 없습니다") if summary is None else ("done", summary)

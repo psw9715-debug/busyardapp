@@ -58,6 +58,7 @@ COPY_NAME = "차고지입력_{:%m%d}.xlsx"
 # "최종 인쇄" 는 이 시트를 그대로 뽑는다 — 사무실에서 손으로 뽑던 바로 그 모양이다.
 # 차량번호 밑에 이름과 출근시각이 수식으로 따라 붙어 있어 순찰용 양식보다 쓸모가 많다.
 PRINT_AREA = {"new": "A36:O97", "old": "A1:O34"}
+LANDSCAPE = {"old"}                  # 1차고지는 가로 한 장
 
 
 def target_date(now=None):
@@ -378,7 +379,7 @@ def _label_of(spot, yard="new"):
     return _labels(yard).get(spot)
 
 
-def run(board_date=None, date=None, log=print, yard="new"):
+def run(board_date=None, date=None, log=print, yard="new", out=None):
     """폰이 올린 판을 엑셀에 넣는다. 한 줄 요약을 돌려준다.
 
     board_date 는 순찰한 근무일, date 는 넣을 엑셀의 날짜(기본 근무일+1)다.
@@ -403,12 +404,16 @@ def run(board_date=None, date=None, log=print, yard="new"):
         written, _ = fill(orig, board, found=found)
         tail = find_text(found)
         log(f"✅ [엑셀] 원본에 {written}대 넣음{tail}")
+        if out is not None:
+            out["path"] = orig               # 뽑을 것은 이 파일이다
         return f"{date:%m/%d} 원본에 {written}대 넣음{tail}"
 
     log(f"🔒 [엑셀] 원본은 {who} 님이 열어 두어 복사본에 넣는다")
     dst = make_copy(orig, date)
     written, _ = fill(dst, board, show_sheet=True)
     log(f"📄 [엑셀] {os.path.basename(dst)} — {written}대")
+    if out is not None:
+        out["path"] = dst
     return (f"{date:%m/%d} {written}대 — {os.path.basename(dst)} "
             f"(원본은 {who} 님이 열어 두어 그대로 둠)")
 
@@ -474,14 +479,25 @@ def print_ops(path, yard="new"):
         excel.Visible = False
     except Exception:
         pass
-    wb = excel.Workbooks.Open(path)
+    # 뽑기만 할 것이니 읽기 전용으로, 링크도 갱신하지 않고 연다 (6.1초 → 4.1초)
+    wb = excel.Workbooks.Open(path, ReadOnly=True, UpdateLinks=0)
     try:
         ws = wb.Worksheets(SHEET)
-        ws.PageSetup.PrintArea = PRINT_AREA.get(yard, PRINT_AREA["new"])
-        ws.PageSetup.Orientation = 1          # xlPortrait
-        ws.PageSetup.Zoom = False
-        ws.PageSetup.FitToPagesWide = 1
-        ws.PageSetup.FitToPagesTall = 1
+        try:
+            excel.PrintCommunication = False   # 설정을 한 번에 묶어 보낸다
+        except Exception:
+            pass
+        ps = ws.PageSetup
+        ps.PrintArea = PRINT_AREA.get(yard, PRINT_AREA["new"])
+        ps.Orientation = 2 if yard in LANDSCAPE else 1    # 1차고지는 가로 한 장
+        ps.PaperSize = 9                                  # A4
+        ps.Zoom = False
+        ps.FitToPagesWide = 1
+        ps.FitToPagesTall = 1
+        try:
+            excel.PrintCommunication = True
+        except Exception:
+            pass
         ws.PrintOut()
     finally:
         try:
@@ -492,23 +508,27 @@ def print_ops(path, yard="new"):
     return os.path.basename(path)
 
 
-def run_final(board_date=None, date=None, log=print, yard="new", recorded=None):
+def run_final(board_date=None, date=None, log=print, yard="new", recorded=None, printed=False):
     """엑셀 양식 그대로 한 장 뽑는다 (2회차를 마친 뒤 쓰는 마무리).
 
-    recorded 가 있으면 A 컴퓨터가 이미 원본에 적어 두었다는 뜻이다. 그러면 적지 않고
-    그 원본을 열려 있는 그대로 뽑는다 — 열려 있어도 읽기로는 열리므로 그냥 뽑힌다.
-    A 가 꺼져 있었으면 전처럼 복사본에 적고 그 복사본을 뽑는다.
+    printed 면 A 컴퓨터가 적고 뽑는 것까지 끝냈다 — 여기서 또 뽑지 않는다.
+    recorded 면 A 가 적기는 했으니 적지 않고, 그 원본을 뽑기만 한다.
+    둘 다 없으면 여기서 적고, 적은 그 파일을 뽑는다.
     """
     import inbox
     board_date = board_date or inbox.work_date()
     when = date or (datetime.date.fromisoformat(board_date) + datetime.timedelta(days=1))
+    if printed:
+        log("🖨 [엑셀] A 컴퓨터가 적고 뽑는 것까지 끝냈다")
+        return recorded or "A 컴퓨터가 적고 인쇄까지"
     if recorded:
         src = find_excel(when)
         log(f"🖨 [엑셀] {os.path.basename(src)} 를 있는 그대로 인쇄 ({recorded})")
         print_ops(src, yard)
         return f"{recorded} · 엑셀 양식으로 인쇄"
-    summary = run(board_date=board_date, date=date, log=log, yard=yard)
-    dst = copy_path(find_excel(when), when)
+    out = {}
+    summary = run(board_date=board_date, date=date, log=log, yard=yard, out=out)
+    dst = out.get("path") or find_excel(when)      # 적은 그 파일을 뽑는다
     log(f"🖨 [엑셀] {os.path.basename(dst)} 를 그대로 인쇄")
     print_ops(dst, yard)
     return summary + " · 엑셀 양식으로 인쇄"

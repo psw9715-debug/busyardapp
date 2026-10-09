@@ -91,7 +91,10 @@ def log(msg):
     except Exception:
         pass
     if sys.stdout:                   # 창 없이 묶은 exe 는 내보낼 곳이 없다
-        print(line)
+        try:
+            print(line)
+        except Exception:
+            pass                     # 한글·그림글자를 못 받는 콘솔에서 터지지 않게
 
 
 # ---- 우편함 읽기 ---------------------------------------------------------
@@ -126,7 +129,7 @@ def fetch(name):
         raise
 
 
-def report(req, state, msg):
+def report(req, state, msg, printed=False):
     """했다/못 했다를 Z: 에 쪽지로 놓는다. 사무실 PC 가 그것을 보고 폰에 전해 준다.
 
     올리는 길(GitHub)은 권한이 있어야 하지만, 사무실 PC 는 이미 그 권한을 들고
@@ -137,7 +140,8 @@ def report(req, state, msg):
     tmp = result_file() + ".tmp"
     with io.open(tmp, "w", encoding="utf-8") as f:
         json.dump({"id": req["id"], "what": req.get("what"), "state": state,
-                   "msg": msg, "at": at.replace("+00:00", "Z")}, f, ensure_ascii=False)
+                   "msg": msg, "printed": bool(printed),
+                   "at": at.replace("+00:00", "Z")}, f, ensure_ascii=False)
     os.replace(tmp, result_file())        # 반만 쓰인 쪽지를 사무실 PC 가 읽지 않게
     log(f"📨 결과를 놓았습니다 — {state} · {msg}")
 
@@ -429,21 +433,95 @@ def notice(text, secs, title=None):
     """안내 창을 잠깐 띄운다 (딴 일을 막지 않게 딴 가닥에서).
 
     창이 앞으로 나오면 자판이 그 창으로 가므로, 적는 동안 엑셀 칸에 글자가
-    잘못 들어가는 일을 막아 준다.
+    잘못 들어가는 일을 막아 준다. 돌려주는 것의 close() 를 부르면 바로 닫힌다 —
+    일이 끝났는데도 창이 남아 있으면 그것을 또 닫아야 하니까.
     """
+    caption = title or APP_NAME
+
     def run():
         try:
             import ctypes
             box = ctypes.windll.user32.MessageBoxTimeoutW
             box.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
                             ctypes.c_uint, ctypes.c_ushort, ctypes.c_uint]
-            box(None, text, title or APP_NAME,
+            box(None, text, caption,
                 0x40 | 0x1000 | 0x10000 | 0x40000, 0, int(secs * 1000))
         except Exception:
             pass
+
     t = threading.Thread(target=run, daemon=True)
     t.start()
+
+    def close():
+        try:
+            import ctypes
+            for _ in range(30):                       # 창이 뜨는 데 한순간 걸린다
+                h = ctypes.windll.user32.FindWindowW(None, caption)
+                if h:
+                    ctypes.windll.user32.PostMessageW(h, 0x0010, 0, 0)   # WM_CLOSE
+                    return
+                time.sleep(0.05)
+        except Exception:
+            pass
+
+    t.close = close
     return t
+
+
+# 인쇄 영역과 방향. 1차고지는 가로 한 장, 6차고지는 세로 한 장이다.
+PRINT_AREA = {"new": "A36:O97", "old": "A1:O34"}
+LANDSCAPE = {"old"}
+PAGE_KEYS = ("PrintArea", "Orientation", "PaperSize", "Zoom", "FitToPagesWide", "FitToPagesTall")
+
+
+def print_block(wb, yard, log=log):
+    """열어 둔 그 통합문서에서 차고지 칸만 한 장 뽑는다.
+
+    여기서 뽑으면 엑셀을 새로 띄우고 큰 파일을 다시 여는 14초를 아낀다.
+    남의 문서를 빌려 쓰는 것이므로 인쇄 설정은 원래대로 되돌려 놓는다.
+    인쇄 설정은 한 번에 묶어 보낸다 — 하나씩 보내면 프린터 드라이버를 그때마다 부른다.
+    """
+    app = wb.Application
+    ws = wb.Worksheets(SHEET)
+    ps = ws.PageSetup
+    before = {}
+    try:
+        app.PrintCommunication = False
+    except Exception:
+        pass
+    try:
+        for k in PAGE_KEYS:
+            try:
+                before[k] = getattr(ps, k)
+            except Exception:
+                pass
+        ps.PrintArea = PRINT_AREA.get(yard, PRINT_AREA["new"])
+        ps.Orientation = 2 if yard in LANDSCAPE else 1      # 2 = 가로
+        ps.PaperSize = 9                                    # A4
+        ps.Zoom = False
+        ps.FitToPagesWide = 1
+        ps.FitToPagesTall = 1
+    finally:
+        try:
+            app.PrintCommunication = True
+        except Exception:
+            pass
+
+    ws.PrintOut()
+    log(f"🖨 {'가로' if yard in LANDSCAPE else '세로'}로 한 장 뽑았습니다")
+
+    try:                                   # 빌려 쓴 설정을 되돌린다
+        app.PrintCommunication = False
+        for k, v in before.items():
+            try:
+                setattr(ps, k, v)
+            except Exception:
+                pass
+    finally:
+        try:
+            app.PrintCommunication = True
+        except Exception:
+            pass
 
 
 FIND_SHEET = "차량및키확인"      # 내일 운행차량이 차고지에 있는지 보는 시트
@@ -528,12 +606,13 @@ def write_board(board, path, log=log, found=None):
             quit_excel(excel, wb)
             raise PermissionError("엑셀이 읽기 전용으로 열립니다 — 다른 곳에서 쓰고 있는 파일입니다")
 
+    told = None
     if was_open:
         # 누군가 이 엑셀을 보고 있다. 적는 동안 손이 멎도록 안내 창을 띄운다.
-        notice(f"{os.path.basename(path)}\n\n"
-               "순회판 차량번호를 지금 받아 적고 있습니다.\n"
-               "10초쯤 엑셀을 건드리지 말아 주세요.\n\n"
-               "(저절로 닫힙니다)", 15, f"{APP_NAME} — 받아 적는 중")
+        told = notice(f"{os.path.basename(path)}\n\n"
+                      "순회판 차량번호를 지금 받아 적고 있습니다.\n"
+                      "잠시 엑셀을 건드리지 말아 주세요.\n\n"
+                      "(다 적으면 저절로 닫힙니다)", 120, f"{APP_NAME} — 받아 적는 중")
 
     calc = None
     try:
@@ -588,6 +667,8 @@ def write_board(board, path, log=log, found=None):
                 excel.Calculation = calc
             except Exception:
                 pass
+        if told:
+            told.close()                   # 다 적었으니 안내 창도 거둔다
         if mine:
             # 우리가 띄운 엑셀이다. 남겨 두면 보이지 않는 채로 이 파일을 쥐고 있어
             # 사람이 열 때 읽기 전용으로 뜬다 — 확실히 내보낸다.
@@ -643,6 +724,31 @@ def handle(req):
         path = find_excel(date)
         found = []
         n, was_open = write_board(board, path, found=found)
+        printed = False
+        if req.get("what") == "final":
+            # 여기서 바로 뽑는다. 사무실 PC 가 큰 파일을 또 열지 않아도 된다.
+            try:
+                wb = running_workbook(path)
+                if wb is not None:
+                    print_block(wb, yard)
+                    printed = True
+                else:
+                    import win32com.client
+                    excel = win32com.client.DispatchEx("Excel.Application")
+                    excel.DisplayAlerts = False
+                    excel.Visible = False
+                    wb = excel.Workbooks.Open(path, ReadOnly=True, UpdateLinks=0)
+                    try:
+                        print_block(wb, yard)
+                        printed = True
+                    finally:
+                        try:
+                            wb.Close(SaveChanges=False)
+                        except Exception:
+                            pass
+                        quit_excel(excel, wb)
+            except Exception as e:
+                log(f"⚠ 여기서는 뽑지 못했습니다 — {type(e).__name__}: {e} (사무실 PC 가 뽑습니다)")
     except Exception as e:
         log(f"⚠ {type(e).__name__}: {e}")
         try:
@@ -652,9 +758,12 @@ def handle(req):
         return
 
     tail = find_text(found)
-    log(f"✅ {date:%m/%d} {'열려 있던 ' if was_open else ''}엑셀에 {n}대 적고 저장했습니다{tail}")
+    mark = " · 인쇄까지 함" if printed else ""
+    log(f"✅ {date:%m/%d} {'열려 있던 ' if was_open else ''}엑셀에 {n}대 적고 저장했습니다{mark}{tail}")
     try:
-        report(req, "done", f"A 컴퓨터가 {'열어 둔 ' if was_open else ''}엑셀에 {n}대 적음{tail}")
+        report(req, "done",
+               f"A 컴퓨터가 {'열어 둔 ' if was_open else ''}엑셀에 {n}대 적음{mark}{tail}",
+               printed=printed)
     except Exception as e:
         log(f"⚠ 적기는 했는데 결과를 놓지 못했습니다 — {type(e).__name__}: {e}")
 
