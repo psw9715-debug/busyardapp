@@ -281,7 +281,9 @@ def find_text(cars):
         return ""
     if not cars:
         return " · 차찾아 없음"
-    return f" · ⚠ 차찾아 {len(cars)}대: " + ", ".join(cars)
+    head = ", ".join(cars[:8])
+    more = f" 외 {len(cars) - 8}대" if len(cars) > 8 else ""
+    return f" · ⚠ 차찾아 {len(cars)}대: {head}{more}"
 
 
 def fill(path, board, cells=None, show_sheet=False, found=None):
@@ -303,7 +305,7 @@ def fill(path, board, cells=None, show_sheet=False, found=None):
         excel.ScreenUpdating = False
     except Exception:
         pass                          # 갓 띄운 엑셀이 아직 못 받는 때가 있다 — 그냥 진행
-    wb = excel.Workbooks.Open(path)
+    wb = excel.Workbooks.Open(path, UpdateLinks=0)
     try:
         # 이 통합문서는 VLOOKUP 이 많아, 한 칸 쓸 때마다 다시 계산하면 몇 분씩 걸린다.
         # 다 쓰고 나서 한 번만 계산한다 (통합문서를 연 뒤에야 바꿀 수 있는 설정이다).
@@ -462,6 +464,53 @@ def read_board(yard="old", date=None, log=print):
     return entries
 
 
+def page_setup(app, ws, yard, log=None):
+    """그 차고지에 맞는 한 장짜리 인쇄 설정. 이미 맞는 것은 건드리지 않는다.
+
+    읽기는 공짜지만 쓰기는 한 개에 1.5~3.5초다 (쓸 때마다 프린터 드라이버를 부른다).
+    같은 차고지를 다시 뽑으면 고칠 것이 없어 0초다.
+    """
+    want = {
+        "PrintArea": PRINT_AREA.get(yard, PRINT_AREA["new"]),
+        "Orientation": 2 if yard in LANDSCAPE else 1,     # 2 = 가로
+        "PaperSize": 9,                                   # A4
+        "Zoom": False,
+        "FitToPagesWide": 1,
+        "FitToPagesTall": 1,
+    }
+    ps = ws.PageSetup
+    try:
+        app.PrintCommunication = False
+    except Exception:
+        pass
+    changed = 0
+    try:
+        for key, value in want.items():
+            try:
+                now = getattr(ps, key)
+            except Exception:
+                now = None
+            if key == "PrintArea":
+                same = str(now or "").replace("$", "") == str(value).replace("$", "")
+            else:
+                same = now == value
+            if same:
+                continue
+            try:
+                setattr(ps, key, value)
+                changed += 1
+            except Exception:
+                pass
+    finally:
+        try:
+            app.PrintCommunication = True
+        except Exception:
+            pass
+    if log and changed:
+        log(f"🧾 인쇄 설정 {changed}가지를 맞췄습니다")
+    return changed
+
+
 def print_ops(path, yard="new"):
     """운영관리 엑셀의 고정차고지_입력 시트를 그대로 기본 프린터로 뽑는다.
 
@@ -483,21 +532,7 @@ def print_ops(path, yard="new"):
     wb = excel.Workbooks.Open(path, ReadOnly=True, UpdateLinks=0)
     try:
         ws = wb.Worksheets(SHEET)
-        try:
-            excel.PrintCommunication = False   # 설정을 한 번에 묶어 보낸다
-        except Exception:
-            pass
-        ps = ws.PageSetup
-        ps.PrintArea = PRINT_AREA.get(yard, PRINT_AREA["new"])
-        ps.Orientation = 2 if yard in LANDSCAPE else 1    # 1차고지는 가로 한 장
-        ps.PaperSize = 9                                  # A4
-        ps.Zoom = False
-        ps.FitToPagesWide = 1
-        ps.FitToPagesTall = 1
-        try:
-            excel.PrintCommunication = True
-        except Exception:
-            pass
+        page_setup(excel, ws, yard)
         ws.PrintOut()
     finally:
         try:

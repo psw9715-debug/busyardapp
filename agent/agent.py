@@ -474,54 +474,62 @@ LANDSCAPE = {"old"}
 PAGE_KEYS = ("PrintArea", "Orientation", "PaperSize", "Zoom", "FitToPagesWide", "FitToPagesTall")
 
 
-def print_block(wb, yard, log=log):
-    """열어 둔 그 통합문서에서 차고지 칸만 한 장 뽑는다.
+def page_setup(app, ws, yard, log=None):
+    """그 차고지에 맞는 한 장짜리 인쇄 설정. 이미 맞는 것은 건드리지 않는다.
 
-    여기서 뽑으면 엑셀을 새로 띄우고 큰 파일을 다시 여는 14초를 아낀다.
-    남의 문서를 빌려 쓰는 것이므로 인쇄 설정은 원래대로 되돌려 놓는다.
-    인쇄 설정은 한 번에 묶어 보낸다 — 하나씩 보내면 프린터 드라이버를 그때마다 부른다.
+    읽기는 공짜지만 쓰기는 한 개에 1.5~3.5초다 (쓸 때마다 프린터 드라이버를 부른다).
+    같은 차고지를 다시 뽑으면 고칠 것이 없어 0초다.
     """
-    app = wb.Application
-    ws = wb.Worksheets(SHEET)
+    want = {
+        "PrintArea": PRINT_AREA.get(yard, PRINT_AREA["new"]),
+        "Orientation": 2 if yard in LANDSCAPE else 1,     # 2 = 가로
+        "PaperSize": 9,                                   # A4
+        "Zoom": False,
+        "FitToPagesWide": 1,
+        "FitToPagesTall": 1,
+    }
     ps = ws.PageSetup
-    before = {}
     try:
         app.PrintCommunication = False
     except Exception:
         pass
+    changed = 0
     try:
-        for k in PAGE_KEYS:
+        for key, value in want.items():
             try:
-                before[k] = getattr(ps, k)
+                now = getattr(ps, key)
+            except Exception:
+                now = None
+            if key == "PrintArea":
+                same = str(now or "").replace("$", "") == str(value).replace("$", "")
+            else:
+                same = now == value
+            if same:
+                continue
+            try:
+                setattr(ps, key, value)
+                changed += 1
             except Exception:
                 pass
-        ps.PrintArea = PRINT_AREA.get(yard, PRINT_AREA["new"])
-        ps.Orientation = 2 if yard in LANDSCAPE else 1      # 2 = 가로
-        ps.PaperSize = 9                                    # A4
-        ps.Zoom = False
-        ps.FitToPagesWide = 1
-        ps.FitToPagesTall = 1
     finally:
         try:
             app.PrintCommunication = True
         except Exception:
             pass
+    if log and changed:
+        log(f"🧾 인쇄 설정 {changed}가지를 맞췄습니다")
+    return changed
 
+
+def print_block(wb, yard, log=log):
+    """열어 둔 그 통합문서에서 차고지 칸만 한 장 뽑는다.
+
+    여기서 뽑으면 엑셀을 새로 띄우고 큰 파일을 다시 여는 14초를 아낀다.
+    """
+    ws = wb.Worksheets(SHEET)
+    page_setup(wb.Application, ws, yard, log)
     ws.PrintOut()
     log(f"🖨 {'가로' if yard in LANDSCAPE else '세로'}로 한 장 뽑았습니다")
-
-    try:                                   # 빌려 쓴 설정을 되돌린다
-        app.PrintCommunication = False
-        for k, v in before.items():
-            try:
-                setattr(ps, k, v)
-            except Exception:
-                pass
-    finally:
-        try:
-            app.PrintCommunication = True
-        except Exception:
-            pass
 
 
 FIND_SHEET = "차량및키확인"      # 내일 운행차량이 차고지에 있는지 보는 시트
@@ -561,7 +569,48 @@ def find_text(cars):
         return ""
     if not cars:
         return " · 차찾아 없음"
-    return f" · ⚠ 차찾아 {len(cars)}대: " + ", ".join(cars)
+    head = ", ".join(cars[:8])
+    more = f" 외 {len(cars) - 8}대" if len(cars) > 8 else ""
+    return f" · ⚠ 차찾아 {len(cars)}대: {head}{more}"
+
+
+_warmed = {}
+
+
+def warm_up(log=log):
+    """열어 둔 운영관리 엑셀을 미리 한 번 데운다 (하루에 한 번).
+
+    엑셀은 계산 방식을 처음 바꿀 때 수식 얽힌 것을 통째로 훑는다 — 이 통합문서에서는
+    6.4초다. 그 값을 사람이 기다리는 동안 내지 않도록, 조용한 틈에 미리 치러 둔다.
+    두 번째부터는 0.3초다.
+    """
+    today = datetime.date.today().isoformat()
+    try:
+        path = find_excel(ops_date(datetime.datetime.now()))
+    except Exception:
+        return False
+    if _warmed.get(path) == today:
+        return False
+    import pythoncom
+    pythoncom.CoInitialize()
+    wb = running_workbook(path)
+    if wb is None:
+        return False                      # 열려 있지 않으면 데울 것도 없다
+    _warmed[path] = today                 # 되든 안 되든 오늘은 다시 하지 않는다
+    try:
+        app = wb.Application
+        if app.CalculationState != 0:     # 계산 중이면 끼어들지 않는다
+            _warmed.pop(path, None)
+            return False
+        before = app.Calculation
+        start = time.time()
+        app.Calculation = -4135           # 여기서 그 6.4초를 미리 낸다
+        app.Calculation = before
+        log(f"🔥 엑셀을 미리 데웠습니다 ({time.time() - start:.1f}초) — 이제 넣기가 빠릅니다")
+        return True
+    except Exception as e:
+        log(f"ⓘ 미리 데우지 못했습니다 — {type(e).__name__}: {e}")
+        return False
 
 
 def write_board(board, path, log=log, found=None):
@@ -598,7 +647,7 @@ def write_board(board, path, log=log, found=None):
         except Exception:
             pass
         mine = True
-        wb = excel.Workbooks.Open(path)
+        wb = excel.Workbooks.Open(path, UpdateLinks=0)
         if wb.ReadOnly:
             # 누가 열고 있는데 ROT 에서 못 찾은 경우다. 읽기 전용으로 적으면
             # 저장이 안 되는데도 다 된 것처럼 보이므로, 여기서 분명히 멈춘다.
@@ -906,6 +955,8 @@ def loop(stop):
     while not stop.is_set():
         try:
             tell_alive()
+            if poll_sec() == POLL_BUSY:      # 순찰하는 밤에만 미리 데워 둔다
+                warm_up()
             if due_to_close(datetime.datetime.now()):
                 close_ops()
             tick()
