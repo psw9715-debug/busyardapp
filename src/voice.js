@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202610090226';
+import { extractSequence } from './plate.js?v=202610150156';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -214,7 +214,7 @@ export function primeAudio() {
   speechPrimed = true;
 }
 
-export function beep(kind) {
+export function beep(kind, step = 0) {
   const c = ctx();
   if (!c) return;
   const tones = {
@@ -232,8 +232,11 @@ export function beep(kind) {
   }[kind] || [[880, 0.06]];
 
   const peak = kind === 'vacant' ? 0.8 : 0.25;
+  // step 만큼 음을 올린다 (반음씩). 공차를 잇달아 누를 때 몇 번째인지 귀로 센다.
+  const up = 2 ** (Math.min(step, 7) / 12);
   let t = c.currentTime;
-  for (const [freq, dur] of tones) {
+  for (const [base, dur] of tones) {
+    const freq = base * up;
     const osc = c.createOscillator();
     const gain = c.createGain();
     osc.type = 'sine';

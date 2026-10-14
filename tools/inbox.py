@@ -483,8 +483,31 @@ def handle(req, log, notify=None):
         state, msg = "fail", str(e)
     log(f"{'🖨' if state == 'done' else '⚠'} [순회판] 폰 요청({what}) — {msg}")
     write_status({"id": req["id"], "state": state, "msg": msg, "at": now()})
+    if state == "done":
+        push_checklist(req, log)
     if notify:
         notify(state == "done", f"{what} — {msg}")
+
+
+def push_checklist(req, log):
+    """오늘 점검해야 할 차 목록을 폰에 내려보낸다 (inbox/checklist.json).
+
+    폰은 이것과 제가 적은 판을 견주어, 2회차를 도는 동안 "아직 못 본 차" 를 센다.
+    """
+    try:
+        import ops_fill
+        date = datetime.date.fromisoformat(req["date"]) + datetime.timedelta(days=1)
+        cars = ops_fill.scheduled_cars(date=date)
+        if not cars:
+            return
+        write_file("inbox/checklist.json", {
+            "id": req["id"], "date": req["date"], "yard": req.get("yard", "new"),
+            "at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
+            "cars": cars,
+        }, f"{req['date']} 점검 대상 {len(cars)}대")
+        log(f"📋 [순회판] 점검 대상 {len(cars)}대를 폰에 내려보냄")
+    except Exception as e:
+        log(f"⚠ [순회판] 점검 대상을 내려보내지 못함 — {e}")
 
 
 def watch(log=print, stop=None, notify=None, on_daywork=None):

@@ -150,6 +150,16 @@ export function createSync({ getSession, onStatus }) {
       return res.json();
     },
 
+    /** PC 가 내려보낸 오늘 점검 대상 {id, date, yard, cars[]}. 아직 없으면 null */
+    async readChecklist() {
+      const res = await fetch(`${API}/checklist.json?ref=${BRANCH}`, {
+        headers: { ...headers(), Accept: 'application/vnd.github.raw+json' }, cache: 'no-store',
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`점검 대상 확인 실패 ${res.status}`);
+      return res.json();
+    },
+
     /** PC 가 남긴 인쇄 결과 {id, state, msg, at}. 아직 없으면 null */
     async readStatus() {
       const res = await fetch(`${API}/status.json?ref=${BRANCH}`, {

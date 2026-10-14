@@ -10,7 +10,7 @@
 <title>차고지 순회</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="src/app.css?v=202610090226">
+<link rel="stylesheet" href="src/app.css?v=202610150156">
 </head>
 <body>
 
@@ -23,6 +23,7 @@
       <button class="round" id="btnRound" aria-label="회차 바꾸기">1회차</button>
     </div>
     <div class="bar-right">
+      <button class="icon-btn" id="btnMiss" aria-label="아직 못 본 차" hidden>못 봄<span class="badge" id="missBadge"></span></button>
       <button class="icon-btn" id="btnFind" aria-label="차량번호 찾기">찾기</button>
       <button class="icon-btn" id="btnTargets" aria-label="찾을 차량 목록">대상<span class="badge" id="targetBadge" hidden></span></button>
       <button class="icon-btn" id="btnLog" aria-label="일지 보관">일지</button>
@@ -189,6 +190,7 @@
       <button class="sheet-close" id="printClose">닫기</button>
     </div>
     <div class="print-count" id="printCount"></div>
+    <div class="print-miss" id="printMiss" hidden></div>
     <div class="sheet-actions">
       <button class="go" id="printPaper">종이로 인쇄</button>
       <button id="printExcel">운영관리 엑셀에 넣기</button>
@@ -255,6 +257,6 @@
 
 <!-- 인쇄 전용 레이아웃 -->
 
-<script type="module" src="src/app.js?v=202610090226"></script>
+<script type="module" src="src/app.js?v=202610150156"></script>
 </body>
 </html>

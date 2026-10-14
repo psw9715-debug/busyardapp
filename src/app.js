@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610090226';
-import { YARD_OLD } from './yard-old-data.js?v=202610090226';
-import { BUILD } from './build.js?v=202610090226';
-import { toKoreanSino, announceText } from './plate.js?v=202610090226';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610090226';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610150156';
+import { YARD_OLD } from './yard-old-data.js?v=202610150156';
+import { BUILD } from './build.js?v=202610150156';
+import { toKoreanSino, announceText } from './plate.js?v=202610150156';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610150156';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610090226';
-import { createSync, getToken, setToken } from './sync.js?v=202610090226';
+} from './store.js?v=202610150156';
+import { createSync, getToken, setToken } from './sync.js?v=202610150156';
 
 // ---------------------------------------------------------------- 상태
 
@@ -395,14 +395,17 @@ function commit(spot, entry, { announce = true } = {}) {
     note(`앞자리 1을 붙여 ${entry.plate}로 넣었습니다`, 'warn');
     beep('warn');
   } else if (entry.status === 'vacant') {
-    note('공차 처리');
-    beep('vacant');
+    vacantRun += 1;
+    note(vacantRun > 1 ? `공차 처리 (연속 ${vacantRun})` : '공차 처리');
+    beep('vacant', vacantRun - 1);      // 누를 때마다 반음씩 올라간다
   } else {
+    vacantRun = 0;                      // 번호를 적었으니 연속 세기를 다시 센다
     note('');
     beep('ok');
   }
 
   renderTargetBadge();
+  renderMissing();          // 적을 때마다 "아직 못 본 차" 를 다시 센다
 
   // 찾던 차량이면 다른 안내보다 먼저, 확실하게 알린다
   const hitKind = entry.status === 'filled' ? targetKind(entry.plate) : null;
@@ -507,6 +510,60 @@ function announceSpeak(text) {
 
 // 방금 읽어 준 자리의 구역. 구역이 바뀐 첫 칸에서만 자리 이름을 읽는다.
 let saidSeg = null;
+let vacantRun = 0;        // 공차를 잇달아 누른 횟수 — 소리의 높이로 알려 준다
+
+// ── 오늘 점검해야 할 차 (1차 순찰 때 PC 가 내려보낸다)
+const CHECK_KEY = () => `busyard:check:${session.date}`;
+
+function loadCheck() {
+  try { return JSON.parse(localStorage.getItem(CHECK_KEY())) || null; } catch (_) { return null; }
+}
+
+/** 점검 대상 가운데 아직 판에 없는 차들 */
+function missingCars() {
+  const list = loadCheck();
+  if (!list || !list.cars || !list.cars.length) return null;
+  const seen = new Set();
+  for (const e of Object.values(session.entries)) {
+    if (e && e.status === 'filled' && e.plate) seen.add(String(e.plate));
+  }
+  return { all: list.cars, miss: list.cars.filter((p) => !seen.has(String(p))) };
+}
+
+/** 윗줄 [못 봄] 배지와 인쇄 시트의 한 줄을 다시 그린다 */
+function renderMissing() {
+  const got = missingCars();
+  const btn = $('btnMiss');
+  const line = $('printMiss');
+  if (!got) {
+    btn.hidden = true;
+    line.hidden = true;
+    return;
+  }
+  btn.hidden = false;
+  btn.classList.toggle('warn', got.miss.length > 0);
+  $('missBadge').textContent = got.miss.length ? ` ${got.miss.length}` : ' 0';
+  line.hidden = false;
+  if (!got.miss.length) {
+    line.className = 'print-miss ok';
+    line.textContent = `점검 대상 ${got.all.length}대 — 모두 확인했습니다`;
+  } else {
+    line.className = 'print-miss no';
+    const head = got.miss.slice(0, 12).join(', ');
+    const more = got.miss.length > 12 ? ` 외 ${got.miss.length - 12}대` : '';
+    line.textContent = `아직 못 본 차 ${got.miss.length}대 — ${head}${more}`;
+  }
+}
+
+/** PC 가 내려보낸 점검 대상을 받아 둔다 */
+async function fetchCheck() {
+  if (!getToken()) return;
+  let got = null;
+  try { got = await sync.readChecklist(); } catch (_) { return; }
+  if (!got || got.date !== session.date) return;
+  localStorage.setItem(CHECK_KEY(), JSON.stringify(got));
+  renderMissing();
+}
 
 /** 커서가 선 자리를 읽어 준다 (무엇을 읽을지는 plate.js 의 announceText 가 정한다) */
 function announceCursor() {
@@ -515,9 +572,10 @@ function announceCursor() {
   saidSeg = cell ? cell.seg : null;
   const e = session.entries[cursor];
   const target = round === 2 && e && e.status === 'filled' ? targetKind(e.plate) : null;
+  if (newSeg && cell) beep('next');   // 구역이 바뀌었다 — 말소리를 꺼 두어도 알게
   if (target) beep('alert');     // 귀로도 한 번 더 — 그냥 지나치면 안 되는 자리다
   announceSpeak(announceText({
-    round, newSeg, ttsOn, spotSay: spotSay(cursor), entry: e, target,
+    round, newSeg, ttsOn, spotSay: spotSay(cursor), zoneSay: spotZone(cursor), entry: e, target,
   }));
 }
 
@@ -1237,6 +1295,7 @@ function openPrint() {
     : `${done}자리 입력됨 · ${ALL - done}자리 비어 있음`;
   if (!printing) printMsg(getToken() ? '' : '토큰이 없습니다 — [진단] → PC 전송에서 넣으세요',
     getToken() ? '' : 'no');
+  renderMissing();
   $('printSheet').hidden = false;
 }
 
@@ -1368,6 +1427,7 @@ async function checkSent({ quiet = false } = {}) {
   saveSent(null);
   $('printSheet').hidden = false;
   showResult(sent.what, st);
+  fetchCheck();                 // 넣고 나면 점검 대상도 새로 받는다
 }
 
 async function doPrint(what) {
@@ -1378,8 +1438,17 @@ async function doPrint(what) {
     return;
   }
 
+  // 아직 못 본 차가 있으면 보내기 전에 짚어 준다. 막지는 않는다 — 판단은 사람이 한다.
+  const got = missingCars();
+  if (got && got.miss.length) {
+    const head = got.miss.slice(0, 12).join(', ');
+    const more = got.miss.length > 12 ? ` 외 ${got.miss.length - 12}대` : '';
+    printMsg(`아직 못 본 차 ${got.miss.length}대 — ${head}${more}`, 'no');
+    beep('warn');
+  }
+
   printing = true;
-  printMsg('PC로 보내는 중…');
+  if (!(got && got.miss.length)) printMsg('PC로 보내는 중…');
   let id;
   try {
     id = await sync.requestPrint(what);
@@ -1624,6 +1693,10 @@ function init() {
 
   $('printClose').addEventListener('click', () => { $('printSheet').hidden = true; });
 
+  $('btnMiss').addEventListener('click', () => {
+    renderMissing();
+    $('printSheet').hidden = false;
+  });
   $('btnFiles').addEventListener('click', openFiles);
   $('fileClose').addEventListener('click', () => { $('fileSheet').hidden = true; });
   $('fileSend').addEventListener('click', () => sendFiles());
@@ -1762,6 +1835,8 @@ function init() {
   }
   checkForUpdate();
   checkSent({ quiet: true });   // 지난번에 보내 둔 것이 끝났으면 그 결과를 보여 준다
+  renderMissing();
+  fetchCheck();                 // 1차 순찰 때 PC 가 내려보낸 "점검 대상" 을 받아 둔다
 }
 
 init();

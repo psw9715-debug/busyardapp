@@ -511,6 +511,31 @@ def page_setup(app, ws, yard, log=None):
     return changed
 
 
+def scheduled_cars(path=None, date=None):
+    """내일 운행할 차량 번호들 ('차량및키확인' 시트 C4:C137).
+
+    엑셀을 띄우지 않고 읽는다 — 누가 열어 두고 있어도 되고, 빠르다.
+    이 목록이 "오늘 밤 차고지에서 눈으로 확인해야 할 차" 다.
+    """
+    path = path or find_excel(date or target_date())
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    try:
+        if FIND_SHEET not in wb.sheetnames:
+            return []
+        ws = wb[FIND_SHEET]
+        out = []
+        for row in range(FIND_FROM, FIND_TO + 1):
+            v = ws.cell(row, 3).value
+            if v in (None, ""):
+                continue
+            text = str(int(v)) if isinstance(v, float) else str(v).strip()
+            if text.isdigit() and len(text) == 4:
+                out.append(text)
+        return out
+    finally:
+        wb.close()
+
+
 def print_ops(path, yard="new"):
     """운영관리 엑셀의 고정차고지_입력 시트를 그대로 기본 프린터로 뽑는다.
 

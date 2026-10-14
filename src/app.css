@@ -469,6 +469,16 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
 }
 .log-reset:active { background: var(--amber); color: var(--amber-ink); }
 
+/* 아직 못 본 차 — 2회차를 도는 동안 눈에 띄어야 한다 */
+.print-miss {
+  margin: 10px 0 0; padding: 11px 12px; border-radius: 10px;
+  font-size: 13px; line-height: 1.6;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--ink-dim);
+}
+.print-miss.no { border-color: var(--red); color: var(--red); font-weight: 700; }
+.print-miss.ok { border-color: var(--green); color: var(--green); }
+.icon-btn.warn { border-color: var(--red); color: var(--red); }
+
 .print-msg {
   text-align: center; font-size: 15px; line-height: 1.6;
   padding: 14px 8px 18px; color: var(--ink-dim);

@@ -358,6 +358,127 @@ log('▶ 차찾아 알림');
   eq(a.$('printSheet').hidden, false, '결과 화면이 열려 있다');
 }
 
+// ── 12) 아직 못 본 차를 폰이 스스로 센다
+log('▶ 못 본 차 세기');
+{
+  const entries = {};
+  for (let n = 1; n <= 6; n++) entries[n] = { plate: String(1500 + n), status: 'filled', round: 1 };
+  seed('new', entries, 1);
+  // 1차 순찰 때 PC 가 내려보낸 "오늘 점검할 차" — 1507, 1508 은 아직 안 보인다
+  const check = (cars) => localStorage.setItem(`busyard:check:${DATE}`,
+    JSON.stringify({ id: 'c1', date: DATE, yard: 'new', cars }));
+  check(['1501', '1503', '1506', '1507', '1508']);
+  const a = await app();
+
+  eq(a.$('btnMiss').hidden, false, '윗줄에 [못 봄] 이 보인다');
+  eq(a.$('missBadge').textContent.trim(), '2', '못 본 차가 2대라고 센다');
+  eq(a.$('btnMiss').classList.contains('warn'), true, '남아 있으면 빨갛게');
+
+  a.$('btnMiss').click(); await wait(80);
+  eq(a.$('printSheet').hidden, false, '누르면 목록을 보여 준다');
+  eq(a.$('printMiss').textContent.includes('1507, 1508'), true, '어느 차인지 적는다');
+  eq(a.$('printMiss').className, 'print-miss no', '빨갛게');
+
+  // 빈 칸에 1507 을 적으면 하나 줄어든다 (커서는 아직 안 적은 7번 자리에 있다)
+  a.$('printClose').click(); await wait(50);
+  eq(a.$('hudSpot').textContent, 'B5-7', '커서는 아직 안 적은 자리');
+  a.$('btnPad').click(); await wait(150);
+  for (const k of ['5', '0', '7']) a.press(k);   // 키패드는 세 자리 — 앞의 1 은 저절로 붙는다
+  await until(() => a.$('missBadge').textContent.trim() === '1');
+  eq(a.$('missBadge').textContent.trim(), '1', '적는 즉시 하나 줄어든다');
+  a.$('padClose').click(); await wait(50);
+  a.$('btnMiss').click(); await wait(80);
+  eq(a.$('printMiss').textContent.includes('1508'), true, '남은 것만 적는다');
+  eq(a.$('printMiss').textContent.includes('1507'), false, '적은 것은 빠진다');
+}
+
+// ── 12-2) 다 봤으면 초록으로
+log('▶ 다 봤을 때');
+{
+  const entries = {};
+  for (let n = 1; n <= 3; n++) entries[n] = { plate: String(1500 + n), status: 'filled', round: 1 };
+  seed('new', entries, 1);
+  localStorage.setItem(`busyard:check:${DATE}`, JSON.stringify({
+    id: 'c1', date: DATE, yard: 'new', cars: ['1501', '1503'],
+  }));
+  const a = await app();
+  eq(a.$('missBadge').textContent.trim(), '0', '다 봤으면 0');
+  eq(a.$('btnMiss').classList.contains('warn'), false, '빨간 표시가 풀린다');
+  a.$('btnMiss').click(); await wait(80);
+  eq(a.$('printMiss').className, 'print-miss ok', '모두 확인했다고 초록으로');
+  eq(a.$('printMiss').textContent.includes('모두 확인'), true, '모두 확인했다고 적는다');
+}
+
+// ── 13) 못 본 차가 있으면 보내기 전에 짚어 준다
+log('▶ 보내기 전 알림');
+{
+  seed('new', { 1: { plate: '1501', status: 'filled', round: 1 } }, 2);
+  localStorage.setItem('busyard:ghtoken', '시험토큰');
+  localStorage.setItem(`busyard:check:${DATE}`, JSON.stringify({
+    id: 'c1', date: DATE, yard: 'new', cars: ['1501', '1777'],
+  }));
+  const a = await app();
+  const real = a.w.fetch;
+  a.w.fetch = (url, opt) => {
+    if (opt && opt.method === 'PUT') {
+      return Promise.resolve(new a.w.Response(JSON.stringify({ content: { sha: 'x' } }), { status: 201 }));
+    }
+    if (String(url).includes('api.github.com')) return Promise.resolve(new a.w.Response('', { status: 404 }));
+    return real(url, opt);
+  };
+  a.$('btnPrint').click(); await wait(80);
+  eq(a.$('printMiss').textContent.includes('1777'), true, '인쇄 화면에도 남은 차가 보인다');
+  a.$('printExcel').click();
+  await until(() => a.$('printMsg').textContent.includes('못 본 차'));
+  eq(a.$('printMsg').className, 'print-msg no', '빨갛게 짚어 준다');
+  eq(a.$('printMsg').textContent.includes('1777'), true, '어느 차인지 함께');
+  await until(() => localStorage.getItem('busyard:sent') !== null);
+  eq(localStorage.getItem('busyard:sent') !== null, true,
+    '그래도 보내기는 한다 — 판단은 사람이 한다');
+}
+
+// ── 14) 공차를 잇달아 누르면 소리가 한 음씩 올라간다
+log('▶ 공차 연속');
+{
+  seed('new', {}, 1);
+  const a = await app();
+  const beeps = [];
+  // 소리 대신 "무엇을 몇 번째로 울렸는지" 만 본다
+  const AC = a.w.AudioContext || a.w.webkitAudioContext;
+  const realOsc = AC.prototype.createOscillator;
+  AC.prototype.createOscillator = function () {
+    const osc = realOsc.call(this);
+    const freq = osc.frequency;
+    let v = 0;
+    Object.defineProperty(osc, 'frequency', {
+      get: () => ({ get value() { return v; }, set value(x) { v = x; freq.value = x; beeps.push(Math.round(x)); } }),
+    });
+    return osc;
+  };
+
+  const vac = () => { a.$('btnVacant').click(); };
+  beeps.length = 0; vac(); await wait(120);
+  const first = beeps.slice();
+  beeps.length = 0; vac(); await wait(120);
+  const second = beeps.slice();
+  beeps.length = 0; vac(); await wait(120);
+  const third = beeps.slice();
+
+  eq(first.length > 0 && second.length > 0, true, '누를 때마다 소리가 난다');
+  eq(second[0] > first[0], true, '두 번째는 한 음 높다');
+  eq(third[0] > second[0], true, '세 번째는 더 높다');
+  eq(a.$('hudNote').textContent, '공차 처리 (연속 3)', '몇 번째인지 화면에도 적는다');
+
+  // 번호를 적으면 다시 처음 음으로
+  a.$('btnPad').click(); await wait(150);
+  for (const k of ['1', '2', '3', '4']) a.press(k);
+  await wait(250);
+  a.$('padClose').click(); await wait(80);
+  beeps.length = 0; vac(); await wait(120);
+  eq(beeps[0], first[0], '번호를 적고 나면 다시 첫 음부터');
+  AC.prototype.createOscillator = realOsc;
+}
+
 log(`\n통과 ${pass} / 실패 ${fail}`);
 document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
 </script>
