@@ -63,9 +63,20 @@ STALE = datetime.timedelta(minutes=10)      # 이보다 오래된 요청은 적�
 CLOSE_AT = (2, 5)
 CLOSE_ASK_SEC = 60                          # 묻고 1분 뒤에는 저절로 닫는다
 
+# 공유 폴더는 업무도구\설정.json 에서 본다. A 컴퓨터에는 그 파일이 없을 수 있으므로
+# (받아쓰기만 따로 설치한다) 아래 예비 값으로도 돌게 둔다.
 BASE = r"Z:\교통사업처_버스운영센터\상황실"
 # Z: 로 연결돼 있지 않은 PC 도 있다. 그럴 때는 공유 폴더를 바로 찾아간다.
 BASE_UNC = r"\\192.168.35.22\sctc17\교통사업처_버스운영센터\상황실"
+try:
+    import sys as _sys
+    if r"D:\\프로그램2\\꾀꼬리\\업무도구\\공용" not in _sys.path:
+        _sys.path.insert(0, r"D:\\프로그램2\\꾀꼬리\\업무도구\\공용")
+    import 설정 as _설정
+    BASE = _설정.상황실()
+    BASE_UNC = _설정.UNC경로(BASE)
+except Exception:
+    pass
 KEYWORD = "입출차 운영관리"
 # 했다/못 했다를 놓아 두는 자리 (사무실 PC 가 여기를 보고 폰에 전해 준다).
 # 어느 PC 든 같은 곳을 보게, 경로는 그때그때 고른다 — base_dir() 참고.

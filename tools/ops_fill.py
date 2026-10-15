@@ -31,7 +31,17 @@ import sys
 import openpyxl
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# 공유 폴더는 업무도구\설정.json 하나에서 본다 (새 PC 로 옮길 때 고칠 곳이 한 군데이게).
+# 설정을 못 읽으면 아래 예비 값으로 돈다.
 BASE = r"Z:\교통사업처_버스운영센터\상황실"
+try:
+    import sys as _sys
+    if r"D:\\프로그램2\\꾀꼬리\\업무도구\\공용" not in _sys.path:
+        _sys.path.insert(0, r"D:\\프로그램2\\꾀꼬리\\업무도구\\공용")
+    import 설정 as _설정
+    BASE = _설정.상황실()
+except Exception:
+    pass
 KEYWORD = "입출차 운영관리"          # 그날 폴더에 있는 다른 엑셀과 가르는 말
 # A 컴퓨터가 "적었다/못 적었다" 를 놓아 두는 쪽지 (agent/agent.py 가 쓴다)
 AGENT_RESULT = os.path.join(BASE, "받아쓰기", "결과.json")
