@@ -135,6 +135,19 @@ export function createSync({ getSession, onStatus }) {
       return id;
     },
 
+    /**
+     * 2회차를 시작할 때 조용히 부른다 — PC 가 지금 엑셀에 적힌 것만으로
+     * '아직 찾아다닐 차' 를 다시 세어 내려보낸다. 인쇄도 입력도 하지 않는다.
+     * 판은 올리지 않는다 (PC 는 엑셀을 보고 세므로 올릴 까닭이 없다).
+     */
+    async requestCheck() {
+      const session = getSession();
+      const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      await put('print.json', { id, date: session.date, at: new Date().toISOString(), what: 'check', yard: session.yard },
+        `${session.date} 점검 대상 다시 세기`);
+      return id;
+    },
+
     /** 사진·파일 하나를 PC 다운로드 폴더로 보낸다. 보낸 이름을 돌려준다. */
     sendFile(file, base64) {
       return putFile(file, base64, getSession().date);

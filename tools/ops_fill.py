@@ -521,11 +521,20 @@ def page_setup(app, ws, yard, log=None):
     return changed
 
 
+def plate_of(v):
+    """셀 값에서 네 자리 차량번호만 꺼낸다. 차량번호가 아니면 None."""
+    if v in (None, ""):
+        return None
+    text = str(int(v)) if isinstance(v, float) else str(v).strip()
+    return text if text.isdigit() and len(text) == 4 else None
+
+
 def scheduled_cars(path=None, date=None):
     """내일 운행할 차량 번호들 ('차량및키확인' 시트 C4:C137).
 
     엑셀을 띄우지 않고 읽는다 — 누가 열어 두고 있어도 되고, 빠르다.
-    이 목록이 "오늘 밤 차고지에서 눈으로 확인해야 할 차" 다.
+    이것은 '내일 나가는 차 전부' 이지, 오늘 밤 찾아다닐 목록이 아니다.
+    찾아다닐 목록은 checklist_cars() 를 쓴다.
     """
     path = path or find_excel(date or target_date())
     wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
@@ -535,15 +544,91 @@ def scheduled_cars(path=None, date=None):
         ws = wb[FIND_SHEET]
         out = []
         for row in range(FIND_FROM, FIND_TO + 1):
-            v = ws.cell(row, 3).value
-            if v in (None, ""):
-                continue
-            text = str(int(v)) if isinstance(v, float) else str(v).strip()
-            if text.isdigit() and len(text) == 4:
+            text = plate_of(ws.cell(row, 3).value)
+            if text:
                 out.append(text)
         return out
     finally:
         wb.close()
+
+
+REST_SHEET = "차고지참고"              # 차량번호 · 내일 출근시간(수식) · 서 있는 자리
+REST_COLS = (2, 5, 8, 11, 14, 17, 20)  # B·E·H·K·N·Q·T 가 차량번호, 바로 옆 칸이 시간 또는 "휴차"
+REST_MARK = "휴차"
+
+
+def resting_cars(path=None, date=None):
+    """내일 나가지 않는 차('휴차')들. '차고지참고' 시트에서 읽는다.
+
+    그 시트는 (차량번호, 출근시간, 자리) 가 일곱 벌 가로로 늘어서 있고,
+    출근시간 자리에 수식이 "휴차" 를 끌고 오면 내일 안 나가는 차다.
+    오늘 밤 찾아다닐 까닭이 없으므로 점검 목록에서 뺀다.
+    """
+    path = path or find_excel(date or target_date())
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    try:
+        if REST_SHEET not in wb.sheetnames:
+            return set()
+        ws = wb[REST_SHEET]
+        out = set()
+        for row in ws.iter_rows(min_col=1, max_col=max(REST_COLS) + 1, values_only=True):
+            for col in REST_COLS:
+                if len(row) <= col:
+                    continue
+                plate = plate_of(row[col - 1])
+                if plate and REST_MARK in str(row[col] or ""):
+                    out.add(plate)
+        return out
+    finally:
+        wb.close()
+
+
+def pending_cars(path=None, date=None):
+    """아직 차고지에서 못 찾은 차들 — '차량및키확인' D열에 "차찾아" 가 선 것.
+
+    그 수식은 `IF(COUNTIF(고정차고지_입력!$A$1:$O$97, 차량번호)=1, "", "차찾아!!")` 다.
+    A1:O97 은 **구차고지와 신차고지 두 블록 전부**이므로, 1차고지에서 본 차도
+    신차고지 1차에 적은 차도 이미 빠져 있다. 엑셀에 적어 넣은 뒤라야 뜻이 있다.
+    """
+    path = path or find_excel(date or target_date())
+    wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    try:
+        if FIND_SHEET not in wb.sheetnames:
+            return []
+        ws = wb[FIND_SHEET]
+        out = []
+        for row in range(FIND_FROM, FIND_TO + 1):
+            plate = plate_of(ws.cell(row, 3).value)
+            if not plate:
+                continue
+            if FIND_MARK in str(ws.cell(row, 4).value or ""):
+                out.append(plate)
+        return out
+    finally:
+        wb.close()
+
+
+def checklist_cars(path=None, date=None):
+    """오늘 밤 아직 찾아다녀야 할 차들. (목록, 헤아린 것) 을 돌려준다.
+
+    바탕은 '차량및키확인' 의 "차찾아" 이고, 거기서 '차고지참고' 의 휴차를 또 뺀다.
+
+    2026-10-20: 전에는 내일 운행차량(C열)을 통째로 내려보냈다. 그래서 2회차 인쇄에서
+    '아직 못 본 차' 가 백 대 넘게 떴다 — 1차고지에 서 있는 차도, 신차고지 1차에
+    적은 차도, 내일 안 나가는 휴차도 전부 섞여 있었다. 한두 대만 남아야 맞다.
+    """
+    path = path or find_excel(date or target_date())
+    찾을것 = pending_cars(path)
+    휴차 = resting_cars(path)
+    남은것 = [p for p in 찾을것 if p not in 휴차]
+    헤아림 = {
+        "운행": len(scheduled_cars(path)),
+        "차찾아": len(찾을것),
+        "휴차": len(휴차),
+        "휴차뺌": len(찾을것) - len(남은것),
+        "남은것": len(남은것),
+    }
+    return 남은것, 헤아림
 
 
 def print_ops(path, yard="new"):

@@ -448,9 +448,13 @@ def handle(req, log, notify=None):
     now = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
     kind = req.get("what", "paper")
     what = {"excel": "운영관리 엑셀", "pull": "엑셀에서 가져오기",
-            "final": "최종 인쇄"}.get(kind, "종이 인쇄")
+            "final": "최종 인쇄", "check": "점검 대상 다시 세기"}.get(kind, "종이 인쇄")
     try:
-        if kind == "pull":
+        if kind == "check":
+            # 2회차를 시작할 때 폰이 조용히 부른다. 인쇄도 입력도 하지 않고,
+            # 지금 엑셀에 적힌 것만으로 '아직 찾을 차' 를 다시 세어 내려보낸다.
+            state, msg = "done", "다시 셈"
+        elif kind == "pull":
             import ops_fill
             yard = req.get("yard", "old")
             entries = ops_fill.read_board(yard, log=log)
@@ -482,30 +486,46 @@ def handle(req, log, notify=None):
     except Exception as e:                    # 프린터·엑셀 오류도 폰에 그대로 알린다
         state, msg = "fail", str(e)
     log(f"{'🖨' if state == 'done' else '⚠'} [순회판] 폰 요청({what}) — {msg}")
-    write_status({"id": req["id"], "state": state, "msg": msg, "at": now()})
+    # 'check' 는 폰이 2회차를 시작할 때 조용히 부르는 것이다. status.json 을 건드리면
+    # 사람이 기다리고 있는 인쇄 결과를 덮어쓰므로, 그것만 적지 않는다.
+    if kind != "check":
+        write_status({"id": req["id"], "state": state, "msg": msg, "at": now()})
     if state == "done":
         push_checklist(req, log)
-    if notify:
+    if notify and kind != "check":
         notify(state == "done", f"{what} — {msg}")
 
 
 def push_checklist(req, log):
-    """오늘 점검해야 할 차 목록을 폰에 내려보낸다 (inbox/checklist.json).
+    """오늘 밤 아직 찾아다녀야 할 차 목록을 폰에 내려보낸다 (inbox/checklist.json).
 
     폰은 이것과 제가 적은 판을 견주어, 2회차를 도는 동안 "아직 못 본 차" 를 센다.
+
+    2026-10-20: 전에는 내일 운행차량을 통째로(134대) 내려보내서, 2회차 인쇄에서
+    '못 본 차' 가 백 대 넘게 떴다. 지금은 엑셀 자신의 "차찾아" 를 바탕으로 한다 —
+    1차고지에서 본 차도, 신차고지 1차에 적은 차도, 내일 안 나가는 휴차도 빠진 목록이다.
     """
     try:
         import ops_fill
         date = datetime.date.fromisoformat(req["date"]) + datetime.timedelta(days=1)
-        cars = ops_fill.scheduled_cars(date=date)
-        if not cars:
+        cars, 헤아림 = ops_fill.checklist_cars(date=date)
+        if not 헤아림["운행"]:
+            return                            # 시트를 못 읽은 것이다 — 빈 목록을 내려보내지 않는다
+        if 헤아림["차찾아"] >= 헤아림["운행"]:
+            # 한 대도 못 찾았다 = 고정차고지_입력이 아직 비어 있다는 뜻이다.
+            # (1차를 엑셀로 보내기 전에 2회차를 누른 경우) 그 134대를 내려보내면
+            # 애써 줄여 둔 목록을 도로 덮어쓰므로, 적기 전에는 그냥 두고 나간다.
+            log(f"⏭ [순회판] 아직 엑셀에 적힌 것이 없어 점검 대상을 그대로 둠 "
+                f"(운행 {헤아림['운행']}대 전부가 차찾아)")
             return
         write_file("inbox/checklist.json", {
             "id": req["id"], "date": req["date"], "yard": req.get("yard", "new"),
             "at": datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z"),
             "cars": cars,
         }, f"{req['date']} 점검 대상 {len(cars)}대")
-        log(f"📋 [순회판] 점검 대상 {len(cars)}대를 폰에 내려보냄")
+        뺀말 = f" → 휴차 {헤아림['휴차뺌']}대 뺌" if 헤아림["휴차뺌"] else ""
+        log(f"📋 [순회판] 점검 대상 {len(cars)}대를 폰에 내려보냄 "
+            f"(내일 운행 {헤아림['운행']}대 → 차찾아 {헤아림['차찾아']}대{뺀말})")
     except Exception as e:
         log(f"⚠ [순회판] 점검 대상을 내려보내지 못함 — {e}")
 

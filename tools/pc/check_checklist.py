@@ -27,12 +27,30 @@ def eq(got, want, label):
         print(f"  FAIL {label}\n       기대 {want!r}\n       실제 {got!r}")
 
 
-print("▶ 엑셀에서 점검 대상을 읽는다")
+print("▶ 엑셀에서 내일 운행차량을 읽는다")
 real = ops_fill.find_excel(datetime.date(2026, 10, 10))
-cars = ops_fill.scheduled_cars(real)
-eq(len(cars) > 50, True, f"내일 운행차량을 읽는다 ({len(cars)}대)")
-eq(all(c.isdigit() and len(c) == 4 for c in cars), True, "모두 네 자리 번호")
-eq(len(cars) == len(set(cars)) or True, True, "목록 그대로 (중복은 엑셀이 정한다)")
+운행 = ops_fill.scheduled_cars(real)
+eq(len(운행) > 50, True, f"내일 운행차량을 읽는다 ({len(운행)}대)")
+eq(all(c.isdigit() and len(c) == 4 for c in 운행), True, "모두 네 자리 번호")
+
+print("▶ 그 가운데 아직 못 찾은 차만 추린다")
+# 이것이 2026-10-20 에 고친 핵심이다. 전에는 운행차량을 통째로 내려보내서
+# 2회차 인쇄에 '못 본 차' 가 백 대 넘게 떴다. 한두 대만 남아야 맞다.
+찾을것 = ops_fill.pending_cars(real)
+eq(set(찾을것) <= set(운행), True, "차찾아는 운행차량 안에서 나온다")
+eq(len(찾을것) < len(운행), True, f"운행 {len(운행)}대보다 적다 (차찾아 {len(찾을것)}대)")
+
+휴차 = ops_fill.resting_cars(real)
+eq(len(휴차) > 10, True, f"차고지참고에서 휴차를 읽는다 ({len(휴차)}대)")
+eq(all(c.isdigit() and len(c) == 4 for c in 휴차), True, "휴차도 모두 네 자리 번호")
+
+cars, 헤아림 = ops_fill.checklist_cars(real)
+eq(set(cars) <= set(찾을것), True, "점검 목록은 차찾아에서만 나온다")
+eq(set(cars) & 휴차, set(), "휴차는 한 대도 들어 있지 않다")
+eq(헤아림["운행"], len(운행), "헤아림에 운행 대수가 맞게 들어간다")
+eq(헤아림["차찾아"] - 헤아림["휴차뺌"], len(cars), "차찾아에서 휴차를 뺀 수가 목록 길이")
+eq(len(cars) < len(운행) / 2, True,
+   f"옛 방식({len(운행)}대)보다 확 줄었다 (지금 {len(cars)}대)")
 
 print("▶ 그 목록을 우편함에 올린다")
 box = tempfile.mkdtemp(prefix="check-")
@@ -60,17 +78,30 @@ got = inbox.read("inbox/checklist.json")
 eq(got is not None, True, "checklist.json 이 올라갔다")
 eq(got["id"], "요청1", "그 요청의 것임을 적는다")
 eq(got["date"], "2026-10-09", "근무일을 적는다")
-eq(got["cars"], cars, "엑셀에서 읽은 그대로")
+eq(got["cars"], cars, "추려 낸 목록 그대로 (운행차량 전부가 아니다)")
+eq(len(got["cars"]) < len(운행), True,
+   f"폰에 내려간 것은 {len(got['cars'])}대 — 옛 방식이면 {len(운행)}대였다")
 eq(got["at"].endswith("Z"), True, "시각은 Z 로 끝난다 (폰과 같은 모양)")
 
+print("▶ 아직 엑셀에 적기 전이면 애써 줄인 목록을 덮지 않는다")
+# 2026-10-21 자 파일은 아직 아무것도 안 적혀 있어 134대가 전부 '차찾아' 로 나온다.
+# 그때 2회차를 누르면(= 이 호출) 그 134대를 내려보내서는 안 된다.
+logs.clear()
+inbox.push_checklist({"id": "요청2", "date": "2026-10-20", "yard": "new"}, logs.append)
+inbox.pull()
+그대로 = inbox.read("inbox/checklist.json")
+eq(그대로["id"], "요청1", "앞서 내려간 목록이 그대로 남아 있다")
+eq(any("아직 엑셀에 적힌 것이 없어" in s for s in logs), True, "그 까닭을 기록에 남긴다")
+
 print("▶ 폰이 하는 셈 (여기서도 같은 셈을 해 본다)")
-board = {"1": {"plate": cars[0], "status": "filled"},
-         "2": {"plate": cars[1], "status": "filled"},
+목록 = ["1111", "2222", "3333"]
+board = {"1": {"plate": "1111", "status": "filled"},
+         "2": {"plate": "2222", "status": "filled"},
          "3": {"plate": None, "status": "vacant"}}
 seen = {e["plate"] for e in board.values() if e.get("status") == "filled" and e.get("plate")}
-miss = [c for c in got["cars"] if c not in seen]
-eq(len(miss), len(cars) - 2, "적은 두 대만 빠지고 나머지가 '못 본 차'")
-eq(cars[0] in miss, False, "적은 차는 목록에서 빠진다")
+miss = [c for c in 목록 if c not in seen]
+eq(miss, ["3333"], "적은 두 대는 빠지고 안 적은 한 대만 '못 본 차'")
+eq(len([c for c in [] if c not in seen]), 0, "목록이 비면 못 본 차도 없다")
 
 shutil.rmtree(box, ignore_errors=True)
 print(f"\n통과 {ok} / 실패 {fail}")

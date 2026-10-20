@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610150156';
-import { YARD_OLD } from './yard-old-data.js?v=202610150156';
-import { BUILD } from './build.js?v=202610150156';
-import { toKoreanSino, announceText } from './plate.js?v=202610150156';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610150156';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610202211';
+import { YARD_OLD } from './yard-old-data.js?v=202610202211';
+import { BUILD } from './build.js?v=202610202211';
+import { toKoreanSino, announceText } from './plate.js?v=202610202211';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610202211';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610150156';
-import { createSync, getToken, setToken } from './sync.js?v=202610150156';
+} from './store.js?v=202610202211';
+import { createSync, getToken, setToken } from './sync.js?v=202610202211';
 
 // ---------------------------------------------------------------- 상태
 
@@ -522,7 +522,8 @@ function loadCheck() {
 /** 점검 대상 가운데 아직 판에 없는 차들 */
 function missingCars() {
   const list = loadCheck();
-  if (!list || !list.cars || !list.cars.length) return null;
+  // 빈 목록도 뜻이 있다 — "이제 찾을 차가 없다" 는 말이므로 감추지 않는다.
+  if (!list || !Array.isArray(list.cars)) return null;
   const seen = new Set();
   for (const e of Object.values(session.entries)) {
     if (e && e.status === 'filled' && e.plate) seen.add(String(e.plate));
@@ -546,7 +547,9 @@ function renderMissing() {
   line.hidden = false;
   if (!got.miss.length) {
     line.className = 'print-miss ok';
-    line.textContent = `점검 대상 ${got.all.length}대 — 모두 확인했습니다`;
+    line.textContent = got.all.length
+      ? `점검 대상 ${got.all.length}대 — 모두 확인했습니다`
+      : '찾아다닐 차가 없습니다';
   } else {
     line.className = 'print-miss no';
     const head = got.miss.slice(0, 12).join(', ');
@@ -563,6 +566,29 @@ async function fetchCheck() {
   if (!got || got.date !== session.date) return;
   localStorage.setItem(CHECK_KEY(), JSON.stringify(got));
   renderMissing();
+}
+
+/**
+ * 2회차를 시작할 때 뒤에서 조용히 '아직 찾을 차' 를 다시 받아 온다.
+ *
+ * 1차고지에서 본 차도, 신차고지 1차에 적은 차도 엑셀에 이미 들어가 있으므로,
+ * 그 시점에 다시 세면 목록이 한두 대로 줄어든다. 화면에는 아무것도 띄우지 않는다 —
+ * 주머니에 넣고 걷는 중이고, 결과는 [못 봄] 배지에 그냥 반영된다.
+ */
+async function refreshCheck() {
+  if (!getToken()) return;
+  let id = null;
+  try { id = await sync.requestCheck(); } catch (_) { return; }   // 안 되면 전에 받은 목록 그대로
+  for (let i = 0; i < 12; i += 1) {                               // 2.5초씩 30초까지만 기다린다
+    await new Promise((r) => setTimeout(r, 2500));
+    let got = null;
+    try { got = await sync.readChecklist(); } catch (_) { continue; }
+    if (got && got.id === id && got.date === session.date) {
+      localStorage.setItem(CHECK_KEY(), JSON.stringify(got));
+      renderMissing();
+      return;
+    }
+  }
 }
 
 /** 커서가 선 자리를 읽어 준다 (무엇을 읽을지는 plate.js 의 announceText 가 정한다) */
@@ -977,6 +1003,8 @@ function switchRound(next) {
   renderRound();
   repaintAll();
   renderHud();
+
+  if (round === 2) refreshCheck();   // 뒤에서 '아직 찾을 차' 를 다시 받아 온다
 
   note(round === 2
     ? `2회차 확인 — ${spotName(cursor)}번부터 한 칸씩 (채울 칸 ${openCount()})`

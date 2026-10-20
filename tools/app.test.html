@@ -409,6 +409,66 @@ log('▶ 다 봤을 때');
   eq(a.$('printMiss').textContent.includes('모두 확인'), true, '모두 확인했다고 적는다');
 }
 
+// ── 12-3) 2회차를 시작하면 '아직 찾을 차' 를 뒤에서 다시 받아 온다
+// 1차고지에서 본 차도 신차고지 1차에 적은 차도 엑셀에 이미 들어가 있으므로,
+// 그 시점에 PC 가 다시 세면 목록이 한두 대로 줄어든다.
+log('▶ 2회차 시작 — 점검 대상 다시 받기');
+{
+  const entries = {};
+  for (let n = 1; n <= 3; n++) entries[n] = { plate: String(1500 + n), status: 'filled', round: 1 };
+  seed('new', entries, 1);
+  localStorage.setItem('busyard:ghtoken', '시험토큰');
+  localStorage.setItem(`busyard:check:${DATE}`, JSON.stringify({
+    id: 'c1', date: DATE, yard: 'new', cars: ['1501', '1502', '1503', '1507', '1508', '1509'],
+  }));
+  const a = await app();
+  eq(a.$('missBadge').textContent.trim(), '3', '처음엔 세 대가 남아 있다');
+
+  const real = a.w.fetch;
+  let 부탁 = null;
+  a.w.fetch = (url, opt) => {
+    const u = String(url);
+    if (u.includes('print.json') && opt && opt.method === 'PUT') {
+      부탁 = JSON.parse(a.w.atob(JSON.parse(opt.body).content));
+      return Promise.resolve(new a.w.Response(JSON.stringify({ content: { sha: 's1' } }), { status: 200 }));
+    }
+    if (u.includes('checklist.json') && 부탁) {
+      // PC 가 엑셀을 다시 세어 한 대로 줄여 주었다
+      return Promise.resolve(new a.w.Response(JSON.stringify({
+        id: 부탁.id, date: DATE, yard: 'new', cars: ['1509'],
+      }), { status: 200 }));
+    }
+    if (u.includes('api.github.com')) return Promise.resolve(new a.w.Response('', { status: 404 }));
+    return real(url, opt);
+  };
+
+  a.$('btnRound').click();
+  await until(() => 부탁 !== null);
+  eq(부탁 && 부탁.what, 'check', "2회차를 누르면 PC 에 'check' 를 부탁한다");
+  eq(부탁 && 부탁.yard, 'new', '어느 차고지인지 함께 보낸다');
+
+  await until(() => a.$('missBadge').textContent.trim() === '1');
+  eq(a.$('missBadge').textContent.trim(), '1', 'PC 가 줄여 준 목록으로 바뀐다 (3대 → 1대)');
+  a.$('btnMiss').click(); await wait(80);
+  eq(a.$('printMiss').textContent.includes('1509'), true, '남은 한 대만 적는다');
+  eq(a.$('printMsg').textContent.includes('check'), false, '화면에는 부탁한 티를 내지 않는다');
+}
+
+// ── 12-4) 찾을 차가 없으면 그렇게 말한다 (빈 목록도 뜻이 있다)
+log('▶ 찾을 차가 없을 때');
+{
+  seed('new', { 1: { plate: '1501', status: 'filled', round: 1 } }, 1);
+  localStorage.setItem(`busyard:check:${DATE}`, JSON.stringify({
+    id: 'c1', date: DATE, yard: 'new', cars: [],
+  }));
+  const a = await app();
+  eq(a.$('btnMiss').hidden, false, '빈 목록이라고 감추지 않는다');
+  eq(a.$('missBadge').textContent.trim(), '0', '0 대라고 센다');
+  eq(a.$('btnMiss').classList.contains('warn'), false, '빨간 표시는 없다');
+  a.$('btnMiss').click(); await wait(80);
+  eq(a.$('printMiss').textContent.includes('찾아다닐 차가 없습니다'), true, '찾을 차가 없다고 적는다');
+}
+
 // ── 13) 못 본 차가 있으면 보내기 전에 짚어 준다
 log('▶ 보내기 전 알림');
 {
