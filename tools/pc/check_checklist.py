@@ -84,14 +84,32 @@ eq(len(got["cars"]) < len(운행), True,
 eq(got["at"].endswith("Z"), True, "시각은 Z 로 끝난다 (폰과 같은 모양)")
 
 print("▶ 아직 엑셀에 적기 전이면 애써 줄인 목록을 덮지 않는다")
-# 2026-10-21 자 파일은 아직 아무것도 안 적혀 있어 134대가 전부 '차찾아' 로 나온다.
-# 그때 2회차를 누르면(= 이 호출) 그 134대를 내려보내서는 안 된다.
+# 아직 아무것도 안 적힌 날은 운행차량 전부가 '차찾아' 로 나온다. 그때 2회차를 누르면
+# (= 이 호출) 그 전부를 내려보내서는 안 된다.
+# 그날의 실제 파일에 기대면 하루 지나 그 파일이 채워지는 순간 이 시험이 깨진다
+# (2026-10-22 에 실제로 깨졌다). 그래서 그 상황을 지어내서 잰다.
 logs.clear()
-inbox.push_checklist({"id": "요청2", "date": "2026-10-20", "yard": "new"}, logs.append)
+진짜세기 = ops_fill.checklist_cars
+ops_fill.checklist_cars = lambda **k: (운행, {"운행": len(운행), "차찾아": len(운행),
+                                            "휴차": 0, "휴차뺌": 0, "남은것": len(운행)})
+try:
+    inbox.push_checklist({"id": "요청2", "date": "2026-10-20", "yard": "new"}, logs.append)
+finally:
+    ops_fill.checklist_cars = 진짜세기
 inbox.pull()
 그대로 = inbox.read("inbox/checklist.json")
 eq(그대로["id"], "요청1", "앞서 내려간 목록이 그대로 남아 있다")
 eq(any("아직 엑셀에 적힌 것이 없어" in s for s in logs), True, "그 까닭을 기록에 남긴다")
+
+print("▶ 시트를 못 읽었을 때도 덮지 않는다")
+logs.clear()
+ops_fill.checklist_cars = lambda **k: ([], {"운행": 0, "차찾아": 0, "휴차": 0, "휴차뺌": 0, "남은것": 0})
+try:
+    inbox.push_checklist({"id": "요청3", "date": "2026-10-20", "yard": "new"}, logs.append)
+finally:
+    ops_fill.checklist_cars = 진짜세기
+inbox.pull()
+eq(inbox.read("inbox/checklist.json")["id"], "요청1", "읽지 못했으면 빈 목록을 내려보내지 않는다")
 
 print("▶ 폰이 하는 셈 (여기서도 같은 셈을 해 본다)")
 목록 = ["1111", "2222", "3333"]

@@ -40,6 +40,61 @@ eq(agent.decide(mk("pull"), None, now), "skip", "가져오기도 사무실 PC �
 eq(agent.decide(mk("excel", i="a"), "a", now), "skip", "같은 요청을 두 번 적지 않는다")
 eq(agent.decide(mk("excel", mins=11), None, now), "stale", "10분이 지난 요청은 건너뛴다")
 eq(agent.decide(None, None, now), "skip", "요청이 없으면 아무것도")
+eq(agent.decide(mk("save"), None, now), "write", "앱을 열 때의 '엑셀 저장' 부탁도 우리 몫")
+
+print("▶ 앱을 열 때의 '엑셀 한 번 저장'")
+# 열려 있지 않다 / 읽기 전용 / 고친 것이 없다 / 고친 것이 있다 — 네 가지
+진짜찾기, 진짜열린것 = agent.find_excel, agent.running_workbook
+agent.find_excel = lambda d: r"Z:\거짓\1021 운영관리.xlsx"
+
+
+class 가짜wb:
+    def __init__(self, read_only=False, saved=True):
+        self.ReadOnly, self.Saved, self.저장횟수 = read_only, saved, 0
+
+    def Save(self):
+        self.저장횟수 += 1
+        self.Saved = True
+
+
+try:
+    agent.running_workbook = lambda p: None
+    eq(agent.save_ops()[0], False, "열려 있지 않으면 저장할 것이 없다")
+
+    wb = 가짜wb(read_only=True, saved=False)
+    agent.running_workbook = lambda p: wb
+    eq(agent.save_ops()[0], False, "읽기 전용이면 저장하지 않는다")
+    eq(wb.저장횟수, 0, "읽기 전용에는 손대지 않는다")
+
+    wb = 가짜wb(saved=True)
+    agent.running_workbook = lambda p: wb
+    eq(agent.save_ops()[0], False, "고친 것이 없으면 그대로 둔다")
+    eq(wb.저장횟수, 0, "공연히 파일 시각을 바꾸지 않는다")
+
+    wb = 가짜wb(saved=False)
+    agent.running_workbook = lambda p: wb
+    된것, 말 = agent.save_ops()
+    eq(된것, True, "고친 것이 있으면 저장한다")
+    eq(wb.저장횟수, 1, "꼭 한 번만 저장한다")
+    eq("운영관리" in 말, True, "무엇을 저장했는지 말해 준다")
+
+    # 저장 부탁에는 창도 띄우지 않고 Z: 에 쪽지도 놓지 않는다
+    띄운것, 놓은것 = [], []
+    진짜알림, 진짜쪽지 = agent.notice, agent.report
+    agent.notice = lambda *a, **k: 띄운것.append(a)
+    agent.report = lambda *a, **k: 놓은것.append(a)
+    wb = 가짜wb(saved=False)
+    agent.running_workbook = lambda p: wb
+    try:
+        agent.handle({"id": "s1", "what": "save", "date": "2026-10-01",
+                      "at": now.isoformat().replace("+00:00", "Z")})
+    finally:
+        agent.notice, agent.report = 진짜알림, 진짜쪽지
+    eq(wb.저장횟수, 1, "부탁을 받으면 실제로 저장한다")
+    eq(띄운것, [], "A 컴퓨터에 알림 창을 띄우지 않는다")
+    eq(놓은것, [], "아무도 안 기다리는 일이라 쪽지도 놓지 않는다")
+finally:
+    agent.find_excel, agent.running_workbook = 진짜찾기, 진짜열린것
 
 print("▶ 얼마나 자주 보는가")
 eq(agent.poll_sec(datetime.datetime(2026, 10, 2, 1, 30)), 3, "새벽 1시 순찰 중에는 3초마다 (누르면 곧 받는다)")

@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610202211';
-import { YARD_OLD } from './yard-old-data.js?v=202610202211';
-import { BUILD } from './build.js?v=202610202211';
-import { toKoreanSino, announceText } from './plate.js?v=202610202211';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610202211';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610220035';
+import { YARD_OLD } from './yard-old-data.js?v=202610220035';
+import { BUILD } from './build.js?v=202610220035';
+import { toKoreanSino, announceText } from './plate.js?v=202610220035';
+import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610220035';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610202211';
-import { createSync, getToken, setToken } from './sync.js?v=202610202211';
+} from './store.js?v=202610220035';
+import { createSync, getToken, setToken } from './sync.js?v=202610220035';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1865,6 +1865,26 @@ function init() {
   checkSent({ quiet: true });   // 지난번에 보내 둔 것이 끝났으면 그 결과를 보여 준다
   renderMissing();
   fetchCheck();                 // 1차 순찰 때 PC 가 내려보낸 "점검 대상" 을 받아 둔다
+  // A 컴퓨터에 '엑셀 한 번 저장' 을 조용히 부탁한다. 앱이 뜨는 동안에는 판 올리기·
+  // 점검 대상 받기가 먼저라, 그것들이 끝날 참을 주고 뒤늦게 보낸다.
+  setTimeout(askSaveOnce, 2000);
+}
+
+/**
+ * 앱을 열면 A 컴퓨터에 '열어 둔 엑셀을 한 번 저장해 두라' 고 뒤에서 부탁한다.
+ *
+ * 사람이 A 컴퓨터에서 엑셀을 손으로 고쳐 두고 저장하지 않았으면, 사무실 PC 가 그
+ * 파일을 읽을 때 옛 값을 본다 (저장될 때 함께 적히는 수식 결과를 읽기 때문이다).
+ * 차찾아·점검 대상이 그 값을 쓰므로 순찰을 시작하는 참에 한 번 맞춰 둔다.
+ *
+ * 화면에는 아무것도 띄우지 않고, A 컴퓨터에도 창이 뜨지 않는다. 안 되면 그냥 넘어간다.
+ */
+function askSaveOnce() {
+  if (!getToken()) return;
+  // 지난번에 보내 둔 것의 결과를 아직 기다리는 중이면 건드리지 않는다 —
+  // 같은 우편함(print.json)을 덮어써서 그 결과를 잃지 않게.
+  if (loadSent()) return;
+  sync.requestSave().catch(() => {});
 }
 
 init();

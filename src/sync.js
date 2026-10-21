@@ -40,6 +40,7 @@ export function toBase64(text) {
  */
 export function createSync({ getSession, onStatus }) {
   let timer = null;
+  let lastRequestAt = 0;   // 사람이 마지막으로 부탁한 때 (곁다리 저장 부탁이 덮지 않게)
   const shaByName = {};   // 같은 파일을 덮어쓰려면 지금 파일의 sha 가 필요하다
 
   const headers = () => ({ Authorization: `Bearer ${getToken()}`, Accept: 'application/vnd.github+json' });
@@ -132,6 +133,7 @@ export function createSync({ getSession, onStatus }) {
       const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       await put('print.json', { id, date: session.date, at: new Date().toISOString(), what, yard: session.yard },
         `${session.date} ${{ excel: '엑셀 입력', pull: '가져오기' }[what] || '인쇄'} 요청`);
+      lastRequestAt = Date.now();
       return id;
     },
 
@@ -145,6 +147,24 @@ export function createSync({ getSession, onStatus }) {
       const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       await put('print.json', { id, date: session.date, at: new Date().toISOString(), what: 'check', yard: session.yard },
         `${session.date} 점검 대상 다시 세기`);
+      lastRequestAt = Date.now();
+      return id;
+    },
+
+    /**
+     * 앱을 열 때 한 번 — A 컴퓨터에 '열어 둔 엑셀을 한 번 저장해 두라' 고 조용히 부탁한다.
+     * A 컴퓨터는 창을 띄우지 않고, 사무실 PC 는 이 부탁을 그냥 넘긴다.
+     * 판은 올리지 않는다 (저장만 부탁하는 것이지 적는 것이 아니다).
+     */
+    async requestSave() {
+      // 우편함(print.json)은 한 칸뿐이다. 사람이 방금 부탁한 것(인쇄·엑셀·점검)을
+      // 이 곁다리 부탁이 덮어 그 결과를 잃게 해서는 안 된다. 그럴 참이면 그냥 거른다 —
+      // 저장은 해 두면 좋은 것이지 꼭 해야 하는 것이 아니다.
+      if (Date.now() - lastRequestAt < 15000) return null;
+      const session = getSession();
+      const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+      await put('print.json', { id, date: session.date, at: new Date().toISOString(), what: 'save', yard: session.yard },
+        `${session.date} A 컴퓨터 엑셀 저장 부탁`);
       return id;
     },
 

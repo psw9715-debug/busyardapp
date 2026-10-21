@@ -1,11 +1,11 @@
-; 차고지 받아쓰기 — 설치 프로그램 (Inno Setup)
+﻿; 차고지 받아쓰기 — 설치 프로그램 (Inno Setup)
 ;   컴파일:  "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
 ;
 ; 받는 쪽(A 컴퓨터)은 이 설치 파일 하나만 누르면 된다.
 ; 파이썬도, pywin32 도, 따로 설치할 것이 없다 — exe 안에 전부 들어 있다.
 
 #define AppName "차고지 받아쓰기"
-#define AppVer "1.0.0"
+#define AppVer "1.1.0"
 #define AppExe "BusyardAgent.exe"
 
 [Setup]

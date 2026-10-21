@@ -448,7 +448,16 @@ def handle(req, log, notify=None):
     now = lambda: datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")  # noqa: E731
     kind = req.get("what", "paper")
     what = {"excel": "운영관리 엑셀", "pull": "엑셀에서 가져오기",
-            "final": "최종 인쇄", "check": "점검 대상 다시 세기"}.get(kind, "종이 인쇄")
+            "final": "최종 인쇄", "check": "점검 대상 다시 세기",
+            "save": "A 컴퓨터 엑셀 저장"}.get(kind, "종이 인쇄")
+
+    if kind == "save":
+        # 폰이 차고지 앱을 열면서 A 컴퓨터에 '엑셀 한 번 저장' 을 부탁한 것이다.
+        # 이 PC 는 할 일이 없다 — 종이로 뽑아서도 안 되고(그것이 기본 갈래다),
+        # status.json 을 건드려서도 안 된다(사람이 기다리는 결과를 덮는다).
+        log("💾 [순회판] 폰 요청(A 컴퓨터 엑셀 저장) — A 컴퓨터 몫이라 넘깁니다")
+        return
+
     try:
         if kind == "check":
             # 2회차를 시작할 때 폰이 조용히 부른다. 인쇄도 입력도 하지 않고,

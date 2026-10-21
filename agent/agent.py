@@ -760,7 +760,7 @@ def decide(req, done, now):
     """'write' 적는다 / 'skip' 이미 했거나 우리 일이 아니다 / 'stale' 너무 오래된 요청"""
     if not req or req.get("id") == done:
         return "skip"
-    if req.get("what") not in ("excel", "final"):
+    if req.get("what") not in ("excel", "final", "save"):
         return "skip"            # 종이 인쇄와 가져오기는 B(사무실 PC)가 한다
     at = datetime.datetime.fromisoformat(req["at"].replace("Z", "+00:00"))
     return "stale" if now - at > STALE else "write"
@@ -772,6 +772,16 @@ def handle(req):
     [최종 인쇄] 도 적는 것은 똑같다. 종이로 뽑는 것은 프린터가 걸린 사무실 PC 몫이라,
     그 쪽지는 사무실 PC 가 인쇄까지 마친 뒤에 폰으로 전해 준다.
     """
+    if req.get("what") == "save":
+        # 폰에서 차고지 앱을 연 참에 '엑셀 한 번 저장' 만 부탁받은 것이다.
+        # 창도 띄우지 않고, Z: 에 쪽지도 놓지 않는다 (아무도 기다리지 않는 일이다).
+        try:
+            _, msg = save_ops()
+            log(f"💾 {msg}")
+        except Exception as e:
+            log(f"⚠ 저장하지 못했습니다 — {type(e).__name__}: {e}")
+        return
+
     yard = req.get("yard", "new")
     try:
         date = datetime.date.fromisoformat(req["date"]) + datetime.timedelta(days=1)
@@ -897,6 +907,34 @@ def ask_close(name, secs=CLOSE_ASK_SEC):
         return answer != 2                                 # 2 = 취소. 확인(1)·시간지남(32000)은 닫는다
     except Exception:
         return True
+
+
+def save_ops(now=None):
+    """열어 둔 운영관리 엑셀을 조용히 한 번 저장한다. (저장했나, 한 마디)
+
+    폰에서 차고지 앱을 열면 뒤에서 이것을 한 번 부른다. 사람이 엑셀을 열어 두고
+    손으로 고친 것이 아직 저장돼 있지 않으면, 사무실 PC 가 그 파일을 읽을 때 옛 값을
+    본다 — openpyxl 은 저장될 때 함께 적히는 '수식 결과' 를 읽기 때문이다.
+    차찾아·점검 대상이 그 값을 쓰므로, 순찰을 시작하는 참에 한 번 맞춰 둔다.
+
+    **아무 창도 띄우지 않는다.** A 컴퓨터는 사람이 쓰고 있는 자리라, 알림이 앞으로
+    나오면 자판이 그리로 가 엑셀 칸에 글자가 잘못 들어간다.
+    고친 것이 없으면 저장하지도 않는다 — 공연히 파일 시각만 바꾸지 않게.
+    """
+    now = now or datetime.datetime.now()
+    path = find_excel(ops_date(now))
+
+    import pythoncom
+    pythoncom.CoInitialize()
+    wb = running_workbook(path)
+    if wb is None:
+        return False, "열려 있지 않아 저장할 것이 없음"
+    if wb.ReadOnly:
+        return False, "읽기 전용으로 열려 있어 저장하지 않음"
+    if wb.Saved:
+        return False, "고친 것이 없어 그대로 둠"
+    wb.Save()
+    return True, f"{os.path.basename(path)} 저장함"
 
 
 def close_ops(now=None, ask=ask_close):

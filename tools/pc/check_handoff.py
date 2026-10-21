@@ -91,5 +91,21 @@ inbox.handle({"id": "요청5", "what": "excel", "date": "2026-10-01", "yard": "n
 eq(called, [], "못 했다는데 내가 덮어 적지 않는다")
 eq((sent["state"], sent["msg"]), ("fail", "A 컴퓨터: Z: 를 찾을 수 없습니다"), "실패 이유가 폰까지 간다")
 
+print("▶ 앱을 열 때의 '엑셀 저장' 부탁은 사무실 PC 가 그냥 넘긴다")
+# 이것을 안 막으면 기본 갈래로 떨어져 **종이가 한 장 나온다**. 상태도 덮으면 안 된다.
+called.clear(); sent.clear()
+찍은것 = []
+진짜뽑기 = inbox.save_and_print
+inbox.save_and_print = lambda *a, **k: 찍은것.append(a) or "뽑음"
+적은것 = []
+try:
+    inbox.handle({"id": "저장1", "what": "save", "date": "2026-10-01", "yard": "new"}, 적은것.append)
+finally:
+    inbox.save_and_print = 진짜뽑기
+eq(찍은것, [], "종이로 뽑지 않는다")
+eq(called, [], "엑셀에 적지도 않는다")
+eq(sent, {}, "status.json 을 건드리지 않는다 (기다리는 결과를 덮지 않게)")
+eq(any("A 컴퓨터 몫" in s for s in 적은것), True, "넘겼다고 기록에 남긴다")
+
 print(f"\n통과 {ok} / 실패 {fail}")
 sys.exit(1 if fail else 0)
