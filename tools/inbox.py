@@ -394,6 +394,35 @@ def _save_last(id_):
         f.write(id_)
 
 
+def hand_to_agent(req, log):
+    """폰의 요청을 A 컴퓨터에 **바로** 건넨다 (Z: 의 요청.json).
+
+    폰이 올린 것을 A 가 raw.githubusercontent.com 에서 보기까지 실제로 244초가
+    걸렸다 — CDN 이 옛 것을 그대로 내주기 때문이고, 3초마다 두드려도 소용이 없다.
+    반면 이 PC 는 git 으로 받으므로 몇 초면 본다. 그러니 이 PC 가 본 것을 같은
+    랜의 Z: 에 그대로 놓아 주면 A 는 그 자리에서 집어 간다.
+
+    판까지 함께 담는다 — A 가 바깥 망을 한 번도 타지 않게. 못 놓아도 그만이다
+    (A 는 예전처럼 raw 로도 보고 있고, 이 PC 가 대신 적는 길도 그대로다).
+    """
+    try:
+        import ops_fill
+        yard = req.get("yard", "new")
+        쪽지 = dict(req)
+        board = read(f"inbox/{req['date']}-{yard}.json")
+        if board is not None:
+            쪽지["board"] = board
+        os.makedirs(os.path.dirname(ops_fill.AGENT_REQUEST), exist_ok=True)
+        tmp = ops_fill.AGENT_REQUEST + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(쪽지, f, ensure_ascii=False)
+        os.replace(tmp, ops_fill.AGENT_REQUEST)     # 반만 쓰인 것을 A 가 읽지 않게
+        log(f"📤 [순회판] A 컴퓨터에 바로 건넴 ({req.get('what')}"
+            + (f", 판 {len(board.get('entries', {}))}자리" if board else ", 판 없음") + ")")
+    except Exception as e:
+        log(f"⚠ [순회판] A 컴퓨터에 바로 건네지 못함 — {e} (raw 로는 보입니다)")
+
+
 def agent_note(req_id):
     """A 컴퓨터(엑셀을 열어 둔 PC)가 Z: 에 놓아 둔 쪽지. 이 요청 것이 아니면 None.
 
@@ -456,7 +485,11 @@ def handle(req, log, notify=None):
         # 이 PC 는 할 일이 없다 — 종이로 뽑아서도 안 되고(그것이 기본 갈래다),
         # status.json 을 건드려서도 안 된다(사람이 기다리는 결과를 덮는다).
         log("💾 [순회판] 폰 요청(A 컴퓨터 엑셀 저장) — A 컴퓨터 몫이라 넘깁니다")
+        hand_to_agent(req, log)
         return
+
+    if kind in ("excel", "final"):
+        hand_to_agent(req, log)       # 기다리기 전에 먼저 건넨다 — 이것이 빠른 길이다
 
     try:
         if kind == "check":

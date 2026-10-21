@@ -5,7 +5,7 @@
 ; 파이썬도, pywin32 도, 따로 설치할 것이 없다 — exe 안에 전부 들어 있다.
 
 #define AppName "차고지 받아쓰기"
-#define AppVer "1.1.0"
+#define AppVer "1.2.0"
 #define AppExe "BusyardAgent.exe"
 
 [Setup]

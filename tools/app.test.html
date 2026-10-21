@@ -381,6 +381,38 @@ log('▶ 마지막 숫자가 안 잘린다');
   eq(a.$('hudSpot').textContent, 'B5-2', '넣고 나면 다음 자리로 간다');
 }
 
+// ── 11-5) 2회차에서는 엑셀에 넣으면서 인쇄까지 한 번에 간다
+// 2회차가 끝나면 어차피 인쇄를 한다. 따로 누르면 그 긴 길을 두 번 간다.
+log('▶ 2회차는 엑셀+인쇄 한 번에');
+{
+  for (const [회차, 바람] of [[2, 'final'], [1, 'excel']]) {
+    seed('new', { 1: { plate: '1501', status: 'filled', round: 1 } }, 회차);
+    localStorage.setItem('busyard:ghtoken', '시험토큰');
+    const a = await app();
+    const real = a.w.fetch;
+    let 보낸것 = null;
+    a.w.fetch = (url, opt) => {
+      const u = String(url);
+      if (opt && opt.method === 'PUT' && u.includes('api.github.com')) {
+        if (u.includes('print.json')) {
+          const 온것 = JSON.parse(a.w.atob(JSON.parse(opt.body).content));
+          if (온것.what !== 'save') 보낸것 = 온것;
+        }
+        // 판 올리기까지 받아 줘야 그 다음 길로 간다
+        return Promise.resolve(new a.w.Response(JSON.stringify({ content: { sha: 's1' } }), { status: 200 }));
+      }
+      if (u.includes('api.github.com')) return Promise.resolve(new a.w.Response('', { status: 404 }));
+      return real(url, opt);
+    };
+    a.$('btnPrint').click(); await wait(120);
+    const 이름 = a.$('printExcel').textContent;
+    eq(이름.includes('인쇄까지'), 회차 === 2, `${회차}회차 단추 이름 — "${이름}"`);
+    a.$('printExcel').click();
+    await until(() => 보낸것 !== null);
+    eq(보낸것 && 보낸것.what, 바람, `${회차}회차에서는 '${바람}' 로 보낸다`);
+  }
+}
+
 // ── 11-4) 2회차에도 CCTV·KEY 대상은 색이 남는다
 // 1회차 기록을 죽이는 규칙이 대상 색보다 세서, 정작 가져와야 할 차가 2회차에
 // 묻혀 보이지 않았다. 가기 전에 한 번 보고 가이드를 잡으려면 남아 있어야 한다.

@@ -21,6 +21,8 @@ agent.RESULT_FILE = agent.result_file()          # 아래 검사에서 들여다
 ops_fill.AGENT_RESULT = agent.result_file()
 # 진짜 Z: 의 "살아있음" 을 보지 않도록 시험용 자리로 돌려 둔다
 ops_fill.AGENT_ALIVE = os.path.join(_dir, "살아있음.json")
+# **진짜 Z: 의 '요청.json' 에 쓰면 살아 있는 A 에이전트가 가짜 요청을 집어 간다.**
+ops_fill.AGENT_REQUEST = os.path.join(_dir, "요청.json")
 agent.log = lambda m: None
 logs = []
 log = logs.append
@@ -90,6 +92,35 @@ agent.report({"id": "요청5", "what": "excel"}, "error", "A 컴퓨터: Z: 를 �
 inbox.handle({"id": "요청5", "what": "excel", "date": "2026-10-01", "yard": "new"}, log)
 eq(called, [], "못 했다는데 내가 덮어 적지 않는다")
 eq((sent["state"], sent["msg"]), ("fail", "A 컴퓨터: Z: 를 찾을 수 없습니다"), "실패 이유가 폰까지 간다")
+
+print("▶ 폰의 요청을 A 컴퓨터에 랜으로 바로 건넨다")
+# raw 는 CDN 이라 폰이 올린 것을 A 가 보기까지 244초가 걸렸다. 이 PC 는 git 으로
+# 받으므로 몇 초면 본다 — 그것을 같은 랜의 Z: 에 그대로 놓아 준다.
+진짜읽기 = inbox.read
+inbox.read = lambda p: ({"yard": "new", "entries": {"1": {"plate": "1501", "status": "filled"}}}
+                        if p.endswith("-new.json") else 진짜읽기(p))
+logs.clear()
+try:
+    inbox.hand_to_agent({"id": "빠른1", "what": "excel", "date": "2026-10-01", "yard": "new"}, log)
+finally:
+    inbox.read = 진짜읽기
+건넨것 = json.load(io.open(ops_fill.AGENT_REQUEST, encoding="utf-8"))
+eq(건넨것["id"], "빠른1", "요청 번호를 그대로 건넨다")
+eq(건넨것["what"], "excel", "무엇을 할지도")
+eq(건넨것["board"]["entries"]["1"]["plate"], "1501", "판까지 함께 담는다 — A 는 바깥 망을 안 탄다")
+eq(any("바로 건넴" in s for s in logs), True, "건넸다고 기록에 남긴다")
+
+print("▶ 건네지 못해도 하던 일은 그대로 간다")
+logs.clear()
+진짜자리 = ops_fill.AGENT_REQUEST
+ops_fill.AGENT_REQUEST = os.path.join(box, "없는폴더", "또없는폴더", "요청.json")
+try:
+    inbox.hand_to_agent({"id": "빠른2", "what": "excel", "date": "2026-10-01", "yard": "new"}, log)
+    eq(True, True, "터지지 않는다")
+except Exception as e:
+    eq(f"터졌다: {e}", "터지지 않는다", "터지지 않는다")
+finally:
+    ops_fill.AGENT_REQUEST = 진짜자리
 
 print("▶ 앱을 열 때의 '엑셀 저장' 부탁은 사무실 PC 가 그냥 넘긴다")
 # 이것을 안 막으면 기본 갈래로 떨어져 **종이가 한 장 나온다**. 상태도 덮으면 안 된다.

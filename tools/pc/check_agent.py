@@ -42,6 +42,62 @@ eq(agent.decide(mk("excel", mins=11), None, now), "stale", "10분이 지난 요�
 eq(agent.decide(None, None, now), "skip", "요청이 없으면 아무것도")
 eq(agent.decide(mk("save"), None, now), "write", "앱을 열 때의 '엑셀 저장' 부탁도 우리 몫")
 
+print("▶ 랜으로 건네받은 요청을 먼저 집는다")
+# raw 는 CDN 이라 폰이 올린 것이 보이기까지 244초가 걸렸다. 사무실 PC 가 같은 랜의
+# Z: 에 놓아 주면 그 자리에서 집어 간다.
+import io, tempfile  # noqa: E402
+칸 = tempfile.mkdtemp(prefix="agentreq-")
+# tick() 은 진짜 시각으로 '오래된 요청인가' 를 보므로 지금 시각을 쓴다
+지금 = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
+진짜자리 = agent.result_dir
+agent.result_dir = lambda: 칸
+뽑은것 = []
+진짜가져오기, 진짜처리 = agent.fetch, agent.handle
+agent.fetch = lambda name: 뽑은것.append(name) or {"id": "raw것", "what": "excel",
+                                                  "date": "2026-10-01", "yard": "new", "at": 지금}
+집은것 = []
+agent.handle = lambda req: 집은것.append(req)
+try:
+    eq(agent.local_request(), None, "놓인 것이 없으면 없다고 한다")
+
+    io.open(os.path.join(칸, "요청.json"), "w", encoding="utf-8").write(json.dumps({
+        "id": "랜것", "what": "excel", "date": "2026-10-01", "yard": "new",
+        "at": 지금,
+        "board": {"yard": "new", "entries": {"1": {"plate": "1501", "status": "filled"}}},
+    }, ensure_ascii=False))
+    agent.remember("아무것도아님")
+    agent.tick()
+    eq(len(집은것), 1, "한 번 집는다")
+    eq(집은것[0]["id"], "랜것", "raw 가 아니라 랜으로 건네받은 것을 집는다")
+    eq(뽑은것, [], "바깥 망(raw)을 아예 두드리지 않는다")
+    eq(집은것[0]["board"]["entries"]["1"]["plate"], "1501", "판도 함께 들어 있다")
+
+    # 지난 요청이 그대로 남아 있어도 바깥 길이 막히면 안 된다
+    집은것.clear(); 뽑은것.clear()
+    agent.remember("랜것")                 # 방금 그것은 이미 했다고 적어 둔다
+    agent.tick()
+    eq(뽑은것, ["print.json"], "이미 한 요청이 남아 있으면 raw 도 본다")
+    eq(집은것[0]["id"], "raw것", "그래서 새 요청을 놓치지 않는다")
+
+    os.remove(os.path.join(칸, "요청.json"))
+    집은것.clear(); 뽑은것.clear()
+    agent.remember("아무것도아님2")
+    agent.tick()
+    eq(뽑은것, ["print.json"], "랜에 없으면 예전처럼 raw 를 본다")
+    eq(집은것[0]["id"], "raw것", "그때는 raw 것을 집는다")
+finally:
+    agent.result_dir = 진짜자리
+    agent.fetch, agent.handle = 진짜가져오기, 진짜처리
+    shutil.rmtree(칸, ignore_errors=True)
+
+print("▶ 적는 동안 띄우는 안내는 한 줄이다")
+# 긴 장문은 읽지 않는다. 어느 차고지인지만 알면 된다.
+eq(agent.busy_text("old"), "구차고지 차량입력중 건들지 마세요", "구차고지일 때")
+eq(agent.busy_text("new"), "신차고지 차량입력중 건들지 마세요", "신차고지일 때")
+eq("\n" in agent.busy_text("new"), False, "줄바꿈 없는 한 줄")
+eq(len(agent.busy_text("new")) <= 30, True, "한눈에 들어오는 길이")
+eq(agent.busy_text("몰라").startswith("차고지"), True, "모르는 차고지도 말은 된다")
+
 print("▶ 앱을 열 때의 '엑셀 한 번 저장'")
 # 열려 있지 않다 / 읽기 전용 / 고친 것이 없다 / 고친 것이 있다 — 네 가지
 진짜찾기, 진짜열린것 = agent.find_excel, agent.running_workbook

@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610220136';
-import { YARD_OLD } from './yard-old-data.js?v=202610220136';
-import { BUILD } from './build.js?v=202610220136';
-import { toKoreanSino, announceText } from './plate.js?v=202610220136';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610220136';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610220232';
+import { YARD_OLD } from './yard-old-data.js?v=202610220232';
+import { BUILD } from './build.js?v=202610220232';
+import { toKoreanSino, announceText } from './plate.js?v=202610220232';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610220232';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610220136';
-import { createSync, getToken, setToken } from './sync.js?v=202610220136';
+} from './store.js?v=202610220232';
+import { createSync, getToken, setToken } from './sync.js?v=202610220232';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1328,6 +1328,11 @@ function openPrint() {
   if (!printing) printMsg(getToken() ? '' : '토큰이 없습니다 — [진단] → PC 전송에서 넣으세요',
     getToken() ? '' : 'no');
   renderMissing();
+  // 2회차에서는 엑셀에 넣으면서 인쇄까지 한 번에 간다. 단추 이름도 그렇게 적어
+  // 두 번 누를 일이 없게 한다.
+  $('printExcel').textContent = round === 2
+    ? '운영관리 엑셀에 넣고 인쇄까지'
+    : '운영관리 엑셀에 넣기';
   $('printSheet').hidden = false;
 }
 
@@ -1464,6 +1469,9 @@ async function checkSent({ quiet = false } = {}) {
 
 async function doPrint(what) {
   if (printing) return;   // 이미 보낸 것을 기다리는 중 — 두 번 하지 않는다
+  // 2회차가 끝나면 어차피 인쇄를 한다. 엑셀에 넣고 또 인쇄를 누르면 그 긴 길을
+  // 두 번 가는 셈이라, 2회차에서는 한 번에 넣고 뽑는다 ('final' 이 그 일을 한다).
+  if (what === 'excel' && round === 2) what = 'final';
   if (!getToken()) {
     printMsg('토큰이 없습니다 — [진단] → PC 전송에서 넣으세요', 'no');
     beep('error');

@@ -624,6 +624,18 @@ def warm_up(log=log):
         return False
 
 
+YARD_NAME = {"old": "구차고지", "new": "신차고지"}
+
+
+def busy_text(yard):
+    """적는 동안 A 컴퓨터에 띄울 한 줄.
+
+    긴 글은 읽지 않는다. 어느 차고지를 건드리는 중인지만 한 줄로 알리고,
+    다 적으면 저절로 닫힌다.
+    """
+    return f"{YARD_NAME.get(yard, '차고지')} 차량입력중 건들지 마세요"
+
+
 def write_board(board, path, log=log, found=None):
     """판을 그 엑셀에 적고 저장한다. (넣은 대수, 이미 열려 있었는가)
 
@@ -669,10 +681,9 @@ def write_board(board, path, log=log, found=None):
     told = None
     if was_open:
         # 누군가 이 엑셀을 보고 있다. 적는 동안 손이 멎도록 안내 창을 띄운다.
-        told = notice(f"{os.path.basename(path)}\n\n"
-                      "순회판 차량번호를 지금 받아 적고 있습니다.\n"
-                      "잠시 엑셀을 건드리지 말아 주세요.\n\n"
-                      "(다 적으면 저절로 닫힙니다)", 120, f"{APP_NAME} — 받아 적는 중")
+        # 긴 글은 읽지 않는다 — 한 줄로, 그리고 다 적으면 저절로 닫힌다.
+        # (적는 일 자체는 1~2초라, 30초면 넉넉하고도 남는다.)
+        told = notice(busy_text(yard), 30, APP_NAME)
 
     calc = None
     try:
@@ -785,7 +796,10 @@ def handle(req):
     yard = req.get("yard", "new")
     try:
         date = datetime.date.fromisoformat(req["date"]) + datetime.timedelta(days=1)
-        board = fetch(f"{req['date']}-{yard}.json")
+        # 사무실 PC 가 랜으로 건넸으면 판이 함께 들어 있다 — 바깥 망을 타지 않는다.
+        board = req.get("board")
+        if board is None:
+            board = fetch(f"{req['date']}-{yard}.json")
         if board is None:
             _etags.pop(f"{req['date']}-{yard}.json", None)  # 조건부 요청 때문에 비었을 수 있다
             board = fetch(f"{req['date']}-{yard}.json")
@@ -960,11 +974,9 @@ def close_ops(now=None, ask=ask_close):
     cars = cars_to_find(wb, log)
     if cars:
         log(f"⏭ 차찾아 {len(cars)}대({', '.join(cars)})가 남아 닫지 않습니다")
-        notice(f"{os.path.basename(path)}\n\n"
-               f"아직 찾지 못한 차가 {len(cars)}대 있습니다.\n"
-               f"{', '.join(cars)}\n\n"
-               "차고지 입력이 끝나지 않아 엑셀을 닫지 않았습니다.", 60,
-               f"{APP_NAME} — 차찾아 {len(cars)}대")
+        # 여기는 차량번호가 알맹이라 번호는 남기되, 나머지 설명은 걷어낸다.
+        notice(f"못 찾은 차 {len(cars)}대 — {', '.join(cars)}\n(엑셀은 안 닫았습니다)",
+               30, APP_NAME)
         mark()
         return False
 
@@ -984,11 +996,38 @@ def close_ops(now=None, ask=ask_close):
         return False
 
 
+def request_file():
+    """사무실 PC 가 우리에게 바로 건네 놓는 자리 (같은 랜의 Z:)."""
+    return os.path.join(result_dir(), "요청.json")
+
+
+def local_request():
+    """사무실 PC 가 Z: 에 놓아 둔 요청. 없으면 None.
+
+    폰이 올린 것을 raw.githubusercontent.com 에서 보기까지 실제로 244초가 걸렸다 —
+    CDN 이 옛 것을 그대로 내주기 때문이고, 3초마다 두드려도 소용이 없었다.
+    사무실 PC 는 git 으로 받으므로 몇 초면 보고, 그것을 이 자리에 놓아 준다.
+    판까지 함께 담겨 있어 우리는 바깥 망을 타지 않는다. (2026-10-22)
+    """
+    try:
+        with io.open(request_file(), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
 def tick():
-    req = fetch("print.json")
+    done = last_done()
+    req = local_request()                 # 랜으로 건네받은 것이 먼저다 (몇 초)
+    if req is None or req.get("id") == done:
+        # 랜에 새 것이 없다 (지난 요청이 그대로 남아 있는 때도 마찬가지다 —
+        # 그 한 장 때문에 바깥 길이 영영 막히면 안 된다). 예전 길로 본다.
+        raw = fetch("print.json")         # 사무실 PC 가 꺼져 있을 때의 길 (몇 분 걸린다)
+        if raw is not None:
+            req = raw
     if req is None:
         return
-    what = decide(req, last_done(), datetime.datetime.now(datetime.timezone.utc))
+    what = decide(req, done, datetime.datetime.now(datetime.timezone.utc))
     if what == "skip":
         return
     remember(req["id"])          # 적다가 죽어도 같은 요청을 두 번 적지 않게 먼저 적는다
