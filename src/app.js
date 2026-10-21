@@ -1,14 +1,14 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610220035';
-import { YARD_OLD } from './yard-old-data.js?v=202610220035';
-import { BUILD } from './build.js?v=202610220035';
-import { toKoreanSino, announceText } from './plate.js?v=202610220035';
-import { createVoice, isSupported, beep, speak, speakDigit, primeAudio } from './voice.js?v=202610220035';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610220106';
+import { YARD_OLD } from './yard-old-data.js?v=202610220106';
+import { BUILD } from './build.js?v=202610220106';
+import { toKoreanSino, announceText } from './plate.js?v=202610220106';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610220106';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610220035';
-import { createSync, getToken, setToken } from './sync.js?v=202610220035';
+} from './store.js?v=202610220106';
+import { createSync, getToken, setToken } from './sync.js?v=202610220106';
 
 // ---------------------------------------------------------------- 상태
 
@@ -504,8 +504,12 @@ function goNext() {
 /** 안내 음성. 말하는 동안 자기 목소리가 다시 인식되지 않게 막는다. */
 function announceSpeak(text) {
   if (!text) return;
-  const ms = speak(text, { rate: rate.say });
-  if (voice) voice.muteFor(ms + 250);
+  // 숫자를 읽고 있는 중이면 끊지 않고 그 뒤에 붙인다. 세 자리째를 누르는 순간
+  // 그 자리가 채워지고 다음 자리 안내가 이어지는데, 그 안내가 방금 누른 마지막
+  // 숫자를 끊어 먹어서 "제대로 눌렀나" 를 눈으로 확인해야 했다.
+  const 기다림 = digitSpeaking();
+  const ms = speak(text, { rate: rate.say, interrupt: !기다림 });
+  if (voice) voice.muteFor(ms + (기다림 ? 700 : 0) + 250);
 }
 
 // 방금 읽어 준 자리의 구역. 구역이 바뀐 첫 칸에서만 자리 이름을 읽는다.

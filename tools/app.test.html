@@ -358,6 +358,29 @@ log('▶ 차찾아 알림');
   eq(a.$('printSheet').hidden, false, '결과 화면이 열려 있다');
 }
 
+// ── 11-2) 세 자리째를 눌러도 마지막 숫자가 잘리지 않는다
+// 2회차에서 1번 자리에 "135" 를 넣으면 "일 삼" 까지만 들리고 "오" 가 잘렸다.
+// 세 자리째를 누르는 순간 그 자리가 채워지고 다음 자리(2번 — 공차) 안내가
+// 이어지는데, 그 안내가 마지막 숫자를 끊어 먹은 탓이다. (2026-10-22)
+log('▶ 마지막 숫자가 안 잘린다');
+{
+  seed('new', { 2: { plate: null, status: 'vacant', round: 1 } }, 2);
+  const a = await app();
+  a.w.speechSynthesis.cancel = () => a.w.__said.push('<끊>');
+
+  if (a.$('padSheet').hidden) { a.$('btnPad').click(); await wait(150); }
+  a.w.__said.length = 0;
+  for (const k of ['1', '3', '5']) { a.press(k); await wait(60); }
+  await wait(500);
+
+  const 말한것 = a.w.__said;
+  const 오 = 말한것.lastIndexOf('오');
+  eq(오 >= 0, true, `마지막 숫자를 읽는다 (${JSON.stringify(말한것)})`);
+  eq(말한것[오 + 1] === '<끊>', false, '그 뒤를 끊지 않는다 — 안내가 이어 붙는다');
+  eq(말한것.slice(0, 오).filter((t) => t === '일' || t === '삼').length, 2, '앞 두 숫자도 읽었다');
+  eq(a.$('hudSpot').textContent, 'B5-2', '넣고 나면 다음 자리로 간다');
+}
+
 // ── 12) 아직 못 본 차를 폰이 스스로 센다
 log('▶ 못 본 차 세기');
 {

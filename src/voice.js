@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202610220035';
+import { extractSequence } from './plate.js?v=202610220106';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -274,5 +274,15 @@ const DIGIT_WORD = ['공', '일', '이', '삼', '사', '오', '육', '칠', '팔
 export function speakDigit(d, rate = 0.75) {
   const word = DIGIT_WORD[Number(d)];
   if (word === undefined) return;
-  speak(word, { rate });
+  digitUntil = Date.now() + speak(word, { rate });
+}
+
+// 숫자를 다 읽을 때까지의 시각. 세 자리째를 누르면 그 자리가 곧바로 채워지고
+// 다음 자리 안내가 이어지는데, 그 안내가 마지막 숫자를 끊어 먹었다.
+// ("135" 를 넣으면 "일 삼" 까지만 들리고 "오" 가 잘렸다 — 2026-10-22)
+let digitUntil = 0;
+
+/** 지금 숫자를 읽고 있는가. 그때는 안내가 끊지 말고 뒤에 붙어야 한다. */
+export function digitSpeaking() {
+  return Date.now() < digitUntil;
 }

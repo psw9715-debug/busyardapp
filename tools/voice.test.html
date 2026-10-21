@@ -59,7 +59,7 @@ window.webkitSpeechRecognition = MockSR;
 </script>
 <script type="module">
 // 브라우저가 모듈을 캐시하면 고친 코드가 아니라 옛 코드를 검사하게 된다
-const { createVoice } = await import(`../src/voice.js?t=${Date.now()}`);
+const { createVoice, speakDigit, digitSpeaking, speak } = await import(`../src/voice.js?t=${Date.now()}`);
 
 const out = document.getElementById('out');
 let pass = 0, fail = 0;
@@ -321,6 +321,35 @@ log('<h2>▶ 안내 음성 되먹임 차단</h2>');
   window.__sr.finalize('천백삼십사');
   eq(tokens, ['1134'], '차단이 풀리면 다시 인식');
   v.stop();
+}
+
+// ── 숫자를 읽는 동안에는 안내가 끊지 않는다
+// 세 자리째를 누르면 그 자리가 곧바로 채워지고 다음 자리 안내가 이어지는데,
+// 그 안내가 방금 누른 마지막 숫자를 끊어 먹었다 ("135" -> "일 삼" 까지만 들렸다).
+{
+  const 말한것 = [];
+  const 참말하기 = window.speechSynthesis.speak;
+  const 참끊기 = window.speechSynthesis.cancel;
+  window.speechSynthesis.speak = (u) => 말한것.push(u.text);
+  window.speechSynthesis.cancel = () => 말한것.push('<끊>');
+  try {
+    eq(digitSpeaking(), false, '아무것도 안 읽을 때는 거짓');
+
+    speakDigit('1'); speakDigit('3'); speakDigit('5');
+    eq(digitSpeaking(), true, '숫자를 읽는 중이면 참');
+
+    // 이 참에 들어오는 안내는 끊지 않고 뒤에 붙어야 한다
+    speak('공차', { interrupt: !digitSpeaking() });
+    eq(말한것.slice(-2), ['오', '공차'], '마지막 숫자 뒤에 안내가 그대로 이어진다');
+    // 끊은 것은 숫자 세 번뿐 — 안내는 한 번도 끊지 않았다
+    eq(말한것.filter((t) => t === '<끊>').length, 3, '안내가 끊은 적은 없다 (숫자끼리 셋뿐)');
+
+    // 앞의 두 숫자는 다음 숫자가 끊는 것이 맞다 (빨리 눌러도 방금 누른 것이 들리게)
+    eq(말한것.slice(0, 5), ['<끊>', '일', '<끊>', '삼', '<끊>'], '숫자끼리는 앞 소리를 끊는다');
+  } finally {
+    window.speechSynthesis.speak = 참말하기;
+    window.speechSynthesis.cancel = 참끊기;
+  }
 }
 
 log(`통과 ${pass} / 실패 ${fail}`, `sum ${fail === 0 ? 'ok' : 'no'}`);
