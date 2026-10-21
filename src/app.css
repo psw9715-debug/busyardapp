@@ -203,12 +203,22 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
 
 /* 찾아야 하는 차량 — 배치도에서 한눈에 띄어야 한다.
    CCTV(비디오)는 붉은색, KEY(열쇠)는 푸른색으로 구분한다. */
-.cell.spot.target.k-cctv        { background: #4a1f18; border-color: var(--red); }
-.cell.spot.target.k-cctv .plate { color: #ff9d7a; }
-.cell.spot.target.k-cctv .no    { color: var(--red); }
-.cell.spot.target.k-key         { background: #1c2748; border-color: var(--blue); }
-.cell.spot.target.k-key .plate  { color: #9dc0ff; }
-.cell.spot.target.k-key .no     { color: var(--blue); }
+/* CCTV·KEY 로 가져와야 하는 차. 2회차에도 이 색이 남아야 한다 —
+   1회차 기록을 죽이는 규칙(body.round2 .filled.r1)이 이것보다 세서, 정작
+   가져와야 할 차가 2회차에는 묻혀 보이지 않았다. 가기 전에 한 번 보고 가이드를
+   잡으려면 그 색이 있어야 한다. 그래서 2회차용 선택자를 함께 적는다. (2026-10-22) */
+.cell.spot.target.k-cctv,
+body.round2 .cell.spot.filled.r1.target.k-cctv        { background: #4a1f18; border-color: var(--red); }
+.cell.spot.target.k-cctv .plate,
+body.round2 .cell.spot.filled.r1.target.k-cctv .plate { color: #ff9d7a; }
+.cell.spot.target.k-cctv .no,
+body.round2 .cell.spot.filled.r1.target.k-cctv .no    { color: var(--red); }
+.cell.spot.target.k-key,
+body.round2 .cell.spot.filled.r1.target.k-key         { background: #1c2748; border-color: var(--blue); }
+.cell.spot.target.k-key .plate,
+body.round2 .cell.spot.filled.r1.target.k-key .plate  { color: #9dc0ff; }
+.cell.spot.target.k-key .no,
+body.round2 .cell.spot.filled.r1.target.k-key .no     { color: var(--blue); }
 
 /* 찾기로 짚은 자리 */
 .cell.spot.found {
@@ -357,6 +367,17 @@ body.round2 .cell.spot.vacant .plate { color: var(--ink-dim); }
   font-size: 12.5px; color: var(--ink-dim); line-height: 1.6; margin: 0 2px 12px;
 }
 .target-list { list-style: none; padding: 0; margin: 0 0 12px; }
+/* 찾을 차량 시트 — 목록이 늘어나도 키패드는 제자리에 둔다.
+   목록이 키패드 위에 있어서, 대여섯 대만 넣어도 키패드가 화면 밖으로 밀려
+   화면을 내려서 눌러야 했다 (6대에서 170px 가 화면 밖이었다 — 2026-10-22).
+   이제 목록만 그 안에서 구르고, 입력칸과 키패드는 늘 보인다. */
+#targetSheet .sheet { display: flex; flex-direction: column; }
+#targetSheet .target-list {
+  flex: 0 1 auto; min-height: 56px; max-height: 30vh; overflow-y: auto;
+  overscroll-behavior: contain;
+}
+#targetSheet .pad-display,
+#targetSheet .pad-keys { flex: none; }
 .target-list li {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 12px; border-radius: 8px; margin-bottom: 6px;
