@@ -1,15 +1,15 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610260101';
-import { YARD_OLD } from './yard-old-data.js?v=202610260101';
-import { BUILD } from './build.js?v=202610260101';
-import { toKoreanSino, announceText } from './plate.js?v=202610260101';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610260224';
+import { YARD_OLD } from './yard-old-data.js?v=202610260224';
+import { BUILD } from './build.js?v=202610260224';
+import { toKoreanSino, announceText } from './plate.js?v=202610260224';
 import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610260101';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610260224';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610260101';
-import { createSync, getToken, setToken } from './sync.js?v=202610260101';
+} from './store.js?v=202610260224';
+import { createSync, getToken, setToken } from './sync.js?v=202610260224';
 
 // ---------------------------------------------------------------- 상태
 

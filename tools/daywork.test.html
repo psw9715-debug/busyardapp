@@ -80,6 +80,31 @@ head('4. 두 단계로 부르기');
   eq(s.phase, 'plate', '다시 번호 대기로');
 }
 
+head('4-2. 앞자리 0 을 말로 붙인 시각');
+{
+  // "공 구시 오십칠분" 이라고 말하면 받아쓰기가 뒷부분만 시각으로 바꿔
+  // "공 9:57" 을 내놓는다 — 앞의 '공' 이 글자로 남아 있었다.
+  const s = fresh();
+  handleUtterance(s, '천백십삼');
+  handleUtterance(s, '공 9:57 출발');
+  eq(cards(s)[0][1], '09:57 출발', '"공 9:57" 이 09:57 로 붙는다');
+
+  const s2 = fresh();
+  handleUtterance(s2, '천백십사');
+  handleUtterance(s2, '지연 영 7:05');
+  eq(cards(s2)[0][1], '지연 07:05', '글 가운데에서도 붙는다');
+
+  const s3 = fresh();
+  handleUtterance(s3, '천백십오');
+  handleUtterance(s3, '공 12:30 도착');
+  eq(cards(s3)[0][1], '공 12:30 도착', '두 자리 시각은 건드리지 않는다');
+
+  const s4 = fresh();
+  handleUtterance(s4, '천백십육');
+  handleUtterance(s4, '공조기 9:57 점검');
+  eq(cards(s4)[0][1], '공조기 9:57 점검', "'공' 으로 시작하는 낱말은 건드리지 않는다");
+}
+
 head('5. 한 호흡에 부르기 — 띄어쓰기를 살려야 한다');
 {
   const s = fresh();

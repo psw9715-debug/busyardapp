@@ -13,9 +13,9 @@
 //
 // 브라우저 API를 쓰지 않는 순수 로직이라 테스트 페이지에서 그대로 검사한다.
 
-import { extractSequence } from '../../src/plate.js?v=202610260101';
-import { isKnown } from './roster.js?v=202610260101';
-import { workDate } from './workdate.js?v=202610260101';
+import { extractSequence } from '../../src/plate.js?v=202610260224';
+import { isKnown } from './roster.js?v=202610260224';
+import { workDate } from './workdate.js?v=202610260224';
 
 // 공백·쉼표는 extractSequence 가 지우고 본다. 같은 규칙으로 지워야 위치가 맞는다.
 const SKIP_CHARS = /[\s,.\-·]/;
@@ -121,9 +121,16 @@ const BIG_NUMBER_WORDS = [
   [/1,?000,?000,?000,?000/g, '조'],
 ];
 
+// 앞자리 0 을 말로 붙인 시각. "공 구시 오십칠분" 이라고 말하면 받아쓰기가
+// 뒷부분만 시각으로 바꿔 "공 9:57" 을 내놓는다 — 앞의 '공' 이 글자로 남는다.
+// 한 자리 시각 앞에 홀로 선 영·공·빵이면 그 시각의 앞자리 0 으로 본다.
+// (두 자리 시각은 건드리지 않는다. "공 12:30" 같은 말은 0 이 아닐 수 있다.)
+const LEADING_ZERO_TIME = /(^|[\s(\[])(?:영|공|빵)\s*(\d):(\d{2})/g;
+
 function tidy(text) {
   let out = text;
   for (const [re, word] of BIG_NUMBER_WORDS) out = out.replace(re, word);
+  out = out.replace(LEADING_ZERO_TIME, (_m, 앞, 시, 분) => `${앞}0${시}:${분}`);
   return out.replace(/\s{2,}/g, ' ').trim();
 }
 
