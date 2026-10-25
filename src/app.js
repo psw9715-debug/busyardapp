@@ -1,14 +1,15 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610220232';
-import { YARD_OLD } from './yard-old-data.js?v=202610220232';
-import { BUILD } from './build.js?v=202610220232';
-import { toKoreanSino, announceText } from './plate.js?v=202610220232';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610220232';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610260101';
+import { YARD_OLD } from './yard-old-data.js?v=202610260101';
+import { BUILD } from './build.js?v=202610260101';
+import { toKoreanSino, announceText } from './plate.js?v=202610260101';
+import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610260101';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610220232';
-import { createSync, getToken, setToken } from './sync.js?v=202610220232';
+} from './store.js?v=202610260101';
+import { createSync, getToken, setToken } from './sync.js?v=202610260101';
 
 // ---------------------------------------------------------------- 상태
 
@@ -21,7 +22,24 @@ const spots = YARD.cells.filter((c) => c.kind === 'spot').sort((a, b) => a.spot 
 const ALL = spots.length;
 // 걷는 순서에 든 자리 수. 그 뒤 번호는 예비 칸 — 눌러서 손으로만 적는다.
 const TOTAL = spots.filter((c) => !c.extra).length;
-const routeFilled = () => Object.keys(session.entries).filter((n) => Number(n) <= TOTAL).length;
+
+// 걷는 차례는 자리 번호와 다르다. 신차고지 쉼터 셋은 눈앞에 나란히 있는데 번호가
+// 21·132·133 으로 떨어져 있고, 구차고지는 인쇄 시트에 적힌 차례가 따로 있다.
+// 순서표가 정하는 것은 **걷는 차례뿐**이다 — 자리 번호도, 엑셀 칸 짝짓기도 그대로다.
+const ROUTE = spots.filter((c) => !c.extra)
+  .map((c) => ({ spot: c.spot, at: (WALK_ORDER[YARD.id] || {})[c.spot] ?? c.spot }))
+  .sort((a, b) => a.at - b.at)
+  .map((c) => c.spot);
+const AT = new Map(ROUTE.map((n, i) => [n, i]));   // 자리 번호 -> 몇 번째로 걷나
+const FIRST = ROUTE[0];
+const LAST = ROUTE[ROUTE.length - 1];
+const onRoute = (n) => AT.has(Number(n));
+const stepOf = (n) => (AT.has(n) ? AT.get(n) : -1);
+const spotAt = (i) => ROUTE[Math.max(0, Math.min(i, ROUTE.length - 1))];
+const nextOf = (n) => (AT.has(n) ? spotAt(AT.get(n) + 1) : FIRST);
+const prevOf = (n) => (AT.has(n) ? spotAt(AT.get(n) - 1) : FIRST);
+
+const routeFilled = () => Object.keys(session.entries).filter(onRoute).length;
 const SPOT = new Map(spots.map((c) => [c.spot, c]));
 const SPOT_BY_XL = Object.fromEntries(spots.map((c) => [c.xl, c.spot]));
 
@@ -97,9 +115,9 @@ function isOpen(n) {
 function startSpot() {
   try {
     const c = JSON.parse(localStorage.getItem('busyard:cursor') || 'null');
-    if (c && c.date === session.date && c.round === round && c.spot >= 1 && c.spot <= TOTAL) return c.spot;
+    if (c && c.date === session.date && c.round === round && onRoute(c.spot)) return c.spot;
   } catch (_) { /* 깨졌으면 처음부터 */ }
-  return round === 2 ? 1 : firstEmptySpot();
+  return round === 2 ? FIRST : firstEmptySpot();
 }
 
 function saveCursor() {
@@ -107,13 +125,13 @@ function saveCursor() {
 }
 
 function firstEmptySpot() {
-  for (let n = 1; n <= TOTAL; n++) if (isOpen(n)) return n;
-  return TOTAL;
+  for (const n of ROUTE) if (isOpen(n)) return n;
+  return LAST;
 }
 
 function openCount() {
   let c = 0;
-  for (let n = 1; n <= TOTAL; n++) if (isOpen(n)) c += 1;
+  for (const n of ROUTE) if (isOpen(n)) c += 1;
   return c;
 }
 
@@ -353,12 +371,12 @@ function note(text, kind) {
  * 바로 넘어가고, 차가 바뀌었거나 빠진 칸에만 손을 댄다.
  */
 function nextSpotAfter(spot) {
-  return Math.min(spot + 1, TOTAL);
+  return nextOf(spot);
 }
 
 /** 2회차 확인 — 적힌 그대로 두고 다음 칸으로 */
 function confirmSpot() {
-  if (cursor >= TOTAL) {
+  if (cursor === LAST) {
     note('마지막 자리입니다', 'warn');
     beep('done');
     return;
@@ -381,8 +399,8 @@ function commit(spot, entry, { announce = true } = {}) {
   paintSpot(spot);
 
   // 예비 칸은 걷는 순서 밖이라 커서를 움직이지 않는다
-  const isLast = spot === TOTAL;
-  if (spot <= TOTAL) cursor = isLast ? TOTAL : nextSpotAfter(spot);
+  const isLast = spot === LAST;
+  if (onRoute(spot)) cursor = isLast ? LAST : nextSpotAfter(spot);
   if ($('padSheet').hidden) revealCursor();
   paintSpot(spot);
   paintSpot(cursor);
@@ -440,9 +458,10 @@ function goBack() {
   // "다음" 으로 한꺼번에 공차 처리한 칸은 한꺼번에 되돌린다
   const e = session.entries[n];
   if (e && e.method === 'next') {
-    for (let k = e.from; k <= TOTAL; k++) {
+    for (let i = stepOf(e.from); i >= 0 && i < ROUTE.length; i++) {
+      const k = ROUTE[i];
       if (session.entries[k] && session.entries[k].from === e.from) setEntry(session, k, null);
-      else if (k > n) break;
+      else if (i > stepOf(n)) break;
     }
     n = e.from;
   } else {
@@ -471,18 +490,20 @@ function markVacant() {
  */
 function goNext() {
   const seg = SPOT.get(cursor).seg;
-  let to = cursor;
-  while (to <= TOTAL && SPOT.get(to).seg === seg) to += 1;
+  let i = stepOf(cursor);
+  while (i < ROUTE.length && SPOT.get(ROUTE[i]).seg === seg) i += 1;
+  const to = i < ROUTE.length ? ROUTE[i] : null;   // null 이면 뒤에 남은 구역이 없다
 
   if (round === 1) {
     const from = cursor;
-    for (let n = from; n < to; n++) {
+    for (let k = stepOf(from); k < (to === null ? ROUTE.length : stepOf(to)); k++) {
+      const n = ROUTE[k];
       if (session.entries[n]) continue;
       setEntry(session, n, { plate: null, status: 'vacant', confidence: 'high', method: 'next', from, round });
     }
   }
-  if (to > TOTAL) {
-    if (round === 1) cursor = TOTAL;
+  if (to === null) {
+    if (round === 1) cursor = LAST;
     repaintAll();
     renderHud();
     note(round === 1 ? '마지막 구역입니다 — 남은 칸을 공차로 채웠습니다' : '뒤에 남은 빈 자리가 없습니다', 'warn');
@@ -838,7 +859,7 @@ function padKey(k) {
   }
   if (k === 'back' || k === 'next') {
     // 시트를 자리 탭으로 연 경우도 있으니 커서를 그 자리에 맞춘 뒤 움직인다
-    if (padSpot <= TOTAL) cursor = padSpot;
+    if (onRoute(padSpot)) cursor = padSpot;
     if (k === 'back') goBack(); else goNext();
     padFollowCursor();
     return;
@@ -883,7 +904,7 @@ function openSpotSheet(spot) {
       : ` — ${e.plate}`;
   $('spotTitle').textContent = `${spotName(spot)}번 자리${what}`;
   $('spotClear').hidden = !e;
-  $('spotGoto').hidden = spot > TOTAL;
+  $('spotGoto').hidden = !onRoute(spot);
   $('spotSheet').hidden = false;
 }
 
@@ -1000,7 +1021,7 @@ function switchRound(next) {
   round = next;
   localStorage.setItem(ROUND_KEY, String(round));
   localStorage.setItem(ROUND_DATE_KEY, workDate());
-  cursor = round === 2 ? 1 : firstEmptySpot();   // 확인은 걷는 순서 첫 자리부터
+  cursor = round === 2 ? FIRST : firstEmptySpot();   // 확인은 걷는 순서 첫 자리부터
   saveCursor();
   saidSeg = null;
 
