@@ -111,8 +111,22 @@ def remote_sha():
     return out.split()[0] if out else None
 
 
-def pull():
+_받은때 = [0.0]
+받은지_얼마 = 10        # 이 안에 또 받으러 가지 않는다 (초)
+
+
+def pull(꼭=False):
+    """inbox 가지를 받아 둔다.
+
+    바로 앞에 받았으면 건너뛴다. watch() 가 받은 직후에 fetch() 가 또 받으러 가서,
+    종이 인쇄 때마다 1.4초를 거저 쓰고 있었다 (2026-10-26). 폰은 판을 먼저 올리고
+    그 다음에 요청을 올리므로, 요청이 보이는 받음에는 판도 이미 함께 들어와 있다.
+    """
+    import time as _t
+    if not 꼭 and _t.time() - _받은때[0] < 받은지_얼마:
+        return
     must(git("fetch", "-q", "origin", f"+refs/heads/inbox:{INBOX_REF}"), "GitHub 받기")
+    _받은때[0] = _t.time()
 
 
 def read(path):
@@ -262,7 +276,7 @@ def drop_files(paths, message):
     index = os.path.join(tempfile.gettempdir(), "busyard-inbox.index")
     env = {"GIT_INDEX_FILE": index}
     for _ in range(3):
-        pull()
+        pull(꼭=True)
         must(git("read-tree", INBOX_REF, env=env), "색인 읽기")
         for path in paths:
             must(git("update-index", "--force-remove", path, env=env), "색인에서 지우기")
@@ -282,7 +296,7 @@ def write_file(path, obj, message):
     index = os.path.join(tempfile.gettempdir(), "busyard-inbox.index")
     env = {"GIT_INDEX_FILE": index}
     for _ in range(3):
-        pull()
+        pull(꼭=True)
         blob = must(git("hash-object", "-w", "--stdin", stdin=body), "상태 파일 만들기")
         must(git("read-tree", INBOX_REF, env=env), "색인 읽기")
         must(git("update-index", "--add", "--cacheinfo", f"100644,{blob},{path}", env=env), "색인 갱신")
@@ -582,11 +596,19 @@ def watch(log=print, stop=None, notify=None, on_daywork=None):
     seen = None
     last_err = None
     log("📡 [순회판] 폰 인쇄 요청 대기 시작")
+    # 첫 인쇄가 느린 것은 엑셀을 띄우는 3초 때문이다. 사람이 기다리지 않는 지금
+    # 미리 치러 둔다 — 누르는 순간에는 0.8초면 끝난다. 이 스레드가 쓸 것을 데운다.
+    try:
+        import print_board
+        if print_board.warm_print_excel():
+            log("🔥 [순회판] 인쇄용 엑셀을 미리 데워 뒀습니다")
+    except Exception as e:
+        log(f"⚠ [순회판] 인쇄용 엑셀을 데우지 못함 — {e} (인쇄는 그대로 됩니다)")
     while not (stop and stop()):
         try:
             sha = remote_sha()
             if sha and sha != seen:
-                pull()
+                pull(꼭=True)
                 seen = sha
                 for got in take_files(log):          # 사진이 함께 와 있으면 먼저 내린다
                     if notify:
