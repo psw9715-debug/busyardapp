@@ -1,15 +1,15 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610260224';
-import { YARD_OLD } from './yard-old-data.js?v=202610260224';
-import { BUILD } from './build.js?v=202610260224';
-import { toKoreanSino, announceText } from './plate.js?v=202610260224';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610270215';
+import { YARD_OLD } from './yard-old-data.js?v=202610270215';
+import { BUILD } from './build.js?v=202610270215';
+import { toKoreanSino, announceText } from './plate.js?v=202610270215';
 import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610260224';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610270215';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610260224';
-import { createSync, getToken, setToken } from './sync.js?v=202610260224';
+} from './store.js?v=202610270215';
+import { createSync, getToken, setToken } from './sync.js?v=202610270215';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1898,9 +1898,10 @@ function init() {
   checkSent({ quiet: true });   // 지난번에 보내 둔 것이 끝났으면 그 결과를 보여 준다
   renderMissing();
   fetchCheck();                 // 1차 순찰 때 PC 가 내려보낸 "점검 대상" 을 받아 둔다
-  // A 컴퓨터에 '엑셀 한 번 저장' 을 조용히 부탁한다. 앱이 뜨는 동안에는 판 올리기·
-  // 점검 대상 받기가 먼저라, 그것들이 끝날 참을 주고 뒤늦게 보낸다.
-  setTimeout(askSaveOnce, 2000);
+  // 2026-10-27: 앱을 열 때 A 에 '엑셀 한 번 저장' 을 부탁하던 것을 껐다.
+  // 그 부탁은 쪽지를 남기지 않아, A 가 그 자리에서 멈춰도 아무도 모른다. 실제로
+  // 01:41:50 에 그 부탁을 건넨 뒤 A 가 응답을 멈췄고, 11분 뒤 엑셀 입력이 3분을
+  // 기다리다 실패했다. 꼭 필요한 일이 아니므로 뺀다 (askSaveOnce 는 남겨 둔다).
 }
 
 /**

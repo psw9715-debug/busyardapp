@@ -60,7 +60,8 @@ STALE = datetime.timedelta(minutes=10)      # 이보다 오래된 요청은 적�
 # 새벽 2시 5분에 운영관리 엑셀을 저장하고 닫는다.
 #   2시 10분에 B(사무실) PC 가 출퇴근 관리 프로그램으로 그 엑셀을 열어야 하는데,
 #   여기서 열어 두고 있으면 저쪽은 읽기 전용으로만 열린다.
-CLOSE_AT = (2, 5)
+CLOSE_AT = (2, 9)
+CLOSE_UNTIL = 6                             # 6시(근무 끝)까지는 늦게라도 닫는다
 CLOSE_ASK_SEC = 60                          # 묻고 1분 뒤에는 저절로 닫는다
 
 # 공유 폴더는 업무관리\설정.json 에서 본다. A 컴퓨터에는 그 파일이 없을 수 있으므로
@@ -891,8 +892,15 @@ def due_to_close(now, dates=None):
 
     내가 출근한 밤에만 닫는다 — 2시 10분에 출퇴근 관리 프로그램을 여는 것도
     그 밤의 일이기 때문이다.
+
+    2026-10-26: 예전에는 2시대에만 봤다(2:05~2:59). 그날 2:05 에는 차찾아가 남아
+    있었고 2:07 에 0 이 됐는데, 그 사이 '그날 닫음' 표시를 찍어 버려 다시 보지
+    않았다 — 3시가 넘자 시간까지 끝나, 사람이 한 시간 넘게 퇴근하지 못했다.
+    표시를 찍지 않게 고쳤지만, 시간 자체도 **근무가 끝날 때까지**로 넓힌다.
+    늦게 풀려도 결국은 닫히게 — 사람이 기다리는 일이 없게 한다.
     """
-    if now.hour != CLOSE_AT[0] or now.minute < CLOSE_AT[1]:
+    지금분 = now.hour * 60 + now.minute
+    if not (CLOSE_AT[0] * 60 + CLOSE_AT[1] <= 지금분 < CLOSE_UNTIL * 60):
         return False
     if closed_day() == now.date().isoformat():
         return False
@@ -951,6 +959,10 @@ def save_ops(now=None):
     return True, f"{os.path.basename(path)} 저장함"
 
 
+_told_find = [0.0]          # 차찾아가 남았다고 마지막으로 알린 때
+FIND_TELL_EVERY = 600       # 10분에 한 번만 알린다 (3초마다 보므로)
+
+
 def close_ops(now=None, ask=ask_close):
     """열어 둔 운영관리 엑셀을 저장하고 닫는다. 통합문서만 닫고 엑셀은 두어,
     그 창에서 보던 다른 문서는 그대로 남는다."""
@@ -970,20 +982,15 @@ def close_ops(now=None, ask=ask_close):
         mark()
         return False                       # 열려 있지 않다 — 할 일이 없다
 
-    # 아직 찾을 차가 남아 있으면 닫지 않는다 — 다시 순찰을 나가 더 적어야 한다.
+    # ★ 2026-10-27: 02:09 이 되면 **묻지 않고 그냥 저장하고 닫는다.**
+    # 1분 뒤 B 컴퓨터가 출퇴근 관리로 이 파일을 열어야 하기 때문이다.
+    # 예전에는 (1) 차찾아가 남으면 안 닫고 (2) 확인창을 띄워 1분을 기다렸다.
+    # 그 둘 때문에 02:10 에 B 가 파일을 못 잡는 일이 거듭됐다. 둘 다 걷어낸다.
+    # 차찾아는 기록에만 남긴다 — 닫는 것을 막지 않는다.
     cars = cars_to_find(wb, log)
     if cars:
-        log(f"⏭ 차찾아 {len(cars)}대({', '.join(cars)})가 남아 닫지 않습니다")
-        # 여기는 차량번호가 알맹이라 번호는 남기되, 나머지 설명은 걷어낸다.
-        notice(f"못 찾은 차 {len(cars)}대 — {', '.join(cars)}\n(엑셀은 안 닫았습니다)",
-               30, APP_NAME)
-        mark()
-        return False
+        log(f"ℹ 차찾아 {len(cars)}대({', '.join(cars)}) — 그래도 닫습니다 (02:10 에 B 가 열어야 함)")
 
-    if not ask(os.path.basename(path)):
-        log("⏭ 닫지 말라고 하셔서 그대로 둡니다")
-        mark()
-        return False
     try:
         if not wb.ReadOnly:
             wb.Save()
