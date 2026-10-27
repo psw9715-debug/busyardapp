@@ -1,0 +1,1117 @@
+# -*- coding: utf-8 -*-
+"""차고지 받아쓰기 — 운영관리 엑셀을 열어 둔 PC(A)에 상주하며 순찰판을 받아 적는다.
+
+왜 필요한가
+    그날 입출차 운영관리 엑셀은 Z: 에 있고, 보통 사무실 PC(A)가 열어 두고 쓴다.
+    엑셀은 열려 있는 파일을 다른 PC 가 고쳐 쓸 수 없으므로, 지금까지는 "A 에서 좀
+    닫아 주세요" 하고 부탁한 뒤에야 넣을 수 있었다.
+    이 프로그램을 A 에 띄워 두면, 폰에서 [운영관리 엑셀에 넣기] 를 누를 때
+    **A 가 자기 엑셀에 직접 적고 저장한다.** 닫을 필요가 없다.
+
+어떻게 받아 오는가
+    폰은 공개 저장소의 inbox 가지에 요청과 판을 올린다. 이 프로그램은 그것을
+    HTTPS 로 읽기만 한다 — 토큰도, git 도, 사내망 공유도 필요 없다.
+    바뀐 것이 없으면 304 로 돌아오므로 GitHub 의 시간당 횟수도 거의 쓰지 않는다.
+
+무엇을 적는가
+    `고정차고지_입력` 시트의 그 차고지 블록에, 자리마다 **차량번호 한 줄만** 적는다.
+    그 아래 이름·출근시각은 원래 수식이라 저절로 따라 붙는다. 공차와 승용차는 빈 칸이다.
+
+    신차고지(6차고지)   38~97행   (순찰 양식 3행이 38행 — 35줄 아래)
+    구차고지(1·2차고지)  1~34행   (순찰 양식과 행이 그대로 겹친다)
+"""
+import datetime
+import gc
+import io
+import json
+import os
+import re
+import ssl
+import subprocess
+import sys
+import time
+import threading
+import traceback
+import urllib.error
+import urllib.parse
+import urllib.request
+
+APP_NAME = "차고지 받아쓰기"
+REPO = "psw9715-debug/busyardapp"
+# api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
+# raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
+RAW = f"https://raw.githubusercontent.com/{REPO}/inbox/inbox/{{name}}"
+#
+# 얼마나 자주 보는가
+#   폰은 셀룰러, 이 PC 는 사내망 안에 있어 폰이 이 PC 를 직접 부를 길이 없다.
+#   그래서 이쪽에서 우편함을 들여다보는 수밖에 없는데, 아무도 순찰하지 않는
+#   낮에까지 10초마다 볼 일은 없다. 순찰하는 밤에만 바짝 보고, 낮에는 길게 쉰다.
+#   낮에 급히 넣어야 하면 시작 메뉴에서 한 번 껐다 켜면 그 자리에서 본다.
+POLL_BUSY = 3             # 21시~9시 — 순찰하고 엑셀에 넣는 시간 (누르면 곧바로 받게)
+POLL_IDLE = 900           # 그 밖 — 15분에 한 번만 (하루 요청 수가 크게 줄어든다)
+BUSY_FROM, BUSY_TO = 21, 9
+
+
+def poll_sec(now=None):
+    h = (now or datetime.datetime.now()).hour
+    return POLL_BUSY if h >= BUSY_FROM or h < BUSY_TO else POLL_IDLE
+STALE = datetime.timedelta(minutes=10)      # 이보다 오래된 요청은 적지 않는다
+
+# 새벽 2시 5분에 운영관리 엑셀을 저장하고 닫는다.
+#   2시 10분에 B(사무실) PC 가 출퇴근 관리 프로그램으로 그 엑셀을 열어야 하는데,
+#   여기서 열어 두고 있으면 저쪽은 읽기 전용으로만 열린다.
+CLOSE_AT = (2, 9)
+CLOSE_UNTIL = 6                             # 6시(근무 끝)까지는 늦게라도 닫는다
+CLOSE_ASK_SEC = 60                          # 묻고 1분 뒤에는 저절로 닫는다
+
+# 공유 폴더는 업무관리\설정.json 에서 본다. A 컴퓨터에는 그 파일이 없을 수 있으므로
+# (받아쓰기만 따로 설치한다) 아래 예비 값으로도 돌게 둔다.
+BASE = r"Z:\교통사업처_버스운영센터\상황실"
+# Z: 로 연결돼 있지 않은 PC 도 있다. 그럴 때는 공유 폴더를 바로 찾아간다.
+BASE_UNC = r"\\192.168.35.22\sctc17\교통사업처_버스운영센터\상황실"
+try:
+    import sys as _sys
+    if r"D:\\업무관리\\공용" not in _sys.path:
+        _sys.path.insert(0, r"D:\\업무관리\\공용")
+    import 설정 as _설정
+    BASE = _설정.상황실()
+    BASE_UNC = _설정.UNC경로(BASE)
+except Exception:
+    pass
+KEYWORD = "입출차 운영관리"
+# 했다/못 했다를 놓아 두는 자리 (사무실 PC 가 여기를 보고 폰에 전해 준다).
+# 어느 PC 든 같은 곳을 보게, 경로는 그때그때 고른다 — base_dir() 참고.
+RESULT_NAME = "받아쓰기"
+SHEET = "고정차고지_입력"
+YARDS = {
+    "new": {"data": "yard-data.js", "offset": 35},
+    "old": {"data": "yard-old-data.js", "offset": 0},
+}
+
+HOME = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "차고지받아쓰기")
+LOG_FILE = os.path.join(HOME, "받아쓰기.log")
+LAST_FILE = os.path.join(HOME, "마지막요청.txt")
+CLOSED_FILE = os.path.join(HOME, "닫은날.txt")       # 하루에 한 번만 닫게
+
+
+def log(msg):
+    line = f"{datetime.datetime.now():%H:%M:%S} {msg}"
+    os.makedirs(HOME, exist_ok=True)
+    try:
+        with io.open(LOG_FILE, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n")
+    except Exception:
+        pass
+    if sys.stdout:                   # 창 없이 묶은 exe 는 내보낼 곳이 없다
+        try:
+            print(line)
+        except Exception:
+            pass                     # 한글·그림글자를 못 받는 콘솔에서 터지지 않게
+
+
+# ---- 우편함 읽기 ---------------------------------------------------------
+
+def _ssl_context():
+    """사내망이 HTTPS 를 자체 인증서로 다시 서명한다. 윈도우는 믿지만 파이썬 3.13 의
+    엄격 검사가 그 형식을 거부하므로, 인증서 확인은 두고 엄격 검사만 뺀다."""
+    ctx = ssl.create_default_context()
+    ctx.verify_flags &= ~ssl.VERIFY_X509_STRICT
+    return ctx
+
+
+_etags = {}
+
+
+def fetch(name):
+    """inbox 의 파일 하나. 지난번과 같으면 None (바뀐 것이 없다)."""
+    # raw 는 5분쯤 묵은 것을 내줄 수 있다. 시각을 붙여 늘 지금 것을 받는다.
+    url = f"{RAW.format(name=urllib.parse.quote(name))}?t={int(time.time())}"
+    req = urllib.request.Request(url, headers={
+        "User-Agent": "busyard-agent",
+        **({"If-None-Match": _etags[name]} if name in _etags else {}),
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=20, context=_ssl_context()) as res:
+            if res.headers.get("ETag"):
+                _etags[name] = res.headers["ETag"]
+            return json.loads(res.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code in (304, 404):
+            return None          # 바뀐 것이 없거나 아직 없는 파일
+        raise
+
+
+def report(req, state, msg, printed=False):
+    """했다/못 했다를 Z: 에 쪽지로 놓는다. 사무실 PC 가 그것을 보고 폰에 전해 준다.
+
+    올리는 길(GitHub)은 권한이 있어야 하지만, 사무실 PC 는 이미 그 권한을 들고
+    돌고 있다. 두 PC 가 함께 보는 Z: 에 한 줄 놓아 두는 것이 가장 짧은 길이다.
+    """
+    os.makedirs(result_dir(), exist_ok=True)
+    at = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds")
+    tmp = result_file() + ".tmp"
+    with io.open(tmp, "w", encoding="utf-8") as f:
+        json.dump({"id": req["id"], "what": req.get("what"), "state": state,
+                   "msg": msg, "printed": bool(printed),
+                   "at": at.replace("+00:00", "Z")}, f, ensure_ascii=False)
+    os.replace(tmp, result_file())        # 반만 쓰인 쪽지를 사무실 PC 가 읽지 않게
+    log(f"📨 결과를 놓았습니다 — {state} · {msg}")
+
+
+def quit_excel(excel, *objs):
+    """우리가 띄운 엑셀을 확실히 내보낸다.
+
+    Quit() 만으로는 안 나간다. 시트·통합문서를 붙잡고 있던 COM 참조가 하나라도
+    살아 있으면 엑셀은 보이지 않는 채로 남아 그 파일을 쥐고 있고, 그러면 사람이
+    열 때 "읽기 전용" 으로 뜬다. (실제로 그렇게 두 개가 남아 있었다.)
+
+    그래서 ① 붙잡고 있던 것을 먼저 놓고 ② Quit 하고 ③ 그래도 안 나가면 그
+    프로세스만 끊는다. 우리가 DispatchEx 로 따로 띄운 것이라 남의 문서가 아니다.
+    """
+    pid = None
+    try:
+        import win32process
+        pid = win32process.GetWindowThreadProcessId(excel.Hwnd)[1]
+    except Exception:
+        pass
+
+    del objs                       # ws, wb ... 먼저 놓는다
+    gc.collect()
+    try:
+        excel.DisplayAlerts = False
+    except Exception:
+        pass
+    try:
+        excel.Quit()
+    except Exception:
+        pass
+    del excel
+    gc.collect()
+
+    if not pid:
+        return
+    for _ in range(30):            # 제대로 나가는 데 1~2초쯤 걸린다 (한 번 보는 데 0.1ms)
+        if not _alive(pid):
+            return
+        time.sleep(0.05)
+    subprocess.run(["taskkill", "/PID", str(pid), "/F"], capture_output=True,
+                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+
+def _alive(pid):
+    """그 프로세스가 아직 있는가. tasklist 는 한 번에 0.5초씩 걸려 쓰지 않는다."""
+    import ctypes
+    h = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)   # QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    code = ctypes.c_ulong()
+    ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(code))
+    ctypes.windll.kernel32.CloseHandle(h)
+    return code.value == 259                                      # STILL_ACTIVE
+
+
+# ---- 자리와 칸 -----------------------------------------------------------
+
+def _data_path(name):
+    """PyInstaller 로 묶으면 임시 폴더에 풀린다"""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, name)
+
+
+_cells = {}
+
+
+def block_cells(yard):
+    """순회 번호 -> (행, 열). 순찰 양식의 칸을 차고지만큼 내린 것이다."""
+    if yard not in _cells:
+        cfg = YARDS.get(yard, YARDS["new"])
+        with io.open(_data_path(cfg["data"]), encoding="utf-8") as f:
+            text = f.read()
+        data = json.loads(text[text.index("{"):text.rindex("}") + 1])
+        out = {}
+        for c in data["cells"]:
+            if c["kind"] != "spot":
+                continue
+            m = re.match(r"([A-Z]+)(\d+)", c["xl"])
+            col = 0
+            for ch in m.group(1):
+                col = col * 26 + (ord(ch) - 64)
+            out[c["spot"]] = (int(m.group(2)) + cfg["offset"], col)
+        _cells[yard] = out
+    return _cells[yard]
+
+
+def runs(want):
+    """{(행,열): 값} 을 가로로 이어진 토막으로 묶는다 — 한 칸씩 쓰면 엑셀이 느리다"""
+    out = []
+    for row in sorted({r for r, _ in want}):
+        cols = sorted(c for r, c in want if r == row)
+        run, start = [], None
+        for col in cols:
+            if start is not None and col == start + len(run):
+                run.append(want[(row, col)])
+                continue
+            if run:
+                out.append((row, start, run))
+            start, run = col, [want[(row, col)]]
+        if run:
+            out.append((row, start, run))
+    return out
+
+
+# ---- 그날 파일 찾기 (출퇴근 관리 프로그램과 같은 방식) ----------------------
+
+def work_date(now=None):
+    now = now or datetime.datetime.now()
+    day = now.date() - datetime.timedelta(days=1) if now.hour < 9 else now.date()
+    return day
+
+
+def base_dir():
+    """상황실 공유 폴더. Z: 로 연결돼 있으면 그쪽, 아니면 공유 폴더를 바로."""
+    if os.path.isdir(BASE):
+        return BASE
+    return BASE_UNC
+
+
+def result_dir():
+    return os.path.join(base_dir(), RESULT_NAME)
+
+
+def result_file():
+    return os.path.join(result_dir(), "결과.json")
+
+
+def alive_file():
+    return os.path.join(result_dir(), "살아있음.json")
+
+
+_told_alive = [0.0]
+
+
+def tell_alive(every=60):
+    """"나 여기 돌고 있다" 를 공유 폴더에 남긴다.
+
+    꺼져 있어서 못 적은 것인지, 켜져 있는데 못 적은 것인지 사무실 PC 가 가려
+    폰에 제대로 알려 줄 수 있어야 한다. 1분에 한 번이면 넉넉하다.
+    """
+    if time.time() - _told_alive[0] < every:
+        return
+    _told_alive[0] = time.time()
+    try:
+        os.makedirs(result_dir(), exist_ok=True)
+        tmp = alive_file() + ".tmp"
+        with io.open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"pc": os.environ.get("COMPUTERNAME", "?"),
+                       "at": datetime.datetime.now(datetime.timezone.utc)
+                       .isoformat(timespec="seconds").replace("+00:00", "Z")},
+                      f, ensure_ascii=False)
+        os.replace(tmp, alive_file())
+    except Exception:
+        pass          # 공유 폴더가 잠깐 끊겨도 하던 일은 계속한다
+
+
+def find_excel(date):
+    year = str(date.year)
+    base = base_dir()
+    root = next((os.path.join(base, d) for d in sorted(os.listdir(base))
+                 if d.split()[-1:] == [year] and os.path.isdir(os.path.join(base, d))), None)
+    if not root:
+        raise FileNotFoundError(f"{year} 연도 폴더 없음")
+    month = os.path.join(root, f"00 {date:%Y%m}")
+    if not os.path.isdir(month):
+        raise FileNotFoundError(f"{date:%Y%m} 월 폴더 없음")
+    day = next((os.path.join(month, d) for d in sorted(os.listdir(month))
+                if d.startswith(f"{date:%m%d}") and os.path.isdir(os.path.join(month, d))), None)
+    if not day:
+        raise FileNotFoundError(f"{date:%m%d} 날짜 폴더 없음")
+    hits = [f for f in sorted(os.listdir(day))
+            if KEYWORD in f and f.endswith((".xlsx", ".xlsm", ".xls")) and not f.startswith("~$")]
+    if not hits:
+        raise FileNotFoundError(f"{KEYWORD} 파일 없음")
+    hits.sort(key=lambda f: (not f.startswith(f"{date:%m%d}"), f))
+    return os.path.join(day, hits[0])
+
+
+# ---- 엑셀에 적기 ---------------------------------------------------------
+
+_MAP = {}
+
+
+def unc(path):
+    r"""Z:\... 를 \\서버\공유\... 로 바꾼다 (연결이 없으면 그대로).
+
+    엑셀은 열어 둔 파일을 UNC 로 올려 두는데 우리 경로는 연결된 드라이브 문자라,
+    그대로 견주면 같은 파일을 서로 다른 것으로 본다.
+    """
+    full = os.path.abspath(path)
+    drive, rest = os.path.splitdrive(full)
+    if len(drive) == 2 and drive.endswith(":"):
+        if drive.upper() not in _MAP:
+            try:
+                import win32wnet
+                _MAP[drive.upper()] = win32wnet.WNetGetConnection(drive.upper()) or ""
+            except Exception:
+                _MAP[drive.upper()] = ""
+        remote = _MAP[drive.upper()]
+        if remote:
+            full = remote.rstrip("\\") + rest
+    return os.path.normcase(full)
+
+
+def running_workbook(path):
+    """지금 열려 있는 그 통합문서를 찾는다. 없으면 None.
+
+    엑셀은 열어 둔 파일을 **실행 중인 개체 표(ROT)** 에 전체 경로로 올려 둔다.
+    거기서 찾으면 어느 엑셀 창에서 열었든 그 문서를 그대로 집을 수 있다 —
+    이 프로그램이 있는 이유가 바로 "열어 둔 그 문서에 적는 것" 이다.
+    """
+    import pythoncom
+    import win32com.client
+
+    want = unc(path)
+    try:
+        rot = pythoncom.GetRunningObjectTable()
+        ctx = pythoncom.CreateBindCtx(0)
+    except Exception:
+        return None
+
+    opened = []                       # 지금 열려 있는 통합문서들 (못 찾았을 때 기록용)
+    same_name = []
+    for moniker in rot:
+        try:
+            name = moniker.GetDisplayName(ctx, None)
+        except Exception:
+            continue
+        if not name.lower().endswith((".xlsx", ".xlsm", ".xls")):
+            continue
+        opened.append(name)
+        try:
+            if unc(name) == want:
+                obj = rot.GetObject(moniker)
+                return win32com.client.Dispatch(obj.QueryInterface(pythoncom.IID_IDispatch))
+            if os.path.basename(name).lower() == os.path.basename(path).lower():
+                same_name.append(moniker)
+        except Exception:
+            continue
+
+    # 경로 모양이 또 달라졌을 수 있다. 파일 이름이 꼭 하나만 같으면 그것으로 본다 —
+    # 운영관리 파일 이름은 날짜까지 들어가 있어 헷갈릴 일이 없다.
+    if len(same_name) == 1:
+        try:
+            obj = rot.GetObject(same_name[0])
+            log("ℹ 경로 모양은 다르지만 파일 이름이 같아 그 문서로 봅니다")
+            return win32com.client.Dispatch(obj.QueryInterface(pythoncom.IID_IDispatch))
+        except Exception:
+            pass
+
+    if opened:
+        log(f"ℹ 열려 있는 통합문서 {len(opened)}개 중에 찾는 것이 없습니다 — {opened[:3]}")
+        log(f"   (찾던 것: {want})")
+    return None
+
+
+# 엑셀이 "지금은 못 받는다" 고 되돌리는 코드들. 셀을 편집 중이거나, 메뉴를 열어
+# 두었거나, 다른 긴 일을 하고 있을 때다. 잘못된 것이 아니라 "잠깐 기다려" 라는 뜻이다.
+BUSY = (-2147418111, -2147417846, -2147417851, 0x80010001, 0x8001010A, 0x80010005)
+
+
+def is_busy(err):
+    code = getattr(err, "hresult", None)
+    if code is None:
+        args = getattr(err, "args", ())
+        code = args[0] if args else None
+    return code in BUSY
+
+
+def wait_ready(do, label, secs=45, log=log):
+    """엑셀이 받아 줄 때까지 기다리며 되풀이한다. 끝내 안 되면 그대로 올린다."""
+    import pythoncom
+    until = time.time() + secs
+    told = False
+    while True:
+        try:
+            return do()
+        except pythoncom.com_error as e:
+            if not is_busy(e) or time.time() > until:
+                raise
+            if not told:
+                log(f"⌛ 엑셀이 바쁩니다({label}) — 편집이 끝나기를 기다립니다")
+                told = True
+            time.sleep(1.5)
+
+
+def notice(text, secs, title=None):
+    """안내 창을 잠깐 띄운다 (딴 일을 막지 않게 딴 가닥에서).
+
+    창이 앞으로 나오면 자판이 그 창으로 가므로, 적는 동안 엑셀 칸에 글자가
+    잘못 들어가는 일을 막아 준다. 돌려주는 것의 close() 를 부르면 바로 닫힌다 —
+    일이 끝났는데도 창이 남아 있으면 그것을 또 닫아야 하니까.
+    """
+    caption = title or APP_NAME
+
+    def run():
+        try:
+            import ctypes
+            box = ctypes.windll.user32.MessageBoxTimeoutW
+            box.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
+                            ctypes.c_uint, ctypes.c_ushort, ctypes.c_uint]
+            box(None, text, caption,
+                0x40 | 0x1000 | 0x10000 | 0x40000, 0, int(secs * 1000))
+        except Exception:
+            pass
+
+    t = threading.Thread(target=run, daemon=True)
+    t.start()
+
+    def close():
+        try:
+            import ctypes
+            for _ in range(30):                       # 창이 뜨는 데 한순간 걸린다
+                h = ctypes.windll.user32.FindWindowW(None, caption)
+                if h:
+                    ctypes.windll.user32.PostMessageW(h, 0x0010, 0, 0)   # WM_CLOSE
+                    return
+                time.sleep(0.05)
+        except Exception:
+            pass
+
+    t.close = close
+    return t
+
+
+# 인쇄 영역과 방향. 1차고지는 가로 한 장, 6차고지는 세로 한 장이다.
+PRINT_AREA = {"new": "A36:O97", "old": "A1:O34"}
+LANDSCAPE = {"old"}
+PAGE_KEYS = ("PrintArea", "Orientation", "PaperSize", "Zoom", "FitToPagesWide", "FitToPagesTall")
+
+
+def page_setup(app, ws, yard, log=None):
+    """그 차고지에 맞는 한 장짜리 인쇄 설정. 이미 맞는 것은 건드리지 않는다.
+
+    읽기는 공짜지만 쓰기는 한 개에 1.5~3.5초다 (쓸 때마다 프린터 드라이버를 부른다).
+    같은 차고지를 다시 뽑으면 고칠 것이 없어 0초다.
+    """
+    want = {
+        "PrintArea": PRINT_AREA.get(yard, PRINT_AREA["new"]),
+        "Orientation": 2 if yard in LANDSCAPE else 1,     # 2 = 가로
+        "PaperSize": 9,                                   # A4
+        "Zoom": False,
+        "FitToPagesWide": 1,
+        "FitToPagesTall": 1,
+    }
+    ps = ws.PageSetup
+    try:
+        app.PrintCommunication = False
+    except Exception:
+        pass
+    changed = 0
+    try:
+        for key, value in want.items():
+            try:
+                now = getattr(ps, key)
+            except Exception:
+                now = None
+            if key == "PrintArea":
+                same = str(now or "").replace("$", "") == str(value).replace("$", "")
+            else:
+                same = now == value
+            if same:
+                continue
+            try:
+                setattr(ps, key, value)
+                changed += 1
+            except Exception:
+                pass
+    finally:
+        try:
+            app.PrintCommunication = True
+        except Exception:
+            pass
+    if log and changed:
+        log(f"🧾 인쇄 설정 {changed}가지를 맞췄습니다")
+    return changed
+
+
+def print_block(wb, yard, log=log):
+    """열어 둔 그 통합문서에서 차고지 칸만 한 장 뽑는다.
+
+    여기서 뽑으면 엑셀을 새로 띄우고 큰 파일을 다시 여는 14초를 아낀다.
+    """
+    ws = wb.Worksheets(SHEET)
+    page_setup(wb.Application, ws, yard, log)
+    ws.PrintOut()
+    log(f"🖨 {'가로' if yard in LANDSCAPE else '세로'}로 한 장 뽑았습니다")
+
+
+FIND_SHEET = "차량및키확인"      # 내일 운행차량이 차고지에 있는지 보는 시트
+FIND_FROM, FIND_TO = 4, 137     # C열 차량번호 · D열 "차찾아"
+FIND_MARK = "차찾아"
+
+
+def cars_to_find(wb, log=None):
+    """내일 운행인데 차고지에 없는 차들. 없으면 빈 목록, 그 시트가 없으면 None.
+
+    우리가 넣은 값에 딸린 수식이라 먼저 한 번 계산시킨다 (수동으로 쓰고 계실 수 있다).
+    """
+    try:
+        ws = wb.Worksheets(FIND_SHEET)
+    except Exception:
+        return None
+    try:
+        wb.Application.Calculate()
+    except Exception:
+        pass
+    try:
+        rows = ws.Range(ws.Cells(FIND_FROM, 3), ws.Cells(FIND_TO, 4)).Value
+    except Exception as e:
+        if log:
+            log(f"⚠ 차찾아를 보지 못했습니다 — {type(e).__name__}: {e}")
+        return None
+    out = []
+    for plate, mark in rows:
+        if mark and FIND_MARK in str(mark) and plate not in (None, ""):
+            out.append(str(int(plate)) if isinstance(plate, float) else str(plate).strip())
+    return out
+
+
+def find_text(cars):
+    """폰에 보여 줄 한 마디"""
+    if cars is None:
+        return ""
+    if not cars:
+        return " · 차찾아 없음"
+    head = ", ".join(cars[:8])
+    more = f" 외 {len(cars) - 8}대" if len(cars) > 8 else ""
+    return f" · ⚠ 차찾아 {len(cars)}대: {head}{more}"
+
+
+_warmed = {}
+
+
+def warm_up(log=log):
+    """열어 둔 운영관리 엑셀을 미리 한 번 데운다 (하루에 한 번).
+
+    엑셀은 계산 방식을 처음 바꿀 때 수식 얽힌 것을 통째로 훑는다 — 이 통합문서에서는
+    6.4초다. 그 값을 사람이 기다리는 동안 내지 않도록, 조용한 틈에 미리 치러 둔다.
+    두 번째부터는 0.3초다.
+    """
+    today = datetime.date.today().isoformat()
+    try:
+        path = find_excel(ops_date(datetime.datetime.now()))
+    except Exception:
+        return False
+    if _warmed.get(path) == today:
+        return False
+    import pythoncom
+    pythoncom.CoInitialize()
+    wb = running_workbook(path)
+    if wb is None:
+        return False                      # 열려 있지 않으면 데울 것도 없다
+    _warmed[path] = today                 # 되든 안 되든 오늘은 다시 하지 않는다
+    try:
+        app = wb.Application
+        if app.CalculationState != 0:     # 계산 중이면 끼어들지 않는다
+            _warmed.pop(path, None)
+            return False
+        before = app.Calculation
+        start = time.time()
+        app.Calculation = -4135           # 여기서 그 6.4초를 미리 낸다
+        app.Calculation = before
+        log(f"🔥 엑셀을 미리 데웠습니다 ({time.time() - start:.1f}초) — 이제 넣기가 빠릅니다")
+        return True
+    except Exception as e:
+        log(f"ⓘ 미리 데우지 못했습니다 — {type(e).__name__}: {e}")
+        return False
+
+
+YARD_NAME = {"old": "구차고지", "new": "신차고지"}
+
+
+def busy_text(yard):
+    """적는 동안 A 컴퓨터에 띄울 한 줄.
+
+    긴 글은 읽지 않는다. 어느 차고지를 건드리는 중인지만 한 줄로 알리고,
+    다 적으면 저절로 닫힌다.
+    """
+    return f"{YARD_NAME.get(yard, '차고지')} 차량입력중 건들지 마세요"
+
+
+def write_board(board, path, log=log, found=None):
+    """판을 그 엑셀에 적고 저장한다. (넣은 대수, 이미 열려 있었는가)
+
+    found 에 목록을 주면 넣은 뒤의 "차찾아" 를 거기에 담아 준다.
+    """
+    import pythoncom
+    import win32com.client
+    pythoncom.CoInitialize()
+
+    yard = board.get("yard", "new")
+    cells = block_cells(yard)
+
+    want = {rc: None for rc in cells.values()}
+    written = 0
+    for spot, e in board["entries"].items():
+        rc = cells.get(int(spot))
+        if not rc or e.get("status") != "filled" or not e.get("plate"):
+            continue             # 공차와 승용차는 빈 칸으로 둔다
+        want[rc] = int(e["plate"])
+        written += 1
+
+    wb = running_workbook(path)
+    was_open = wb is not None
+    if was_open:
+        excel = wb.Application          # 열어 둔 사람의 엑셀을 그대로 쓴다
+        mine = False
+    else:
+        excel = win32com.client.DispatchEx("Excel.Application")
+        try:
+            excel.Visible = False
+            excel.DisplayAlerts = False
+        except Exception:
+            pass
+        mine = True
+        wb = excel.Workbooks.Open(path, UpdateLinks=0)
+        if wb.ReadOnly:
+            # 누가 열고 있는데 ROT 에서 못 찾은 경우다. 읽기 전용으로 적으면
+            # 저장이 안 되는데도 다 된 것처럼 보이므로, 여기서 분명히 멈춘다.
+            wb.Close(SaveChanges=False)
+            quit_excel(excel, wb)
+            raise PermissionError("엑셀이 읽기 전용으로 열립니다 — 다른 곳에서 쓰고 있는 파일입니다")
+
+    told = None
+    if was_open:
+        # 누군가 이 엑셀을 보고 있다. 적는 동안 손이 멎도록 안내 창을 띄운다.
+        # 긴 글은 읽지 않는다 — 한 줄로, 그리고 다 적으면 저절로 닫힌다.
+        # (적는 일 자체는 1~2초라, 30초면 넉넉하고도 남는다.)
+        told = notice(busy_text(yard), 30, APP_NAME)
+
+    calc = None
+    try:
+        # 셀을 편집 중이면 엑셀이 아무 요청도 받지 않는다. 먼저 두드려 보고,
+        # 끝내 안 받으면 한 칸도 건드리지 않은 채로 그만둔다 — 반쯤 적는 것이 가장 나쁘다.
+        try:
+            wait_ready(lambda: wb.Name, "확인", 45, log)
+        except Exception:
+            raise RuntimeError("A 컴퓨터에서 엑셀을 입력 중입니다 — 셀 편집을 마친 뒤 다시 눌러 주세요")
+        try:
+            calc = excel.Calculation
+            excel.Calculation = -4135      # 수식이 많아 한 칸씩 다시 계산하면 몇 분 걸린다
+        except Exception:
+            calc = None
+        # 칸마다 딸려 도는 것(이벤트·화면 고치기)을 멈춘다. 이것 하나로 7초가 1초가 된다.
+        events = None
+        try:
+            events = excel.EnableEvents
+            excel.EnableEvents = False
+            excel.ScreenUpdating = False
+        except Exception:
+            events = None
+        ws = wb.Worksheets(SHEET)
+        for row, col, run in runs(want):
+            def put(r=row, c=col, v=run):
+                ws.Range(ws.Cells(r, c), ws.Cells(r, c + len(v) - 1)).Value = (tuple(v),)
+            wait_ready(put, f"{row}행", 30, log)
+        if calc is not None:
+            excel.Calculation = calc       # 쓰시던 그대로 되돌린다 (수동이면 수동으로)
+            calc = None                    # 되돌렸다 — 저장 뒤에 또 건드리면 "안 저장됨" 이 된다
+        if events is not None:
+            excel.EnableEvents = events
+            excel.ScreenUpdating = True
+            events = None
+        wait_ready(wb.Save, "저장", 60, log)
+        if found is not None:
+            cars = cars_to_find(wb, log)
+            if cars is not None:
+                found[:] = cars
+    finally:
+        # 바꿔 놓은 것이 남아 있으면 되돌린다 (위에서 끝까지 못 갔을 때).
+        # 계산 방식은 통합문서에 함께 저장되는 값이라, 저장을 마친 뒤에는 건드리지 않는다.
+        if events is not None:
+            for back in (lambda: setattr(excel, "EnableEvents", events),
+                         lambda: setattr(excel, "ScreenUpdating", True)):
+                try:
+                    back()
+                except Exception:
+                    pass
+        if calc is not None:
+            try:
+                excel.Calculation = calc
+            except Exception:
+                pass
+        if told:
+            told.close()                   # 다 적었으니 안내 창도 거둔다
+        if mine:
+            # 우리가 띄운 엑셀이다. 남겨 두면 보이지 않는 채로 이 파일을 쥐고 있어
+            # 사람이 열 때 읽기 전용으로 뜬다 — 확실히 내보낸다.
+            try:
+                wb.Close(SaveChanges=False)
+            except Exception:
+                pass
+            quit_excel(excel, ws, wb)
+    return written, was_open
+
+
+# ---- 요청 처리 -----------------------------------------------------------
+
+def last_done():
+    try:
+        with io.open(LAST_FILE, encoding="utf-8") as f:
+            return f.read().strip() or None
+    except Exception:
+        return None
+
+
+def remember(req_id):
+    os.makedirs(HOME, exist_ok=True)
+    with io.open(LAST_FILE, "w", encoding="utf-8") as f:
+        f.write(req_id)
+
+
+def decide(req, done, now):
+    """'write' 적는다 / 'skip' 이미 했거나 우리 일이 아니다 / 'stale' 너무 오래된 요청"""
+    if not req or req.get("id") == done:
+        return "skip"
+    if req.get("what") not in ("excel", "final", "save"):
+        return "skip"            # 종이 인쇄와 가져오기는 B(사무실 PC)가 한다
+    at = datetime.datetime.fromisoformat(req["at"].replace("Z", "+00:00"))
+    return "stale" if now - at > STALE else "write"
+
+
+def handle(req):
+    """엑셀에 적고, 했다/못 했다를 Z: 에 놓는다.
+
+    [최종 인쇄] 도 적는 것은 똑같다. 종이로 뽑는 것은 프린터가 걸린 사무실 PC 몫이라,
+    그 쪽지는 사무실 PC 가 인쇄까지 마친 뒤에 폰으로 전해 준다.
+    """
+    if req.get("what") == "save":
+        # 폰에서 차고지 앱을 연 참에 '엑셀 한 번 저장' 만 부탁받은 것이다.
+        # 창도 띄우지 않고, Z: 에 쪽지도 놓지 않는다 (아무도 기다리지 않는 일이다).
+        try:
+            _, msg = save_ops()
+            log(f"💾 {msg}")
+        except Exception as e:
+            log(f"⚠ 저장하지 못했습니다 — {type(e).__name__}: {e}")
+        return
+
+    yard = req.get("yard", "new")
+    try:
+        date = datetime.date.fromisoformat(req["date"]) + datetime.timedelta(days=1)
+        # 사무실 PC 가 랜으로 건넸으면 판이 함께 들어 있다 — 바깥 망을 타지 않는다.
+        board = req.get("board")
+        if board is None:
+            board = fetch(f"{req['date']}-{yard}.json")
+        if board is None:
+            _etags.pop(f"{req['date']}-{yard}.json", None)  # 조건부 요청 때문에 비었을 수 있다
+            board = fetch(f"{req['date']}-{yard}.json")
+        if board is None:
+            raise FileNotFoundError(f"{req['date']} {yard} 판을 못 받았습니다")
+        path = find_excel(date)
+        found = []
+        n, was_open = write_board(board, path, found=found)
+        printed = False
+        if req.get("what") == "final":
+            # 여기서 바로 뽑는다. 사무실 PC 가 큰 파일을 또 열지 않아도 된다.
+            try:
+                wb = running_workbook(path)
+                if wb is not None:
+                    print_block(wb, yard)
+                    printed = True
+                else:
+                    import win32com.client
+                    excel = win32com.client.DispatchEx("Excel.Application")
+                    excel.DisplayAlerts = False
+                    excel.Visible = False
+                    wb = excel.Workbooks.Open(path, ReadOnly=True, UpdateLinks=0)
+                    try:
+                        print_block(wb, yard)
+                        printed = True
+                    finally:
+                        try:
+                            wb.Close(SaveChanges=False)
+                        except Exception:
+                            pass
+                        quit_excel(excel, wb)
+            except Exception as e:
+                log(f"⚠ 여기서는 뽑지 못했습니다 — {type(e).__name__}: {e} (사무실 PC 가 뽑습니다)")
+    except Exception as e:
+        log(f"⚠ {type(e).__name__}: {e}")
+        try:
+            report(req, "error", f"A 컴퓨터: {e}")
+        except Exception as e2:
+            log(f"⚠ 결과를 놓지 못했습니다 — {type(e2).__name__}: {e2}")
+        return
+
+    tail = find_text(found)
+    mark = " · 인쇄까지 함" if printed else ""
+    log(f"✅ {date:%m/%d} {'열려 있던 ' if was_open else ''}엑셀에 {n}대 적고 저장했습니다{mark}{tail}")
+    try:
+        report(req, "done",
+               f"A 컴퓨터가 {'열어 둔 ' if was_open else ''}엑셀에 {n}대 적음{mark}{tail}",
+               printed=printed)
+    except Exception as e:
+        log(f"⚠ 적기는 했는데 결과를 놓지 못했습니다 — {type(e).__name__}: {e}")
+
+
+# ---- 2시 5분, 저장하고 닫기 -----------------------------------------------
+
+def ops_date(now):
+    """그 시각에 쓰고 있는 운영관리 엑셀의 날짜 (순찰한 근무일 + 1)"""
+    day = now.date() - datetime.timedelta(days=1) if now.hour < 9 else now.date()
+    return day + datetime.timedelta(days=1)
+
+
+def duty_dates():
+    """내가 출근하는 날들. 사무실 PC(sctc-copy)가 공유 폴더에 적어 둔 것을 읽는다.
+
+    알 수 없으면 빈 set 을 준다 — 모르면 닫지 않는다. 내가 없는 밤에 남이 보고
+    있는 엑셀을 함부로 닫는 것보다, 안 닫고 마는 편이 낫다.
+    """
+    try:
+        with io.open(os.path.join(result_dir(), "근무일.json"), encoding="utf-8") as f:
+            return set(json.load(f).get("dates", []))
+    except Exception:
+        return set()
+
+
+def shift_day(now):
+    """그 시각이 속한 근무일. 새벽은 전날 밤 근무다 (sctc-copy 와 같은 6시 경계)."""
+    return now.date() - datetime.timedelta(days=1) if now.hour < 6 else now.date()
+
+
+def closed_day():
+    try:
+        with io.open(CLOSED_FILE, encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+def due_to_close(now, dates=None):
+    """닫을 때가 되었는가. 늦게 켜도(2시 20분에 켜도) 그날 것은 한 번 닫는다.
+
+    내가 출근한 밤에만 닫는다 — 2시 10분에 출퇴근 관리 프로그램을 여는 것도
+    그 밤의 일이기 때문이다.
+
+    2026-10-26: 예전에는 2시대에만 봤다(2:05~2:59). 그날 2:05 에는 차찾아가 남아
+    있었고 2:07 에 0 이 됐는데, 그 사이 '그날 닫음' 표시를 찍어 버려 다시 보지
+    않았다 — 3시가 넘자 시간까지 끝나, 사람이 한 시간 넘게 퇴근하지 못했다.
+    표시를 찍지 않게 고쳤지만, 시간 자체도 **근무가 끝날 때까지**로 넓힌다.
+    늦게 풀려도 결국은 닫히게 — 사람이 기다리는 일이 없게 한다.
+    """
+    지금분 = now.hour * 60 + now.minute
+    if not (CLOSE_AT[0] * 60 + CLOSE_AT[1] <= 지금분 < CLOSE_UNTIL * 60):
+        return False
+    if closed_day() == now.date().isoformat():
+        return False
+    known = duty_dates() if dates is None else dates
+    return shift_day(now).isoformat() in known
+
+
+def ask_close(name, secs=CLOSE_ASK_SEC):
+    """[확인]/[취소] 를 묻는다. 1분 동안 아무도 누르지 않으면 닫는 것으로 본다.
+
+    창을 띄우지 못하는 때에도 닫는다 — 2시 10분에 저쪽이 열려야 하는 쪽이 더 중하다.
+    """
+    text = (f"{name}\n\n"
+            "잠시 뒤 출퇴근 관리 프로그램이 이 엑셀을 열어야 합니다.\n"
+            "여기서 열어 두고 있으면 그쪽은 읽기 전용으로만 열립니다.\n\n"
+            "[확인] 지금 저장하고 닫기\n"
+            "[취소] 그냥 열어 두기\n\n"
+            f"{secs}초 뒤에는 저절로 저장하고 닫습니다.")
+    try:
+        import ctypes
+        box = ctypes.windll.user32.MessageBoxTimeoutW
+        box.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p,
+                        ctypes.c_uint, ctypes.c_ushort, ctypes.c_uint]
+        flags = 0x1 | 0x30 | 0x1000 | 0x10000 | 0x40000   # 확인/취소 · 경고음 · 맨 앞으로
+        answer = box(None, text, f"{APP_NAME} — 저장하고 닫습니다", flags, 0, secs * 1000)
+        return answer != 2                                 # 2 = 취소. 확인(1)·시간지남(32000)은 닫는다
+    except Exception:
+        return True
+
+
+def save_ops(now=None):
+    """열어 둔 운영관리 엑셀을 조용히 한 번 저장한다. (저장했나, 한 마디)
+
+    폰에서 차고지 앱을 열면 뒤에서 이것을 한 번 부른다. 사람이 엑셀을 열어 두고
+    손으로 고친 것이 아직 저장돼 있지 않으면, 사무실 PC 가 그 파일을 읽을 때 옛 값을
+    본다 — openpyxl 은 저장될 때 함께 적히는 '수식 결과' 를 읽기 때문이다.
+    차찾아·점검 대상이 그 값을 쓰므로, 순찰을 시작하는 참에 한 번 맞춰 둔다.
+
+    **아무 창도 띄우지 않는다.** A 컴퓨터는 사람이 쓰고 있는 자리라, 알림이 앞으로
+    나오면 자판이 그리로 가 엑셀 칸에 글자가 잘못 들어간다.
+    고친 것이 없으면 저장하지도 않는다 — 공연히 파일 시각만 바꾸지 않게.
+    """
+    now = now or datetime.datetime.now()
+    path = find_excel(ops_date(now))
+
+    import pythoncom
+    pythoncom.CoInitialize()
+    wb = running_workbook(path)
+    if wb is None:
+        return False, "열려 있지 않아 저장할 것이 없음"
+    if wb.ReadOnly:
+        return False, "읽기 전용으로 열려 있어 저장하지 않음"
+    if wb.Saved:
+        return False, "고친 것이 없어 그대로 둠"
+    wb.Save()
+    return True, f"{os.path.basename(path)} 저장함"
+
+
+_told_find = [0.0]          # 차찾아가 남았다고 마지막으로 알린 때
+FIND_TELL_EVERY = 600       # 10분에 한 번만 알린다 (3초마다 보므로)
+
+
+def close_ops(now=None, ask=ask_close):
+    """열어 둔 운영관리 엑셀을 저장하고 닫는다. 통합문서만 닫고 엑셀은 두어,
+    그 창에서 보던 다른 문서는 그대로 남는다."""
+    now = now or datetime.datetime.now()
+    mark = lambda: io.open(CLOSED_FILE, "w", encoding="utf-8").write(now.date().isoformat())
+    try:
+        path = find_excel(ops_date(now))
+    except FileNotFoundError as e:
+        log(f"⏭ 닫을 엑셀을 찾지 못했습니다 — {e}")
+        mark()
+        return False
+
+    import pythoncom
+    pythoncom.CoInitialize()
+    wb = running_workbook(path)
+    if wb is None:
+        mark()
+        return False                       # 열려 있지 않다 — 할 일이 없다
+
+    # ★ 2026-10-27: 02:09 이 되면 **묻지 않고 그냥 저장하고 닫는다.**
+    # 1분 뒤 B 컴퓨터가 출퇴근 관리로 이 파일을 열어야 하기 때문이다.
+    # 예전에는 (1) 차찾아가 남으면 안 닫고 (2) 확인창을 띄워 1분을 기다렸다.
+    # 그 둘 때문에 02:10 에 B 가 파일을 못 잡는 일이 거듭됐다. 둘 다 걷어낸다.
+    # 차찾아는 기록에만 남긴다 — 닫는 것을 막지 않는다.
+    cars = cars_to_find(wb, log)
+    if cars:
+        log(f"ℹ 차찾아 {len(cars)}대({', '.join(cars)}) — 그래도 닫습니다 (02:10 에 B 가 열어야 함)")
+
+    try:
+        if not wb.ReadOnly:
+            wb.Save()
+        wb.Close(SaveChanges=False)        # 방금 저장했다
+        log(f"🔒 {os.path.basename(path)} 저장하고 닫았습니다")
+        mark()
+        return True
+    except Exception as e:
+        log(f"⚠ 닫지 못했습니다 — {type(e).__name__}: {e}")
+        return False
+
+
+def request_file():
+    """사무실 PC 가 우리에게 바로 건네 놓는 자리 (같은 랜의 Z:)."""
+    return os.path.join(result_dir(), "요청.json")
+
+
+def local_request():
+    """사무실 PC 가 Z: 에 놓아 둔 요청. 없으면 None.
+
+    폰이 올린 것을 raw.githubusercontent.com 에서 보기까지 실제로 244초가 걸렸다 —
+    CDN 이 옛 것을 그대로 내주기 때문이고, 3초마다 두드려도 소용이 없었다.
+    사무실 PC 는 git 으로 받으므로 몇 초면 보고, 그것을 이 자리에 놓아 준다.
+    판까지 함께 담겨 있어 우리는 바깥 망을 타지 않는다. (2026-10-22)
+    """
+    try:
+        with io.open(request_file(), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def tick():
+    done = last_done()
+    req = local_request()                 # 랜으로 건네받은 것이 먼저다 (몇 초)
+    if req is None or req.get("id") == done:
+        # 랜에 새 것이 없다 (지난 요청이 그대로 남아 있는 때도 마찬가지다 —
+        # 그 한 장 때문에 바깥 길이 영영 막히면 안 된다). 예전 길로 본다.
+        raw = fetch("print.json")         # 사무실 PC 가 꺼져 있을 때의 길 (몇 분 걸린다)
+        if raw is not None:
+            req = raw
+    if req is None:
+        return
+    what = decide(req, done, datetime.datetime.now(datetime.timezone.utc))
+    if what == "skip":
+        return
+    remember(req["id"])          # 적다가 죽어도 같은 요청을 두 번 적지 않게 먼저 적는다
+    if what == "stale":
+        log(f"⏭ {req['at']} 요청은 10분이 지나 건너뜁니다")
+        return
+    handle(req)
+
+
+def loop(stop):
+    log(f"{APP_NAME} 시작 — 밤에는 {POLL_BUSY}초, 낮에는 {POLL_IDLE // 60}분마다 확인합니다")
+    last_err = None
+    while not stop.is_set():
+        try:
+            tell_alive()
+            if poll_sec() == POLL_BUSY:      # 순찰하는 밤에만 미리 데워 둔다
+                warm_up()
+            if due_to_close(datetime.datetime.now()):
+                close_ops()
+            tick()
+            last_err = None
+        except Exception as e:
+            msg = f"{type(e).__name__}: {e}"
+            if msg != last_err:          # 같은 오류(인터넷 끊김 등)를 도배하지 않는다
+                log(f"⚠ {msg}")
+                last_err = msg
+            if os.environ.get("BUSYARD_DEBUG"):
+                traceback.print_exc()
+        stop.wait(poll_sec())
+
+
+def selftest():
+    """설치한 뒤 제대로 돌아가는지 보는 점검. 결과를 기록 파일에 적고 끝낸다.
+    창이 없는 프로그램이라 화면에 띄울 수 없으므로 기록으로 남긴다."""
+    bad = 0
+    for yard, want in (("new", 196), ("old", 90)):
+        n = len(block_cells(yard))
+        log(f"점검 · {yard} 자리표 {n}칸 ({'정상' if n == want else '이상, ' + str(want) + '칸이어야 한다'})")
+        bad += n != want
+    try:
+        fetch("print.json")
+        log("점검 · 우편함 읽기 정상")
+    except Exception as e:
+        bad += 1
+        log(f"점검 · 우편함 읽기 실패 — {type(e).__name__}: {e}")
+    try:
+        os.makedirs(result_dir(), exist_ok=True)
+        probe = os.path.join(result_dir(), "점검.tmp")
+        with io.open(probe, "w", encoding="utf-8") as f:
+            f.write("ok")
+        os.remove(probe)
+        log(f"점검 · 결과를 놓을 자리 정상 ({result_dir()})")
+    except Exception as e:
+        bad += 1
+        log(f"점검 · 결과를 놓을 수 없다 — {type(e).__name__}: {e}")
+    try:
+        import win32com.client
+        import pythoncom
+        pythoncom.CoInitialize()
+        excel = win32com.client.DispatchEx("Excel.Application")
+        ver = excel.Version
+        excel.Quit()
+        log(f"점검 · 엑셀 {ver} 정상")
+    except Exception as e:
+        bad += 1
+        log(f"점검 · 엑셀을 열 수 없다 — {type(e).__name__}: {e}")
+    log(f"점검 · {'모두 정상' if not bad else str(bad) + '가지 이상'}")
+    return 1 if bad else 0
+
+
+def main():
+    """창도 트레이 아이콘도 없다. 보이지 않게 돌면서 엑셀만 고친다.
+    무엇을 적었는지는 기록 파일에만 남는다. 끄려면 시작 메뉴의 [끄기]."""
+    if "--점검" in sys.argv or "--selftest" in sys.argv:
+        sys.exit(selftest())
+    loop(threading.Event())
+
+
+if __name__ == "__main__":
+    main()

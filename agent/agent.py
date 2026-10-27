@@ -57,12 +57,15 @@ def poll_sec(now=None):
     return POLL_BUSY if h >= BUSY_FROM or h < BUSY_TO else POLL_IDLE
 STALE = datetime.timedelta(minutes=10)      # 이보다 오래된 요청은 적지 않는다
 
-# 새벽 2시 5분에 운영관리 엑셀을 저장하고 닫는다.
+# 새벽 2시 8분에 운영관리 엑셀을 저장하고 닫는다.
 #   2시 10분에 B(사무실) PC 가 출퇴근 관리 프로그램으로 그 엑셀을 열어야 하는데,
 #   여기서 열어 두고 있으면 저쪽은 읽기 전용으로만 열린다.
-CLOSE_AT = (2, 9)
+#   ★ [2026-10-28] 02:09 → 02:08. 1분은 너무 빡빡했다 (사용자 판단).
+CLOSE_AT = (2, 8)
 CLOSE_UNTIL = 6                             # 6시(근무 끝)까지는 늦게라도 닫는다
 CLOSE_ASK_SEC = 60                          # 묻고 1분 뒤에는 저절로 닫는다
+# 닫은 뒤에도 이때까지는 **다시 열렸는지 지켜본다** (02:10 에 B 가 열어야 하므로).
+WATCH_UNTIL = (2, 12)
 
 # 공유 폴더는 업무관리\설정.json 에서 본다. A 컴퓨터에는 그 파일이 없을 수 있으므로
 # (받아쓰기만 따로 설치한다) 아래 예비 값으로도 돌게 둔다.
@@ -996,10 +999,60 @@ def close_ops(now=None, ask=ask_close):
             wb.Save()
         wb.Close(SaveChanges=False)        # 방금 저장했다
         log(f"🔒 {os.path.basename(path)} 저장하고 닫았습니다")
-        mark()
-        return True
     except Exception as e:
         log(f"⚠ 닫지 못했습니다 — {type(e).__name__}: {e}")
+        return False
+
+    # ★ [2026-10-28] **닫힌 것을 눈으로 확인한다.** 닫았다고 적고도 저쪽이 못 잡는 일이
+    #    있었다. Close() 가 돌아왔어도 엑셀이 아직 물고 있을 수 있으니 세 번까지 본다.
+    for 번 in range(3):
+        time.sleep(1.0)
+        if running_workbook(path) is None:
+            log("✅ 닫힌 것까지 확인했습니다")
+            mark()
+            return True
+        log(f"⚠ 아직 열려 있습니다 ({번 + 1}/3) — 다시 닫습니다")
+        try:
+            다시 = running_workbook(path)
+            if 다시 is not None:
+                다시.Close(SaveChanges=False)
+        except Exception as e:
+            log(f"⚠ 다시 닫기 실패 — {type(e).__name__}: {e}")
+    log("🚨 끝내 닫히지 않았습니다 — B 컴퓨터가 읽기 전용으로만 열 수 있습니다")
+    mark()
+    return False
+
+
+def watch_closed(now=None):
+    """닫은 뒤 02:12 까지, 그 엑셀이 **다시 열렸는지 지켜본다.**
+
+    ★ [2026-10-28] 사용자 요청. 02:08 에 닫아도 누군가(또는 다른 프로그램이) 다시 열면
+    02:10 에 B 컴퓨터가 읽기 전용으로만 열린다. 닫은 날이라도 이 시간 안에는 계속 본다.
+    """
+    now = now or datetime.datetime.now()
+    지금분 = now.hour * 60 + now.minute
+    if not (CLOSE_AT[0] * 60 + CLOSE_AT[1] <= 지금분 <= WATCH_UNTIL[0] * 60 + WATCH_UNTIL[1]):
+        return False
+    if closed_day() != now.date().isoformat():
+        return False                       # 아직 닫지도 않았다 — close_ops 가 할 일이다
+    try:
+        path = find_excel(ops_date(now))
+    except FileNotFoundError:
+        return False
+    import pythoncom
+    pythoncom.CoInitialize()
+    wb = running_workbook(path)
+    if wb is None:
+        return False                       # 닫힌 채다 — 조용히 있는다
+    log("⚠ 닫아 둔 엑셀이 다시 열려 있습니다 — 또 닫습니다")
+    try:
+        if not wb.ReadOnly:
+            wb.Save()
+        wb.Close(SaveChanges=False)
+        log("🔒 다시 닫았습니다")
+        return True
+    except Exception as e:
+        log(f"⚠ 다시 닫지 못했습니다 — {type(e).__name__}: {e}")
         return False
 
 
@@ -1054,6 +1107,8 @@ def loop(stop):
                 warm_up()
             if due_to_close(datetime.datetime.now()):
                 close_ops()
+            else:
+                watch_closed()            # 닫은 뒤 02:12 까지 다시 열렸는지 본다
             tick()
             last_err = None
         except Exception as e:
