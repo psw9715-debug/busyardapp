@@ -1,15 +1,15 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610270215';
-import { YARD_OLD } from './yard-old-data.js?v=202610270215';
-import { BUILD } from './build.js?v=202610270215';
-import { toKoreanSino, announceText } from './plate.js?v=202610270215';
+import { YARD as YARD_NEW } from './yard-data.js?v=202610280209';
+import { YARD_OLD } from './yard-old-data.js?v=202610280209';
+import { BUILD } from './build.js?v=202610280209';
+import { toKoreanSino, announceText } from './plate.js?v=202610280209';
 import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610270215';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610280209';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610270215';
-import { createSync, getToken, setToken } from './sync.js?v=202610270215';
+} from './store.js?v=202610280209';
+import { createSync, getToken, setToken } from './sync.js?v=202610280209';
 
 // ---------------------------------------------------------------- 상태
 
@@ -395,12 +395,15 @@ function confirmSpot() {
 
 function commit(spot, entry, { announce = true } = {}) {
   setEntry(session, spot, { ...entry, round });
-  saveCursor();
   paintSpot(spot);
 
   // 예비 칸은 걷는 순서 밖이라 커서를 움직이지 않는다
   const isLast = spot === LAST;
   if (onRoute(spot)) cursor = isLast ? LAST : nextSpotAfter(spot);
+  // ★ [2026-10-28] 커서를 **옮긴 뒤에** 적는다. 전에는 옮기기 전에 적어서, 손으로
+  //    B2-1 을 눌러 넣어도 저장된 자리는 B5 에 그대로 있었다. 폰은 화면이 꺼졌다
+  //    켜지며 앱이 다시 뜨는 일이 흔해서, 그때마다 돌던 B5 로 되돌아갔다.
+  saveCursor();
   if ($('padSheet').hidden) revealCursor();
   paintSpot(spot);
   paintSpot(cursor);
@@ -1213,6 +1216,7 @@ function doLoadLog(date) {
   saveTargets();
 
   cursor = firstEmptySpot();
+  saveCursor();
   repaintAll();
   renderHud();
   renderTargetBadge();
@@ -1779,7 +1783,7 @@ function init() {
 
   $('spotClose').addEventListener('click', () => { $('spotSheet').hidden = true; });
   $('spotGoto').addEventListener('click', () => {
-    cursor = sheetSpot; repaintAll(); renderHud();
+    cursor = sheetSpot; saveCursor(); repaintAll(); renderHud();
     $('spotSheet').hidden = true;
     if (voice) voice.reset();
     note(`${spotName(cursor)}번 자리부터 입력합니다`);
@@ -1792,6 +1796,7 @@ function init() {
   $('spotClear').addEventListener('click', () => {
     setEntry(session, sheetSpot, null);
     cursor = firstEmptySpot();
+    saveCursor();
     repaintAll(); renderHud();
     $('spotSheet').hidden = true;
   });
