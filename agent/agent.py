@@ -37,6 +37,9 @@ import urllib.parse
 import urllib.request
 
 APP_NAME = "차고지 받아쓰기"
+# ★ [2026-10-28] 이 판 번호는 **installer.iss 의 AppVer 과 같아야 한다.**
+#    (tools\pc\check_판올림.py 가 둘이 어긋나면 실패한다.)
+VERSION = "1.7.0"
 REPO = "psw9715-debug/busyardapp"
 # api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
 # raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
@@ -81,6 +84,18 @@ try:
     BASE_UNC = _설정.UNC경로(BASE)
 except Exception:
     pass
+# ── 스스로 판올림 ───────────────────────────────────────────────────────────
+#    ★ [2026-10-28] 고칠 때마다 A 컴퓨터 자리로 가서 설치하는 것이 번거롭다는 말에
+#    따라, **공유 폴더에 올려 두면 A 가 스스로 깐다.** 사무실 PC 에서 배포.ps1 을
+#    돌리는 것으로 끝난다. 설치본은 묻는 것이 없고(PrivilegesRequired=lowest),
+#    깔기 전에 돌고 있는 것을 스스로 끄고, 다 깔면 새것을 띄운다.
+SETUP_DIR_PARTS = ("유틸리티", "차고지순찰프로그램")
+SETUP_RE = re.compile(r"^차고지받아쓰기_Setup_(\d+)\.(\d+)\.(\d+)\.exe$")
+UPDATE_EVERY = 120                          # 2분에 한 번만 본다 (공유 폴더를 덜 두드린다)
+# 이 사이에는 깔지 않는다 — 엑셀을 닫고 B 컴퓨터가 그것을 여는 참이다.
+NO_UPDATE_FROM, NO_UPDATE_TO = (2, 0), (2, 20)
+UPDATE_TRIES = 2                            # 같은 판으로 두 번 실패하면 더 매달리지 않는다
+
 KEYWORD = "입출차 운영관리"
 # 했다/못 했다를 놓아 두는 자리 (사무실 PC 가 여기를 보고 폰에 전해 준다).
 # 어느 PC 든 같은 곳을 보게, 경로는 그때그때 고른다 — base_dir() 참고.
@@ -277,6 +292,18 @@ def base_dir():
     return BASE_UNC
 
 
+def share_root():
+    r"""공유 폴더의 뿌리 (Z:\ 또는 \\서버\공유). 상황실에서 두 단계 위다."""
+    뿌리 = os.path.dirname(os.path.dirname(base_dir()))
+    return 뿌리 or base_dir()
+
+
+def setup_dir():
+    r"""설치본이 놓이는 자리. 배포.ps1 이 여기에 새것을 올리고 옛것을 지운다.
+    (Z:\유틸리티\차고지순찰프로그램)"""
+    return os.path.join(share_root(), *SETUP_DIR_PARTS)
+
+
 def result_dir():
     return os.path.join(base_dir(), RESULT_NAME)
 
@@ -306,6 +333,9 @@ def tell_alive(every=60):
         tmp = alive_file() + ".tmp"
         with io.open(tmp, "w", encoding="utf-8") as f:
             json.dump({"pc": os.environ.get("COMPUTERNAME", "?"),
+                       # ★ [2026-10-28] 어느 판이 돌고 있는지 사무실 PC 에서 보이게.
+                       #    스스로 깔고 나면 이 숫자가 올라간다 — 깔렸는지를 이것으로 안다.
+                       "판": VERSION,
                        "at": datetime.datetime.now(datetime.timezone.utc)
                        .isoformat(timespec="seconds").replace("+00:00", "Z")},
                       f, ensure_ascii=False)
@@ -1056,6 +1086,113 @@ def watch_closed(now=None):
         return False
 
 
+# ── 스스로 판올림 ───────────────────────────────────────────────────────────
+
+TRIES_FILE = os.path.join(HOME, "판올림시도.json")
+_판본때 = [0.0]
+
+
+def 판숫자(text):
+    """'1.6.0' → (1, 6, 0). 못 읽으면 (0, 0, 0)."""
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)$", (text or "").strip())
+    return tuple(int(x) for x in m.groups()) if m else (0, 0, 0)
+
+
+def 새설치본(folder=None):
+    """그 자리의 설치본 가운데 **가장 높은 판** → (경로, (1,6,0)) 또는 (None, None)"""
+    folder = folder or setup_dir()
+    길, 판 = None, None
+    try:
+        이름들 = os.listdir(folder)
+    except OSError:
+        return None, None
+    for name in 이름들:
+        m = SETUP_RE.match(name)
+        if not m:
+            continue
+        이판 = tuple(int(x) for x in m.groups())
+        if 판 is None or 이판 > 판:
+            길, 판 = os.path.join(folder, name), 이판
+    return 길, 판
+
+
+def _시도기록():
+    try:
+        with io.open(TRIES_FILE, encoding="utf-8") as f:
+            것 = json.load(f)
+        return 것 if isinstance(것, dict) else {}
+    except Exception:
+        return {}
+
+
+def _시도적기(글, 몇번):
+    try:
+        os.makedirs(HOME, exist_ok=True)
+        with io.open(TRIES_FILE, "w", encoding="utf-8") as f:
+            json.dump({글: 몇번}, f, ensure_ascii=False)       # 지난 판 기록은 둘 필요가 없다
+    except Exception:
+        pass
+
+
+def 기본깔기(setup):
+    """설치본을 묻는 것 없이 돌린다.
+
+    공유 폴더의 파일을 그대로 돌리면 깔리는 동안 네트워크가 끊길 수 있으니
+    **먼저 이 PC 로 옮겨 놓고** 깐다. 설치본은 돌고 있는 우리를 스스로 끄고
+    (installer.iss 의 InitializeSetup), 다 깔면 새것을 띄운다.
+    """
+    import shutil
+    집 = os.path.join(HOME, "받은설치본.exe")
+    os.makedirs(HOME, exist_ok=True)
+    shutil.copy2(setup, 집)
+    subprocess.Popen([집, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART"],
+                     close_fds=True,
+                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    return True
+
+
+def 판올림(now=None, 지금판=None, 깔기=None, folder=None, every=UPDATE_EVERY):
+    """공유 폴더에 더 높은 판이 올라와 있으면 **스스로 깐다.**
+
+    ★ [2026-10-28] 고칠 때마다 A 컴퓨터 자리로 가서 설치하는 것이 번거롭다는 말에
+    따라 만들었다. 사무실 PC 에서 `배포.ps1` 을 돌리면 공유 폴더에 새 설치본이
+    놓이고, A 는 2분 안에 그것을 보고 스스로 깐다.
+
+    조심한 것
+      · 02:00~02:20 에는 깔지 않는다 — 엑셀을 닫고 B 가 그것을 여는 참이다.
+      · 같은 판으로 두 번 실패하면 더 매달리지 않는다 (2분마다 영원히 깔려 들지 않게).
+      · 공유 폴더 파일을 바로 돌리지 않고 이 PC 로 옮겨 놓고 깐다.
+    """
+    now = now or datetime.datetime.now()
+    깔기 = 깔기 or 기본깔기
+    if time.time() - _판본때[0] < every:
+        return False
+    _판본때[0] = time.time()
+
+    지금분 = now.hour * 60 + now.minute
+    if (NO_UPDATE_FROM[0] * 60 + NO_UPDATE_FROM[1]
+            <= 지금분 < NO_UPDATE_TO[0] * 60 + NO_UPDATE_TO[1]):
+        return False
+
+    길, 판 = 새설치본(folder)
+    내판 = 판숫자(지금판 or VERSION)
+    if 판 is None or 판 <= 내판:
+        return False
+
+    글 = ".".join(str(x) for x in 판)
+    몇번 = _시도기록().get(글, 0)
+    if 몇번 >= UPDATE_TRIES:
+        return False
+    _시도적기(글, 몇번 + 1)
+    log(f"⬆ 새 판 {글} 을 보았습니다 (지금 {지금판 or VERSION}) — 묻지 않고 깝니다")
+    try:
+        깔기(길)
+    except Exception as e:
+        log(f"⚠ 판올림 실패 — {type(e).__name__}: {e}")
+        return False
+    return True
+
+
 def request_file():
     """사무실 PC 가 우리에게 바로 건네 놓는 자리 (같은 랜의 Z:)."""
     return os.path.join(result_dir(), "요청.json")
@@ -1110,6 +1247,7 @@ def loop(stop):
             else:
                 watch_closed()            # 닫은 뒤 02:12 까지 다시 열렸는지 본다
             tick()
+            판올림()                      # 공유 폴더에 새 설치본이 올라왔으면 스스로 깐다
             last_err = None
         except Exception as e:
             msg = f"{type(e).__name__}: {e}"
