@@ -1,15 +1,15 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202611010232';
-import { YARD_OLD } from './yard-old-data.js?v=202611010232';
-import { BUILD } from './build.js?v=202611010232';
-import { toKoreanSino, announceText } from './plate.js?v=202611010232';
+import { YARD as YARD_NEW } from './yard-data.js?v=202611010425';
+import { YARD_OLD } from './yard-old-data.js?v=202611010425';
+import { BUILD } from './build.js?v=202611010425';
+import { toKoreanSino, announceText } from './plate.js?v=202611010425';
 import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611010232';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611010425';
 import {
-  loadSession, setEntry, countFilled, workDate, clearSession,
+  loadSession, setEntry, countFilled, workDate, clearSession, dropSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202611010232';
-import { createSync, getToken, setToken } from './sync.js?v=202611010232';
+} from './store.js?v=202611010425';
+import { createSync, getToken, setToken } from './sync.js?v=202611010425';
 
 // ---------------------------------------------------------------- 상태
 
@@ -99,6 +99,10 @@ function spotSay(n) {
 // 회차는 그날 판에만 딸린다. 어제 2회차로 끝냈다고 오늘 첫 순찰이 2회차로 적히면 안 된다.
 // 회차는 차고지마다 따로다 — 구차고지를 2회차로 돌다 신차고지로 건너가면
 // 거기는 아직 1회차일 수 있다.
+// 다른 차고지의 2회차 칸을 눌러 건너올 때, 새로 뜬 쪽에 "2회차로 들어가라" 고 남기는 쪽지
+const CROSS_KEY = 'busyard:건너온2회';
+// [최신 버전 받기] 로 받으러 간 판 번호. 새로 뜬 뒤 "받았다/못 받았다" 를 알리는 데 쓴다.
+const GOT_KEY = 'busyard:받을판';
 const ROUND_KEY = `busyard:round:${YARD.id}`;
 const ROUND_DATE_KEY = `busyard:roundDate:${YARD.id}`;
 let round = ROUNDS.includes(Number(localStorage.getItem(ROUND_KEY)))
@@ -465,12 +469,16 @@ function commit(spot, entry, { announce = true } = {}) {
   //    2회차 확인은 [확인] 을 누르며 눈으로 보는 것이 빠를 때도 있지만, 세 자리만
   //    누르면 되니 그냥 다시 치는 것이 빠를 때도 있다. 그때 같은 번호면 "확인",
   //    다른 번호면 "바뀜" 이라고 해 주면 **자리를 잘못 눌렀는지 그 자리에서 안다.**
+  //    [2026-11-01 둘째] **회차를 가리지 않는다.** 2회차일 때만 대답하게 해 두어,
+  //    구차고지에서 2회차로 바꾸지 않은 채 돌면 같은 번호를 넣어도 아무 말이 없었다.
+  //    "이미 적혀 있던 칸에 번호를 다시 넣었다" 는 것 자체가 견줄 일이다 —
+  //    두 차고지가 같은 규칙으로 움직인다.
   let 앞말 = null;
-  if (round === 2 && 전 && 전.status === 'filled' && entry.status === 'filled'
+  if (전 && 전.status === 'filled' && entry.status === 'filled'
       && entry.method !== 'next') {
     if (String(전.plate) === String(entry.plate)) {
       앞말 = '확인';
-      note('확인 — 1회차와 같습니다');
+      note('확인 — 적혀 있던 것과 같습니다');
     } else {
       앞말 = '바뀜';
       note(`${전.plate} → ${entry.plate} 로 바뀌었습니다`, 'warn');
@@ -569,13 +577,14 @@ function goNext() {
 }
 
 /** 안내 음성. 말하는 동안 자기 목소리가 다시 인식되지 않게 막는다. */
-function announceSpeak(text) {
+function announceSpeak(text, { 서둘러 = false } = {}) {
   if (!text) return;
   // 숫자를 읽고 있는 중이면 끊지 않고 그 뒤에 붙인다. 세 자리째를 누르는 순간
   // 그 자리가 채워지고 다음 자리 안내가 이어지는데, 그 안내가 방금 누른 마지막
   // 숫자를 끊어 먹어서 "제대로 눌렀나" 를 눈으로 확인해야 했다.
   const 기다림 = digitSpeaking();
-  const ms = speak(text, { rate: rate.say, interrupt: !기다림 });
+  const 빠르기 = 서둘러 ? Math.min(2, rate.say * 1.2) : rate.say;
+  const ms = speak(text, { rate: 빠르기, interrupt: !기다림 });
   if (voice) voice.muteFor(ms + (기다림 ? 700 : 0) + 250);
 }
 
@@ -677,7 +686,9 @@ function announceCursor(앞말) {
     round, newSeg, ttsOn, spotSay: 짧은자리(cursor, 구역), zoneSay: 구역, entry: e, target,
   });
   // 앞말('확인'·'바뀜')은 방금 적은 것에 대한 대답이다. 다음 자리 안내 앞에 붙인다.
-  announceSpeak(앞말 ? (말 ? `${앞말}, ${말}` : 앞말) : 말);
+  // 쉼표는 떼고 한 숨에 붙여 읽는다 — 세 자리를 다다다닥 넣는 걸음에서 쉼표 한 번이
+  // 다음 칸 번호를 그만큼 늦췄다. 앞말이 붙은 말은 한 단 빠르게 읽는다. (2026-11-01)
+  announceSpeak(앞말 ? (말 ? `${앞말} ${말}` : 앞말) : 말, { 서둘러: Boolean(앞말) });
 }
 
 // 2회차 확인은 적힌 번호를 귀로 듣는 것이 핵심이라 기본 켜짐
@@ -1068,9 +1079,10 @@ function highlightSpot(n) {
 // ---------------------------------------------------------------- 회차
 
 function renderRound() {
-  const btn = $('btnRound');
-  btn.textContent = `${round}회차`;
-  btn.classList.toggle('r2', round === 2);
+  // 네 칸 가운데 지금 칸만 불을 켠다 (6차고지 1회·2회 / 구차고지 1회·2회)
+  document.querySelectorAll('#rounds .rbtn').forEach((b) => {
+    b.classList.toggle('on', b.dataset.yard === YARD.id && Number(b.dataset.round) === round);
+  });
   // 2회차에는 1회차 기록을 죽여서, 아직 차가 안 들어온 자리가 도드라지게 한다
   document.body.classList.toggle('round2', round === 2);
 }
@@ -1127,6 +1139,12 @@ function resetToday() {
   //    이것을 남겨 두어 지운 뒤에도 [대상]·[못 봄] 배지가 그대로 떠 있었다.
   //    초기화는 진짜 초기화여야 한다 (사용자 지적).
   try { localStorage.removeItem(CHECK_KEY()); } catch (_) { /* 꽉 찼거나 막혀도 그냥 간다 */ }
+  // ★ [2026-11-01 둘째] **다른 차고지 판도 함께 지운다.** 지우는 때는 그날 일이
+  //    끝난 때다. 보고 있는 쪽만 지우면 남은 쪽이 다음 날까지 살아남는다.
+  const 저쪽 = OLD_YARD ? 'new' : 'old';
+  dropSession(저쪽, session.date);
+  localStorage.removeItem(`busyard:round:${저쪽}`);
+  localStorage.removeItem(`busyard:roundDate:${저쪽}`);
 
   round = 1;
   localStorage.removeItem(ROUND_KEY);
@@ -1367,6 +1385,7 @@ async function checkForUpdate() {
     return;
   }
   sessionStorage.setItem('busyard:tried', remote);
+  try { sessionStorage.setItem(GOT_KEY, remote); } catch (_) { /* 꽉 찼어도 받기는 한다 */ }
   await forceUpdate();
 }
 
@@ -1375,6 +1394,56 @@ async function checkForUpdate() {
  * 캐시와 서비스 워커를 전부 지우고 주소에 새 값을 붙여 다시 받는다.
  * 입력해 둔 순회 데이터(localStorage)는 건드리지 않는다.
  */
+/**
+ * [최신 버전 받기] 를 눌렀을 때.
+ *
+ * ★ [2026-11-01 둘째] 전에는 바로 캐시를 지우고 다시 받았다. 이미 최신이어도
+ *   화면이 한 번 껌벅이고 돌아올 뿐이라, 받은 것인지 받을 것이 없는 것인지
+ *   알 수가 없었다 ("눌러도 그냥 메인으로 빠져나온다"). 이제 먼저 알아보고 글로
+ *   대답한다. 새 것이 있을 때만 받으러 가고, 돌아오면 받았다고 알려 준다.
+ */
+async function 판올림누르기() {
+  const btn = $('diagUpdate');
+  const 글 = (말, 꼴) => {
+    const el = $('diagUpdateMsg');
+    if (el) { el.textContent = 말; el.className = 'diag-update-msg' + (꼴 ? ' ' + 꼴 : ''); }
+  };
+  const 되돌리기 = () => { btn.textContent = '최신 버전 받기'; btn.disabled = false; };
+  btn.textContent = '알아보는 중…';
+  btn.disabled = true;
+  글('');
+
+  let remote = null;
+  try {
+    const res = await fetch(`version.json?t=${Date.now()}`, { cache: 'no-store' });
+    if (res.ok) remote = (await res.json()).build;
+  } catch (_) { /* 전파가 없다 */ }
+
+  if (!remote) {
+    글('전파가 닿지 않습니다 — 지금 것을 그대로 씁니다.', 'no');
+    되돌리기();
+    return;
+  }
+  if (remote === BUILD) {
+    글(`이미 최신입니다 (${BUILD}).`, 'ok');
+    되돌리기();
+    return;
+  }
+  글(`새 버전 ${remote} 을 받습니다…`);
+  try { sessionStorage.setItem(GOT_KEY, remote); } catch (_) { /* 꽉 찼어도 받기는 한다 */ }
+  await forceUpdate();
+}
+
+/** 받고 돌아왔는지 알려 준다 — 새로 뜬 뒤 한 번 */
+function 받은결과알리기() {
+  let 받을것 = null;
+  try { 받을것 = sessionStorage.getItem(GOT_KEY); } catch (_) { return; }
+  if (!받을것) return;
+  try { sessionStorage.removeItem(GOT_KEY); } catch (_) { /* 지우지 못해도 그냥 간다 */ }
+  if (받을것 === BUILD) note(`새 버전 ${BUILD} 을 받았습니다.`);
+  else note(`${받을것} 을 받지 못했습니다 — 지금은 ${BUILD} 입니다. 다시 눌러 보세요.`, 'warn');
+}
+
 async function forceUpdate() {
   const btn = $('diagUpdate');
   if (btn) { btn.textContent = '받는 중…'; btn.disabled = true; }
@@ -1613,7 +1682,6 @@ async function doPrint(what) {
 // ---------------------------------------------------------------- 시작
 
 function init() {
-  $('yardName').textContent = YARD.name.replace(/\s*\(.*\)/, '');
   document.body.classList.toggle('yard-old', OLD_YARD);
   if (OLD_YARD) $('hudUnit').textContent = spotZone(cursor);
   renderRound();
@@ -1624,14 +1692,40 @@ function init() {
   renderHud();
   renderTargetBadge();
   if (countFilled(session) > 0) note(`이어서 ${spotName(cursor)}번부터 입력합니다`);
+  받은결과알리기();   // 새 버전을 받으러 갔다 돌아온 길이면 그 결과를 알려 준다
 
-  // 2회차 도중에 앱이 다시 뜨는 일이 있다 (화면을 오래 꺼 두거나 새 버전을 받을 때).
-  // 그때도 돌던 자리에서 확인 걸음을 이어 간다 — 키패드를 손으로 다시 열 일이 없게.
-  if (round === 2) startConfirmWalk();
+  // 다른 차고지의 2회차 칸을 눌러 건너온 길이다 — switchRound 가 하던 일을 여기서 한다.
+  const 건너옴 = sessionStorage.getItem(CROSS_KEY) === YARD.id;
+  if (건너옴) {
+    sessionStorage.removeItem(CROSS_KEY);
+    cursor = FIRST;
+    saveCursor();
+    saidSeg = null;
+    // 구차고지 2회차는 사무실 엑셀 판을 받아다 깔고 그 위에서 고친다 (switchRound 와 같다)
+    if (OLD_YARD) pullFromExcel(); else startConfirmWalk();
+  } else if (round === 2) {
+    // 2회차 도중에 앱이 다시 뜨는 일이 있다 (화면을 오래 꺼 두거나 새 버전을 받을 때).
+    // 그때도 돌던 자리에서 확인 걸음을 이어 간다 — 키패드를 손으로 다시 열 일이 없게.
+    startConfirmWalk();
+  }
 
-  $('btnRound').addEventListener('click', () => {
+  // ★ [2026-11-01 둘째] 차고지와 회차를 네 칸으로 늘어놓았다. 차고지를 바꾼 뒤
+  //    회차를 또 누르던 두 걸음이 한 걸음이 되고, 어느 차고지가 몇 회차인지
+  //    누르지 않고도 보인다 (회차는 차고지마다 따로 기억한다).
+  $('rounds').addEventListener('click', (ev) => {
+    const b = ev.target.closest('.rbtn');
+    if (!b) return;
     primeAudio();
-    switchRound(round === 1 ? 2 : 1);
+    const 차고지 = b.dataset.yard;
+    const 회차 = Number(b.dataset.round);
+    if (차고지 === YARD.id) { switchRound(회차); return; }
+    // 차고지를 바꾸면 판·커서·배치도가 전부 그 차고지 것으로 바뀐다.
+    // 반쯤 갈아 끼우다 어긋나지 않게 화면을 처음부터 다시 세운다.
+    localStorage.setItem('busyard:yard', 차고지);
+    localStorage.setItem(`busyard:round:${차고지}`, String(회차));
+    localStorage.setItem(`busyard:roundDate:${차고지}`, workDate());
+    if (회차 === 2) sessionStorage.setItem(CROSS_KEY, 차고지);
+    location.reload();
   });
   $('btnMic').addEventListener('click', toggleMic);
   $('btnBack').addEventListener('click', () => { primeAudio(); goBack(); });
@@ -1643,13 +1737,6 @@ function init() {
   $('printExcel').addEventListener('click', () => doPrint('excel'));
   $('printFinal').addEventListener('click', () => doPrint('final'));
   $('btnDiag').addEventListener('click', openDiag);
-  $('yardName').addEventListener('click', () => {
-    // 차고지를 바꾸면 판·커서·배치도가 전부 그 차고지 것으로 바뀐다.
-    // 반쯤 갈아 끼우다 어긋나지 않게 화면을 처음부터 다시 세운다.
-    localStorage.setItem('busyard:yard', OLD_YARD ? 'new' : 'old');
-    location.reload();
-  });
-
   // ---- 차량번호 찾기 ----
   let findDigits = '';
   const renderFind = () => {
@@ -1871,7 +1958,7 @@ function init() {
   });
 
   $('diagClose').addEventListener('click', () => { $('diagSheet').hidden = true; });
-  $('diagUpdate').addEventListener('click', forceUpdate);
+  $('diagUpdate').addEventListener('click', 판올림누르기);
 
   // 되돌릴 수 없는 일이라 두 번 눌러야 지워진다
   let clearArmed = false;

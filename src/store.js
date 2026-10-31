@@ -96,6 +96,16 @@ export function countFilled(session) {
   return Object.keys(session.entries).length;
 }
 
+/**
+ * 그 차고지의 그날 판을 통째로 지운다.
+ *
+ * "오늘 지우기" 는 그날 일이 끝났다는 뜻이다. 보고 있는 차고지만 지우면 다른
+ * 차고지 판이 어제 것처럼 남아 다음 날 그 위에 적게 된다. (2026-11-01)
+ */
+export function dropSession(yard, date = workDate()) {
+  for (const r of ROUNDS) localStorage.removeItem(key(yard, date, r));
+}
+
 /** 이 회차에 입력한 차량번호를 전부 지운다 */
 export function clearSession(session) {
   session.entries = {};

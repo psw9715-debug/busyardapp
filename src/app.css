@@ -41,44 +41,44 @@ html, body {
 
 /* ---------- 상단 바 ---------- */
 .bar {
-  display: flex; align-items: center; justify-content: space-between;
+  display: flex; align-items: center; justify-content: flex-end;
   /* 아이폰 13 미니는 가로가 좁다. 양쪽 여백을 줄여 글씨가 잘리지 않게 한다 (2026-11-01) */
   padding: 5px 7px 4px;
   gap: 6px;
   flex: none;
 }
-.bar-left {
-  display: flex; align-items: baseline; gap: 7px;
-  min-width: 0;
+/* ★ [2026-11-01] 차고지·회차는 아래 한 줄(.rounds)로 내렸다. 윗줄은 통째로
+   [찾기]·[대상]·[사진]·[인쇄]·[진단] 몫이 되어 버튼마다 폭이 넓어졌다. */
+.bar-right { display: flex; gap: 4px; flex: 1; min-width: 0; }
+
+/* 차고지 넷 — 6차고지 1회 / 2회 / 구차고지 1회 / 2회 */
+.rounds { display: flex; gap: 4px; padding: 0 7px 5px; flex: none; }
+.rbtn {
+  flex: 1 1 0; min-width: 0;
+  font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: -.02em;
+  white-space: nowrap; line-height: 1; padding: 10px 2px;
+  background: var(--panel-2); color: var(--ink);
+  border: 1px solid var(--line); border-radius: 8px;
 }
-/* 자리가 좁으면 차고지 이름이 줄어든다 — 회차 버튼은 늘 통째로 눌릴 수 있어야 한다 */
-/* 차고지 이름은 **깎지 않는다.** "구..." 로 잘려 무엇인지도, 눌리지도 않았다 (2026-11-01).
-   [일지] 를 진단으로 옮겨 자리를 벌었으니 통째로 보인다. */
-.yard {
-  font-size: 14px; font-weight: 700; white-space: nowrap; font-family: inherit;
-  background: none; border: none; color: var(--ink); padding: 2px 0;
-  flex: none;
-}
-.yard::after { content: ' ⇄'; color: var(--ink-dim); font-weight: 400; }
-.round {
-  flex: none;                      /* 눌러야 하는 것이라 절대 깎이지 않는다 */
-  font-size: 11px; font-family: inherit; white-space: nowrap;
-  background: var(--panel-2); color: var(--ink-dim);
-  border: 1px solid var(--line); border-radius: 7px; padding: 6px 10px;
-}
-.round.r2 { background: var(--r2-bg); color: var(--r2-ink); border-color: var(--r2-line); font-weight: 700; }
+/* 2회차는 1회차와 색이 달라야 잘못 누르지 않는다 */
+.rbtn.two { color: var(--r2-ink); border-color: var(--r2-line); }
+/* 지금 보고 있는 칸 — 눌려 있는 것이 멀리서도 보인다 */
+.rbtn.on       { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.rbtn.two.on   { background: var(--r2-line); color: #fff; border-color: var(--r2-ink); }
+.rbtn:active   { background: var(--line); }
 /* 2회차 모드는 윗부분 전체를 보라로 물들여, 지금 몇 회차로 적는지 헷갈리지 않게 한다 */
 body.round2 .bar,
+body.round2 .rounds,
 body.round2 .hud { background: var(--r2-bg); }
 body.round2 .hud { border-bottom: 2px solid var(--r2-line); }
-.bar-right { display: flex; gap: 4px; flex: none; }
 /* ★ [2026-11-01] 글씨가 흐려서 반투명처럼 보이고, 좁은 화면에서 누르기 어려웠다.
    눌러야 하는 것은 또렷해야 한다 — 흐린 색(--ink-dim)을 쓰지 않는다. */
 .icon-btn {
   position: relative;
-  background: var(--panel-2); color: var(--ink);
+  flex: 1 1 0; min-width: 0;
+  background: var(--panel-2); color: #fff9ea;
   border: 1px solid var(--line); border-radius: 8px;
-  font-size: 12px; font-weight: 600; padding: 8px 7px; font-family: inherit;
+  font-size: 12.5px; font-weight: 700; padding: 9px 4px; font-family: inherit;
   white-space: nowrap; line-height: 1;
 }
 .icon-btn:active { background: var(--line); }
@@ -544,6 +544,11 @@ body.round2 .cell.spot.filled.r1.target.k-key .no     { color: var(--blue); }
 /* 진단 맨 위로 옮겨 온 [일지 보관] (2026-11-01) */
 .diag-row-top { display: flex; gap: 8px; padding: 0 0 10px; }
 .diag-row-top .icon-btn { flex: 1; padding: 11px 8px; font-size: 13px; }
+/* 최신 버전 받기의 대답 — 받았는지, 이미 최신인지 글로 남는다 */
+.diag-update-msg { font-size: 12.5px; line-height: 1.5; color: var(--ink); margin: 6px 0 0; }
+.diag-update-msg:empty { display: none; }
+.diag-update-msg.ok { color: var(--green); }
+.diag-update-msg.no { color: var(--red); }
 .diag { font-size: 13px; }
 .diag-row {
   display: flex; justify-content: space-between; gap: 12px;

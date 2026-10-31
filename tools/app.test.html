@@ -19,6 +19,16 @@
 // 앱을 iframe 으로 띄우면 같은 출처라 안을 그대로 조작할 수 있다.
 // 끝나면 document.title 이 "PASS n" / "FAIL n" 이 된다 — 다른 테스트 페이지와 같다.
 // 서버가 있어야 모듈을 읽는다:  python -m http.server 5181  뒤 /tools/app.test.html
+// ★ [2026-11-01] 시험은 **지금 고친 코드**를 봐야 한다. 서비스 워커가 옛 파일을
+// 들고 있으면 어제 것을 시험하게 된다 — "고치지도 않은 넷이 깨져 있다" 던 것의
+// 진짜 까닭이 이것이었다. 들어올 때마다 워커와 캐시를 떼어 놓고 시작한다.
+if ('serviceWorker' in navigator) {
+  for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+}
+if (window.caches) {
+  for (const k of await caches.keys()) await caches.delete(k);
+}
+
 const out = document.getElementById('out');
 let pass = 0, fail = 0;
 const log = (t, cls) => { const d = document.createElement('div'); d.className = cls || ''; d.textContent = t; out.appendChild(d); };
@@ -60,6 +70,9 @@ async function app() {
   return {
     d, w,
     $: (id) => d.getElementById(id),
+    // 차고지·회차 네 칸 (6차고지 1회·2회 / 구차고지 1회·2회)
+    회차칸: (yard, r) => d.querySelector(`#rounds .rbtn[data-yard="${yard}"][data-round="${r}"]`),
+    켜진칸: () => { const b = d.querySelector('#rounds .rbtn.on'); return b ? b.textContent : null; },
     press: (k) => d.querySelector(`#padSheet [data-k="${k}"]`)
       .dispatchEvent(new w.PointerEvent('pointerdown', { bubbles: true, cancelable: true })),
     said: () => w.__said.filter((t) => t.length > 1),
@@ -74,7 +87,7 @@ log('▶ 2회차에서 "오늘 입력·대상 전부 지우기"');
   seed('new', entries, 2);
   const a = await app();
 
-  eq(a.$('btnRound').textContent, '2회차', '시작은 2회차');
+  eq(a.켜진칸(), '6차고지 2회', '시작은 6차고지 2회 칸에 불이 켜져 있다');
   // 2회차 도중 앱이 다시 떠도 확인 걸음을 이어 간다
   eq(a.$('padSheet').hidden, false, '2회차로 켜면 키패드가 열려 있다');
   eq(a.$('padTitle').textContent, 'B5-1번 자리', '돌던 자리에서 이어 간다');
@@ -84,7 +97,7 @@ log('▶ 2회차에서 "오늘 입력·대상 전부 지우기"');
   eq(a.$('diagClear').classList.contains('armed'), true, '한 번 누르면 확인을 받는다');
   a.$('diagClear').click(); await wait(250);         // 두 번 — 실행
 
-  eq(a.$('btnRound').textContent, '1회차', '지운 뒤에는 1회차');
+  eq(a.켜진칸(), '6차고지 1회', '지운 뒤에는 1회차');
   eq(a.d.body.classList.contains('round2'), false, '2회차 화면 색도 풀린다');
   eq(a.$('hudSpot').textContent, 'B5-1', '첫 자리로');
   eq(a.$('hudCount').textContent, '0 / 136', '판이 비었다');
@@ -103,7 +116,7 @@ log('▶ 2회차에서 "오늘 입력·대상 전부 지우기"');
 log('▶ 지운 뒤 앱을 다시 켜면');
 {
   const a = await app();
-  eq(a.$('btnRound').textContent, '1회차', '다시 켜도 1회차');
+  eq(a.켜진칸(), '6차고지 1회', '다시 켜도 1회차');
   eq(a.$('hudSpot').textContent, 'B5-1', '다시 켜도 첫 자리');
   eq(a.$('padSheet').hidden, true, '1회차라 키패드는 닫힌 채');
 }
@@ -143,7 +156,7 @@ log('▶ 2회차 확인 걸음의 음성');
     { plate: '1502', kind: 'cctv' }, { plate: '1504', kind: 'key' },
   ]));
   const a = await app();
-  a.$('btnRound').click(); await wait(400);      // 1회차 → 2회차 (확인 걸음 시작)
+  a.회차칸('new', 2).click(); await wait(400);    // 1회차 → 2회차 (확인 걸음 시작)
 
   const step = async () => {
     const n = a.w.__said.length;
@@ -173,7 +186,7 @@ log('▶ 일지 저장 뒤 초기화');
 
   a.$('logReset').click(); await wait(80);       // 한 번 — 확인
   a.$('logReset').click(); await wait(300);      // 두 번 — 실행
-  eq(a.$('btnRound').textContent, '1회차', '지운 뒤 1회차');
+  eq(a.켜진칸(), '6차고지 1회', '지운 뒤 1회차');
   eq(a.$('hudCount').textContent, '0 / 136', '판이 비었다');
   eq(a.$('logSheet').hidden, true, '일지 화면이 닫힌다');
   eq(Object.keys(localStorage).filter((k) => k.startsWith('busyard:v1:log:')).length, 1, '일지는 남아 있다');
@@ -591,7 +604,7 @@ log('▶ 2회차 시작 — 점검 대상 다시 받기');
     return real(url, opt);
   };
 
-  a.$('btnRound').click();
+  a.회차칸('new', 2).click();
   await until(() => 부탁 !== null);
   eq(부탁 && 부탁.what, 'check', "2회차를 누르면 PC 에 'check' 를 부탁한다");
   eq(부탁 && 부탁.yard, 'new', '어느 차고지인지 함께 보낸다');
@@ -789,7 +802,7 @@ log('\n▶ 2회차 — 같은 번호면 "확인", 다른 번호면 "바뀜"');
   for (const k of ['7', '3', '1']) a.press(k);
   await wait(350);
   eq(a.said().some((t) => t.startsWith('확인')), true, '★ 같은 번호면 "확인" 이라고 말한다');
-  eq(a.$('hudNote').textContent.includes('1회차와 같습니다'), true, '화면에도 그렇게 적는다');
+  eq(a.$('hudNote').textContent.includes('적혀 있던 것과 같습니다'), true, '화면에도 그렇게 적는다');
 
   // B5-2 에 적힌 1555 대신 1556 을 친다 — 바뀐 것으로 알려야 한다
   a.w.__said = [];
@@ -828,6 +841,101 @@ log('\n▶ 윗줄 — [일지] 는 진단 안으로');
   a.$('btnLog').click(); await wait(150);
   eq(a.$('logSheet').hidden, false, '진단에서 눌러 일지가 열린다');
   eq(a.$('diagSheet').hidden, true, '진단은 닫힌다 (겹쳐 뜨지 않는다)');
+}
+
+// ── 29) 1회차에도 적힌 번호를 다시 치면 "확인" (구차고지·신차고지 같은 규칙)
+log('\n▶ 회차를 가리지 않고 "확인"');
+{
+  seed('new', { 1: { plate: '1555', status: 'filled', confidence: 'high', round: 1 } }, 1);
+  const a = await app();
+  a.d.querySelector('[data-spot="1"]').click(); await wait(420);
+  a.$('spotPad').click(); await wait(300);
+  eq(a.$('padTitle').textContent, 'B5-1번 자리', '그 자리 키패드가 열렸다');
+  for (const k of ['5', '5', '5']) a.press(k);
+  await wait(200);
+  eq(a.said().some((t) => t.startsWith('확인')), true, '★ 1회차에도 같은 번호면 "확인"');
+  eq(a.$('hudNote').textContent.includes('확인'), true, '글로도 적힌다');
+}
+
+// ── 30) 구차고지도 같은 규칙 — 적힌 번호를 다시 치면 "확인"
+log('\n▶ 구차고지에서도 "확인"');
+{
+  seed('old', { 1: { plate: '1555', status: 'filled', confidence: 'high', round: 1 } }, 1);
+  const a = await app();
+  a.d.querySelector('[data-spot="1"]').click(); await wait(420);
+  a.$('spotPad').click(); await wait(300);
+  for (const k of ['5', '5', '5']) a.press(k);
+  await wait(200);
+  eq(a.said().some((t) => t.startsWith('확인')), true, '★ 구차고지도 같은 규칙으로 "확인"');
+}
+
+// ── 31) 오늘 지우기는 두 차고지를 함께 지운다 (그날 일이 끝난 것이므로)
+log('\n▶ 오늘 지우기 — 다른 차고지 판도 함께');
+{
+  seed('new', { 1: { plate: '1301', status: 'filled', confidence: 'high', round: 1 } }, 1);
+  localStorage.setItem(`busyard:v1:old:${DATE}:1`, JSON.stringify({
+    yard: 'old', date: DATE, round: 1, layout: 3,
+    entries: { 1: { plate: '1901', status: 'filled', confidence: 'high', round: 1 } },
+    updatedAt: new Date().toISOString(),
+  }));
+  localStorage.setItem('busyard:round:old', '2');
+  localStorage.setItem('busyard:roundDate:old', DATE);
+
+  const a = await app();
+  a.$('btnDiag').click(); await wait(120);
+  a.$('diagClear').click(); await wait(80);
+  a.$('diagClear').click(); await wait(300);
+
+  eq(localStorage.getItem(`busyard:v1:old:${DATE}:1`), null, '★ 구차고지 판도 지워진다');
+  eq(localStorage.getItem('busyard:round:old'), null, '★ 구차고지 회차도 지워진다');
+}
+
+// ── 32) 차고지·회차 네 칸 — 한 번 눌러 바로 그리로
+log('\n▶ 네 칸 (6차고지 1회·2회 / 구차고지 1회·2회)');
+{
+  seed('new', {}, 1);
+  const a = await app();
+  eq([...a.d.querySelectorAll('#rounds .rbtn')].map((b) => b.textContent),
+    ['6차고지 1회', '6차고지 2회', '구차고지 1회', '구차고지 2회'], '네 칸이 있다');
+  eq(a.회차칸('new', 2).classList.contains('two'), true, '2회차 칸은 색이 다르다');
+  eq(a.d.querySelector('.bar-right .yard'), null, '윗줄에서 차고지 버튼(화살표)이 빠졌다');
+
+  a.회차칸('new', 2).click(); await wait(400);
+  eq(a.켜진칸(), '6차고지 2회', '같은 차고지면 그 자리에서 회차만 바뀐다');
+
+  // 다른 차고지 칸은 그 차고지로 갈아 끼우고 화면을 다시 세운다 (여기서는 남긴 쪽지만 본다)
+  a.회차칸('old', 2).click();
+  eq(localStorage.getItem('busyard:yard'), 'old', '★ 구차고지로 넘어간다');
+  eq(localStorage.getItem('busyard:round:old'), '2', '★ 넘어가는 회차까지 함께 적어 둔다');
+  eq(a.w.sessionStorage.getItem('busyard:건너온2회'), 'old', '★ 건너가면 2회차로 들어간다');
+}
+
+// ── 33) [최신 버전 받기] 는 받았는지·이미 최신인지 글로 대답한다
+log('\n▶ 최신 버전 받기 — 대답이 있어야 한다');
+{
+  seed('new', {}, 1);
+  const a = await app();
+  const real = a.w.fetch;
+  let 알아봤나 = false;
+  a.w.fetch = (url, opt) => {
+    const u = String(url);
+    if (u.includes('version.json')) {
+      알아봤나 = true;
+      // 돌고 있는 것과 같은 판을 돌려준다 — 받을 것이 없다
+      return Promise.resolve(new a.w.Response(
+        JSON.stringify({ build: a.$('diagBuild').textContent }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    }
+    return real(url, opt);
+  };
+  a.$('btnDiag').click(); await wait(150);
+  a.$('diagUpdate').click();
+  await until(() => a.$('diagUpdateMsg').textContent.length > 0);
+  eq(알아봤나, true, 'version.json 을 먼저 알아본다');
+  eq(a.$('diagUpdateMsg').textContent.startsWith('이미 최신입니다'), true,
+    '★ 받을 것이 없으면 "이미 최신입니다" 라고 적는다');
+  eq(a.$('diagUpdate').disabled, false, '버튼은 다시 눌릴 수 있게 돌아온다');
+  eq(a.$('diagSheet').hidden, false, '★ 진단 화면이 그대로 열려 있다 (빠져나오지 않는다)');
 }
 
 log(`\n통과 ${pass} / 실패 ${fail}`);
