@@ -243,6 +243,8 @@ export function announceText({ round, newSeg, ttsOn, spotSay, zoneSay, entry, ta
   }
   // 1회차는 아직 적기 전이라 알릴 "차" 가 없다. 대신 구역이 바뀌는 것은 알려 준다 —
   // B5 를 다 돌고 B0 으로 넘어가는 그 순간을 놓치면 어디를 적고 있는지 헷갈린다.
+  // '구역' 이라는 말은 붙이지 않는다. 구차고지는 구역이 51번 바뀌어서 그 두 음절까지
+  // 51번 되풀이되고, 에어팟에서는 그만큼 밀린다. 이름만 읽어도 뜻은 그대로다. (2026-11-01)
   if (!ttsOn || !newSeg) return null;
-  return zoneSay ? `${zoneSay} 구역` : spotSay;
+  return zoneSay || spotSay;
 }

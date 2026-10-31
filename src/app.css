@@ -42,7 +42,9 @@ html, body {
 /* ---------- 상단 바 ---------- */
 .bar {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 5px 12px 4px;
+  /* 아이폰 13 미니는 가로가 좁다. 양쪽 여백을 줄여 글씨가 잘리지 않게 한다 (2026-11-01) */
+  padding: 5px 7px 4px;
+  gap: 6px;
   flex: none;
 }
 .bar-left {
@@ -50,10 +52,12 @@ html, body {
   min-width: 0;
 }
 /* 자리가 좁으면 차고지 이름이 줄어든다 — 회차 버튼은 늘 통째로 눌릴 수 있어야 한다 */
+/* 차고지 이름은 **깎지 않는다.** "구..." 로 잘려 무엇인지도, 눌리지도 않았다 (2026-11-01).
+   [일지] 를 진단으로 옮겨 자리를 벌었으니 통째로 보인다. */
 .yard {
   font-size: 14px; font-weight: 700; white-space: nowrap; font-family: inherit;
   background: none; border: none; color: var(--ink); padding: 2px 0;
-  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  flex: none;
 }
 .yard::after { content: ' ⇄'; color: var(--ink-dim); font-weight: 400; }
 .round {
@@ -68,11 +72,13 @@ body.round2 .bar,
 body.round2 .hud { background: var(--r2-bg); }
 body.round2 .hud { border-bottom: 2px solid var(--r2-line); }
 .bar-right { display: flex; gap: 4px; flex: none; }
+/* ★ [2026-11-01] 글씨가 흐려서 반투명처럼 보이고, 좁은 화면에서 누르기 어려웠다.
+   눌러야 하는 것은 또렷해야 한다 — 흐린 색(--ink-dim)을 쓰지 않는다. */
 .icon-btn {
   position: relative;
-  background: var(--panel-2); color: var(--ink-dim);
+  background: var(--panel-2); color: var(--ink);
   border: 1px solid var(--line); border-radius: 8px;
-  font-size: 11px; padding: 7px 5px; font-family: inherit;
+  font-size: 12px; font-weight: 600; padding: 8px 7px; font-family: inherit;
   white-space: nowrap; line-height: 1;
 }
 .icon-btn:active { background: var(--line); }
@@ -535,6 +541,9 @@ body.round2 .cell.spot.filled.r1.target.k-key .no     { color: var(--blue); }
 .send-msg.ok { color: var(--green); font-weight: 700; }
 .send-msg.no { color: var(--red); }
 
+/* 진단 맨 위로 옮겨 온 [일지 보관] (2026-11-01) */
+.diag-row-top { display: flex; gap: 8px; padding: 0 0 10px; }
+.diag-row-top .icon-btn { flex: 1; padding: 11px 8px; font-size: 13px; }
 .diag { font-size: 13px; }
 .diag-row {
   display: flex; justify-content: space-between; gap: 12px;

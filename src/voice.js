@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202610280209';
+import { extractSequence } from './plate.js?v=202611010232';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -189,12 +189,23 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
 
 let audioCtx = null;
 
+/**
+ * 소리를 낼 그릇. 없으면 만들고, 자고 있으면 깨운다.
+ *
+ * ★ [2026-11-01] 이어폰(에어팟)을 끼우면 '공차' 비프음이 안 났다.
+ *   아이폰은 소리 길이 바뀔 때(스피커 → 블루투스) 오디오를 재워 버리는데, 그 상태가
+ *   **'suspended' 가 아니라 'interrupted'** 다 (사파리에만 있는 상태다). 'suspended'
+ *   하나만 깨우고 있었으니 이어폰을 끼운 뒤로는 영영 자고 있었다.
+ *   그릇이 아예 닫혔으면(closed) 다시 만든다 — 닫힌 것은 깨워도 소리가 나지 않는다.
+ */
 function ctx() {
-  if (!audioCtx) {
-    const AC = window.AudioContext || window.webkitAudioContext;
-    if (AC) audioCtx = new AC();
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  if (audioCtx && audioCtx.state === 'closed') audioCtx = null;   // 닫힌 그릇은 버린다
+  if (!audioCtx) audioCtx = new AC();
+  if (audioCtx.state !== 'running') {
+    try { audioCtx.resume(); } catch (_) { /* 제스처 밖이면 다음 눌림에서 깨어난다 */ }
   }
-  if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
   return audioCtx;
 }
 
@@ -234,7 +245,9 @@ export function beep(kind, step = 0) {
   const peak = kind === 'vacant' ? 0.8 : 0.25;
   // step 만큼 음을 올린다 (반음씩). 공차를 잇달아 누를 때 몇 번째인지 귀로 센다.
   const up = 2 ** (Math.min(step, 7) / 12);
-  let t = c.currentTime;
+  // 깨어나는 데 아주 짧은 틈이 필요하다. 지금 이 순간에 걸면 깨어나기 전이라
+  // 소리 없이 지나갈 수 있으므로 한 틱 뒤에 건다 (이어폰에서 특히 그랬다).
+  let t = c.currentTime + 0.02;
   for (const [base, dur] of tones) {
     const freq = base * up;
     const osc = c.createOscillator();

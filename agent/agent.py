@@ -39,7 +39,7 @@ import urllib.request
 APP_NAME = "차고지 받아쓰기"
 # ★ [2026-10-28] 이 판 번호는 **installer.iss 의 AppVer 과 같아야 한다.**
 #    (tools\pc\check_판올림.py 가 둘이 어긋나면 실패한다.)
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 REPO = "psw9715-debug/busyardapp"
 # api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
 # raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
@@ -1231,6 +1231,16 @@ def tick():
     if what == "stale":
         log(f"⏭ {req['at']} 요청은 10분이 지나 건너뜁니다")
         return
+    # ★ [2026-11-01] **집었다고 먼저 알린다.**
+    #   사무실 PC 는 우리 쪽지를 30초까지만 기다렸다. 2026-11-01 01:05 에 우리가 72대를
+    #   적는 데 59초가 걸렸고, PC 는 32초에 포기해 같은 일을 또 해서 쓸모없는
+    #   복사본(차고지입력_1101.xlsx)을 하나 더 만들었다.
+    #   기다리는 시간만 늘리면 우리가 죽은 날 PC 가 또 서서 기다린다. 그래서
+    #   **집었다는 것부터 알린다** — PC 는 집은 것을 보았을 때만 길게 기다린다.
+    try:
+        report(req, "working", "집었습니다 — 적는 중입니다")
+    except Exception as e:
+        log(f"⚠ 집었다는 쪽지를 놓지 못했습니다 — {type(e).__name__}: {e}")
     handle(req)
 
 

@@ -449,11 +449,39 @@ def agent_note(req_id):
             note = json.load(f)
     except Exception:
         return None
-    return note if note.get("id") == req_id else None
+    if note.get("id") != req_id:
+        return None
+    # '집었습니다' 는 끝난 것이 아니다 — 그것으로 끝낸 척하면 안 된다 (2026-11-01)
+    return None if note.get("state") == "working" else note
 
 
-def agent_alive(within=300):
-    """A 컴퓨터의 받아쓰기가 돌고 있는가. 1분에 한 번 남기는 표시를 본다."""
+def agent_working(req_id):
+    """A 가 그 요청을 **집어서 지금 적고 있는가.**
+
+    2026-11-01 01:27 에 구차고지 판을 A 에게 건넸는데, A 가 30초 안에 답을 못 하자
+    이 PC 가 가로채 대신 했다. 그런데 원본 엑셀이 열려 있어 **복사본에만** 들어갔고,
+    사용자 눈에는 '엑셀에 안 들어갔다' 로 보였다. 바로 전 01:06 에는 A 가 59초 걸려
+    끝냈으니 30초는 애초에 모자란 시간이었다.
+
+    기다리는 시간만 늘리면 A 가 죽은 날 또 서서 기다린다. 그래서 A 가 **집었다는 것**을
+    먼저 알리게 하고(agent.py tick), 이 PC 는 **집은 것을 보았을 때만** 길게 기다린다.
+    """
+    import ops_fill
+    try:
+        with open(ops_fill.AGENT_RESULT, encoding="utf-8") as f:
+            note = json.load(f)
+    except Exception:
+        return False
+    return note.get("id") == req_id and note.get("state") == "working"
+
+
+def agent_alive(within=180):
+    """A 컴퓨터의 받아쓰기가 돌고 있는가. 1분에 한 번 남기는 표시를 본다.
+
+    2026-11-01: 300초였다. 이제 살아 있는 A 를 끝까지 기다리므로(wait_for_agent),
+    멎은 것을 늦게 알아채면 그만큼 서서 기다린다. 심장 소리는 1분에 한 번이니
+    세 번 놓친 180초면 멎은 것으로 본다.
+    """
     import ops_fill
     try:
         with open(ops_fill.AGENT_ALIVE, encoding="utf-8") as f:
@@ -464,29 +492,49 @@ def agent_alive(within=300):
         return False
 
 
-def wait_for_agent(req_id, log, secs=30):
-    """A 컴퓨터가 적고 쪽지를 놓을 때까지 잠깐 기다린다. 안 오면 내가 한다.
+def wait_for_agent(req_id, log, secs=360):
+    """A 컴퓨터가 적고 쪽지를 놓을 때까지 기다린다. 안 집으면 내가 한다.
 
     2026-10-27: 180초였다. A 가 응답하지 않은 날 **3분을 그대로 서서 기다렸다**
-    (01:52:29 건넴 → 01:55:30 포기). A 는 3초마다 보고 적는 데 2~20초면 끝나므로
-    30초면 넉넉하다. 안 오면 바로 이 PC 가 한다.
+                (01:52:29 건넴 → 01:55:30 포기). 그래서 30초로 줄였다.
+    2026-11-01: 그 30초가 **너무 짧았다.** 실제로 잰 값은
+                  01:05 요청 → 01:06:24 끝  (excel, 72대)  59초
+                  01:27 요청 → 01:31:31 끝  (final, 79대)  4분 11초
+                둘 다 30초를 한참 넘는다. 이 PC 가 32초에 가로채 같은 일을 또 했고,
+                원본 엑셀이 열려 있어 **복사본에만** 들어갔다. 원본에는 A 가 4분 뒤에
+                제대로 넣었지만, 그 사이 종이가 두 장 나오고 헛파일이 하나 생겼다.
 
-    A 가 돌고 있지 않으면 기다릴 까닭이 없다 — 바로 내가 한다.
+    처음에는 '집었으면 길게, 안 집었으면 짧게' 로 두었는데 그것도 틀렸다. A 는 **집는
+    데만 70초**가 걸렸다 (02:00:26 건넴 → 02:01:36 집음). 3초마다 들여다보지만 그 사이
+    엑셀을 데우거나 앞 일을 하고 있으면 한참 뒤에야 본다.
+
+    그래서 생각을 바로잡았다 — **살아 있는 A 와는 애초에 경쟁하지 않는다.**
+      · A 가 살아 있으면 — 끝내든 못 끝내든 secs(6분)까지 **기다린다.** A 가 할 일이다.
+      · A 가 꺼져 있으면 — 기다리지 않고 바로 내가 한다 (그 판단은 심장 소리로 한다).
+      · 기다리는 중에 심장이 멎으면 — 그때 내가 이어받는다.
+
+    가로채서 두 번 하면 종이가 두 장 나오고 헛파일이 생긴다. 늦는 것보다 그것이 나쁘다.
+    '집었습니다' 쪽지는 이제 기록에 남기는 용도다 — 기다릴지 말지를 그것으로 정하지 않는다.
     """
     if not agent_alive():
         log("💤 [순회판] A 컴퓨터 받아쓰기가 꺼져 있다 — 이 PC 가 한다")
         return None
     until = time.time() + secs
+    집었다 = False
     while time.time() < until:
         note = agent_note(req_id)
         if note:
             log(f"📨 [순회판] A 컴퓨터: {note['msg']}")
             return note
-        if not agent_alive():                  # 도중에 꺼졌다 — 더 기다릴 까닭이 없다
+        if not 집었다 and agent_working(req_id):
+            집었다 = True
+            log("🤝 [순회판] A 컴퓨터가 집었습니다 — 끝낼 때까지 기다립니다")
+        if not agent_alive():                  # 도중에 멎었다 — 그때 내가 이어받는다
             log("💤 [순회판] A 컴퓨터가 멎었다 — 이 PC 가 한다")
             return None
         time.sleep(1)
-    log("⌛ [순회판] A 컴퓨터가 켜져 있는데 끝내 쪽지가 없다 — 이 PC 가 한다")
+    log("⌛ [순회판] A 컴퓨터가 %d분을 넘겼다 (%s) — 이 PC 가 한다"
+        % (secs // 60, "집고도 못 끝냈다" if 집었다 else "집지도 않았다"))
     return None
 
 

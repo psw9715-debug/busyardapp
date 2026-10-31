@@ -7,6 +7,8 @@ TL = r"D:\프로그램2\꾀꼬리\busyardapp\tools"
 sys.path.insert(0, AG); sys.path.insert(0, TL)
 import agent, ops_fill, inbox
 
+진짜기다림 = inbox.wait_for_agent      # 아래에서 가로채기 전의 진짜 것 (끝부분에서 쓴다)
+
 ok = fail = 0
 def eq(got, want, label):
     global ok, fail
@@ -137,6 +139,68 @@ eq(찍은것, [], "종이로 뽑지 않는다")
 eq(called, [], "엑셀에 적지도 않는다")
 eq(sent, {}, "status.json 을 건드리지 않는다 (기다리는 결과를 덮지 않게)")
 eq(any("A 컴퓨터 몫" in s for s in 적은것), True, "넘겼다고 기록에 남긴다")
+
+print("▶ A 가 '집었습니다' 를 먼저 놓는다 — 가로채서 두 번 하지 않게")
+# 2026-11-01 01:27 에 구차고지 판을 A 에게 건넸는데, A 가 30초 안에 답을 못 하자
+# 이 PC 가 가로채 대신 했다. 원본 엑셀이 열려 있어 복사본에만 들어갔고, 사용자 눈에는
+# '엑셀에 안 들어갔다' 로 보였다. 바로 전 01:06 에 A 는 59초 걸려 끝냈다.
+agent.report({"id": "요청9", "what": "excel"}, "working", "집었습니다 — 적는 중입니다")
+집은쪽지 = json.load(io.open(agent.RESULT_FILE, encoding="utf-8"))
+eq(집은쪽지["state"], "working", "A 가 집었다고 적는다")
+eq(inbox.agent_working("요청9"), True, "PC 는 그것을 '집었다' 로 읽는다")
+eq(inbox.agent_note("요청9"), None,
+   "★ '집었습니다' 를 끝난 것으로 보지 않는다 — 그러면 안 적힌 채 끝낸 척한다")
+eq(inbox.agent_working("다른요청"), False, "남의 요청은 집은 것이 아니다")
+
+print("▶ 살아 있는 A 와는 경쟁하지 않는다 (가로채서 두 번 하지 않게)")
+잰것 = []
+inbox.time = type("가짜시간", (), {
+    "time": staticmethod(lambda: 잰것.append("t") or len(잰것) * 1.0),
+    "sleep": staticmethod(lambda s: None)})()
+try:
+    # ① 집었다 → 기다리는 동안 A 가 끝낸다
+    로그 = []
+    agent.report({"id": "요청9", "what": "excel"}, "working", "집었습니다 — 적는 중입니다")
+    본것 = [0]
+    진짜쪽지 = inbox.agent_note
+
+    def 쪽지가온다(i):
+        본것[0] += 1
+        if 본것[0] >= 3:        # 세 번째 들여다볼 때 A 가 끝낸다
+            agent.report({"id": i, "what": "excel"}, "done", "A 컴퓨터가 79대 적음")
+        return 진짜쪽지(i)
+    inbox.agent_note = 쪽지가온다
+    inbox.agent_alive = lambda within=300: True
+    난것 = 진짜기다림("요청9", 로그.append, secs=5)
+    inbox.agent_note = 진짜쪽지
+    eq(난것 and 난것["msg"], "A 컴퓨터가 79대 적음", "집은 뒤 늦게 와도 받아 쓴다")
+    eq(any("집었습니다" in s for s in 로그), True, "집었다고 기록에 남긴다")
+
+    # ② A 가 꺼져 있다 → 기다리지 않고 바로 내가 한다
+    로그 = []; 잰것.clear()
+    os.remove(agent.RESULT_FILE)
+    inbox.agent_alive = lambda within=180: False
+    eq(진짜기다림("요청10", 로그.append, secs=300), None, "꺼져 있으면 기다리지 않는다")
+    eq(any("꺼져 있다" in s for s in 로그), True, "꺼져 있었다고 적는다")
+    eq(잰것, [], "★ 시계를 한 번도 보지 않는다 — 1초도 서 있지 않았다")
+
+    # ③ A 가 살아 있는데 끝내 못 끝낸다 → 그 시간까지는 기다렸다 내가 한다
+    #    (늦는 것보다 가로채서 두 번 하는 것이 나쁘다 — 종이 두 장, 헛파일 하나)
+    로그 = []; 잰것.clear()
+    inbox.agent_alive = lambda within=180: True
+    eq(진짜기다림("요청10", 로그.append, secs=4), None, "끝내 못 끝내면 내가 한다")
+    eq(any("집지도 않았다" in s for s in 로그), True, "집지도 않았다고 적는다")
+    eq(len(잰것) > 1, True, "그때까지는 기다렸다 (바로 가로채지 않았다)")
+
+    # ④ 기다리는 중에 A 의 심장이 멎으면 그때 이어받는다
+    로그 = []; 잰것.clear()
+    심장 = [True, True, False]
+    inbox.agent_alive = lambda within=180: 심장.pop(0) if 심장 else False
+    eq(진짜기다림("요청10", 로그.append, secs=300), None, "멎으면 이어받는다")
+    eq(any("멎었다" in s for s in 로그), True, "멎었다고 적는다")
+finally:
+    import time as _진짜시간
+    inbox.time = _진짜시간
 
 print(f"\n통과 {ok} / 실패 {fail}")
 sys.exit(1 if fail else 0)

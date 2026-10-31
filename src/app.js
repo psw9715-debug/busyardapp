@@ -1,15 +1,15 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202610280209';
-import { YARD_OLD } from './yard-old-data.js?v=202610280209';
-import { BUILD } from './build.js?v=202610280209';
-import { toKoreanSino, announceText } from './plate.js?v=202610280209';
+import { YARD as YARD_NEW } from './yard-data.js?v=202611010232';
+import { YARD_OLD } from './yard-old-data.js?v=202611010232';
+import { BUILD } from './build.js?v=202611010232';
+import { toKoreanSino, announceText } from './plate.js?v=202611010232';
 import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202610280209';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611010232';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202610280209';
-import { createSync, getToken, setToken } from './sync.js?v=202610280209';
+} from './store.js?v=202611010232';
+import { createSync, getToken, setToken } from './sync.js?v=202611010232';
 
 // ---------------------------------------------------------------- 상태
 
@@ -59,6 +59,31 @@ function spotZone(n) {
   const label = spotName(n);
   const zone = label.slice(0, label.lastIndexOf('-'));
   return ZONE[zone] || zone;
+}
+
+// ★ [2026-11-01] 귀로 듣는 구역 이름을 **짧게** 한다.
+//   구차고지는 걷는 길이 1열↔2열 지그재그라 89자리를 도는 동안 구역이 **51번** 바뀐다.
+//   그때마다 "1차고지 3열 구역"(9음절)을 말하니, 에어팟에서는 말 한 마디 시작할 때마다
+//   붙는 연결 시간까지 쌓여 숫자를 다다다닥 넣는 속도를 못 따라왔다.
+//   '1차고지' 는 같은 차고지 안에서 계속 되풀이되는 말이다 — 바뀌는 열만 읽으면 된다.
+//   차고지 자체가 넘어갈 때(1차고지→2차고지)는 그때만 온전히 읽는다.
+let 말한앞머리 = null;        // 방금 읽어 준 구역의 앞머리 ("1차고지")
+
+/** 귀로 들려줄 구역 이름. 앞머리가 같으면 뒤쪽만 ("1차고지 3열" -> "3열") */
+function 짧은구역(n) {
+  const 온전 = spotZone(n);
+  const 칸 = String(온전).split(' ');
+  if (칸.length < 2) { 말한앞머리 = null; return 온전; }
+  const 짧게 = 칸[0] === 말한앞머리;
+  말한앞머리 = 칸[0];
+  return 짧게 ? 칸.slice(1).join(' ') : 온전;
+}
+
+/** 귀로 들려줄 자리 이름. 구역 이름은 이미 센 것을 받아 쓴다 ("3열 12번") */
+function 짧은자리(n, 구역) {
+  const label = spotName(n);
+  const num = label.slice(label.lastIndexOf('-') + 1);
+  return OLD_YARD ? `${구역} ${num}번` : `${label.replace('-', ' ')}번`;
 }
 
 /** 안내 음성용 — "B5-10" 은 "B5 10번", "1-3-1" 은 "1차고지 3열 1번" */
@@ -394,6 +419,7 @@ function confirmSpot() {
 }
 
 function commit(spot, entry, { announce = true } = {}) {
+  const 전 = session.entries[spot];     // 적기 전에 있던 것 — 2회차에 견줘 봐야 한다
   setEntry(session, spot, { ...entry, round });
   paintSpot(spot);
 
@@ -435,6 +461,23 @@ function commit(spot, entry, { announce = true } = {}) {
     return;
   }
 
+  // ★ [2026-11-01] 2회차에 **적힌 것과 견줘 한 마디로 알려 준다.**
+  //    2회차 확인은 [확인] 을 누르며 눈으로 보는 것이 빠를 때도 있지만, 세 자리만
+  //    누르면 되니 그냥 다시 치는 것이 빠를 때도 있다. 그때 같은 번호면 "확인",
+  //    다른 번호면 "바뀜" 이라고 해 주면 **자리를 잘못 눌렀는지 그 자리에서 안다.**
+  let 앞말 = null;
+  if (round === 2 && 전 && 전.status === 'filled' && entry.status === 'filled'
+      && entry.method !== 'next') {
+    if (String(전.plate) === String(entry.plate)) {
+      앞말 = '확인';
+      note('확인 — 1회차와 같습니다');
+    } else {
+      앞말 = '바뀜';
+      note(`${전.plate} → ${entry.plate} 로 바뀌었습니다`, 'warn');
+      beep('warn');
+    }
+  }
+
   if (isLast && routeFilled() >= TOTAL) {
     note(`${TOTAL}자리 전부 입력 완료`, 'warn');
     beep('done');
@@ -442,7 +485,7 @@ function commit(spot, entry, { announce = true } = {}) {
     if (announce && (ttsOn || round === 2)) announceSpeak('순회 완료');
     return;
   }
-  if (announce) announceCursor();
+  if (announce) announceCursor(앞말);
 }
 
 function goBack() {
@@ -620,7 +663,7 @@ async function refreshCheck() {
 }
 
 /** 커서가 선 자리를 읽어 준다 (무엇을 읽을지는 plate.js 의 announceText 가 정한다) */
-function announceCursor() {
+function announceCursor(앞말) {
   const cell = SPOT.get(cursor);
   const newSeg = !cell || cell.seg !== saidSeg;
   saidSeg = cell ? cell.seg : null;
@@ -628,9 +671,13 @@ function announceCursor() {
   const target = round === 2 && e && e.status === 'filled' ? targetKind(e.plate) : null;
   if (newSeg && cell) beep('next');   // 구역이 바뀌었다 — 말소리를 꺼 두어도 알게
   if (target) beep('alert');     // 귀로도 한 번 더 — 그냥 지나치면 안 되는 자리다
-  announceSpeak(announceText({
-    round, newSeg, ttsOn, spotSay: spotSay(cursor), zoneSay: spotZone(cursor), entry: e, target,
-  }));
+  // 구역 이름은 **한 번만** 센다 — 짧은구역()은 '방금 읽어 준 앞머리' 를 고쳐 놓는다
+  const 구역 = 짧은구역(cursor);
+  const 말 = announceText({
+    round, newSeg, ttsOn, spotSay: 짧은자리(cursor, 구역), zoneSay: 구역, entry: e, target,
+  });
+  // 앞말('확인'·'바뀜')은 방금 적은 것에 대한 대답이다. 다음 자리 안내 앞에 붙인다.
+  announceSpeak(앞말 ? (말 ? `${앞말}, ${말}` : 앞말) : 말);
 }
 
 // 2회차 확인은 적힌 번호를 귀로 듣는 것이 핵심이라 기본 켜짐
@@ -781,12 +828,28 @@ function openPad(spot) {
   // 2회차 확인은 이 화면을 켜 둔 채 "확인" 이라고 말하며 도는 것이라 마이크를 끄지 않는다.
   if (round === 1 && voice && voice.isOn()) { voice.stop(); releaseWakeLock(); }
 
+  // ★ [2026-11-01] **키패드를 연 자리가 곧 지금 자리다.**
+  //    전에는 판에서 B0-1 을 눌러 키패드를 열어도 커서는 돌던 자리(B5-3)에 남아 있었다.
+  //    그 자리에서 [확인] 을 누르면 confirmSpot 이 커서를 보므로 B5-4 를 불러 주었다 —
+  //    "뜬금없이 다른 구역으로 건너뛴다" 가 이것이었다.
+  //    손으로 자리를 눌렀다는 것은 **내 몸이 거기 있다**는 뜻이므로 커서가 따라가야 한다.
+  let 옮겼다 = false;
+  if (onRoute(spot) && cursor !== spot) {
+    cursor = spot;
+    saveCursor();
+    saidSeg = null;            // 건너온 자리가 어느 구역인지 다시 알려 준다
+    옮겼다 = true;
+  }
   padSpot = spot; padDigits = ''; padPhone = false;
   $('padTitle').textContent = padTitleOf(spot);
   renderPad();
   $('padSheet').hidden = false;
   document.body.classList.add('pad-open');
   revealCursor();
+  // 자리를 옮겨 왔으면 판과 윗 안내판도 그 자리를 가리키게 한다.
+  // **키패드를 띄운 뒤에** 그린다 — 띄우기 전에 다시 그리면 그 사이 다른 화면(인쇄 결과
+  // 알림 등)의 흐름을 흔들었다 (2026-11-01 시험에서 잡혔다).
+  if (옮겼다) { repaintAll(); renderHud(); }
 }
 
 /** 입력·이전·다음 뒤에 커서가 간 자리를 이어서 받는다 */
@@ -1060,6 +1123,10 @@ function resetToday() {
   clearSession(session);
   targets = [];              // 찾을 차량도 함께 비운다 — "전부" 는 전부여야 한다
   saveTargets();
+  // ★ [2026-11-01] PC 가 내려보낸 '오늘 점검 대상' 도 함께 비운다.
+  //    이것을 남겨 두어 지운 뒤에도 [대상]·[못 봄] 배지가 그대로 떠 있었다.
+  //    초기화는 진짜 초기화여야 한다 (사용자 지적).
+  try { localStorage.removeItem(CHECK_KEY()); } catch (_) { /* 꽉 찼거나 막혀도 그냥 간다 */ }
 
   round = 1;
   localStorage.removeItem(ROUND_KEY);
@@ -1076,6 +1143,7 @@ function resetToday() {
   repaintAll();
   renderHud();
   renderTargetBadge();
+  renderMissing();           // [못 봄] 배지도 함께 사라져야 한다
 }
 
 /** 2회차 확인 걸음을 시작한다 — 키패드를 열고 첫 자리를 불러 준다 */
@@ -1629,6 +1697,7 @@ function init() {
     $('logSaveNote').textContent = '';
     $('logReset').hidden = true;          // 저장한 뒤에만 묻는다
     renderLogList();
+    $('diagSheet').hidden = true;   // [일지] 는 진단 안에 있다 — 겹쳐 뜨지 않게 닫는다
     $('logSheet').hidden = false;
   });
   $('logClose').addEventListener('click', () => { $('logSheet').hidden = true; });

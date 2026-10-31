@@ -750,6 +750,86 @@ for (const 회차 of [1, 2]) {
   eq(b.$('hudSpot').textContent, 'B2-3', `${회차}회차 — 앱이 다시 떠도 B2-3 에서 이어 간다`);
 }
 
+// ── 25) 2회차 — 판에서 자리를 눌러 키패드를 열면 **커서가 거기로 따라와야** 한다
+// 전에는 커서가 돌던 자리에 남아 있어, 그 자리에서 [확인] 을 누르면 엉뚱한 구역을
+// 불러 주었다 ("뜬금없이 다른 구역으로 이동" — 2026-11-01 사용자 지적).
+log('\n▶ 2회차 — 손으로 누른 자리에서 이어 간다');
+{
+  const entries = {};
+  for (let n = 1; n <= 30; n++) entries[n] = { plate: String(1500 + n), status: 'filled', confidence: 'high', round: 1 };
+  seed('new', entries, 2);
+  const a = await app();
+  eq(a.$('hudSpot').textContent, 'B5-1', '돌던 자리는 B5-1');
+
+  // B2-1(22번) 을 눌러 키패드를 연다
+  a.d.querySelector('[data-spot="22"]').click(); await wait(420);   // 두 번 톡 기다림(300ms)
+  eq(a.$('spotSheet').hidden, false, '자리를 누르면 자리 쪽지가 열린다');
+  a.$('spotPad').click(); await wait(300);
+  eq(a.$('hudSpot').textContent, 'B2-1', '★ 키패드를 연 자리로 커서가 따라온다');
+  eq(a.$('padTitle').textContent, 'B2-1번 자리', '키패드 제목도 B2-1');
+  const 저장된 = JSON.parse(localStorage.getItem('busyard:cursor') || 'null');
+  eq(저장된 && 저장된.spot, 22, '저장된 커서도 B2-1(22)');
+
+  // 여기서 [확인] 을 누르면 그 **다음** 자리여야 한다 (돌던 B5-2 가 아니다)
+  a.press('ok'); await wait(250);
+  eq(a.$('hudSpot').textContent, 'B2-2', '★ [확인] 은 B2-2 로 간다 (B5-2 가 아니다)');
+}
+
+// ── 26) 2회차 — 적힌 번호를 다시 치면 "확인", 다른 번호면 "바뀜"
+log('\n▶ 2회차 — 같은 번호면 "확인", 다른 번호면 "바뀜"');
+{
+  const entries = { 1: { plate: '1731', status: 'filled', confidence: 'high', round: 1 },
+                    2: { plate: '1555', status: 'filled', confidence: 'high', round: 1 } };
+  seed('new', entries, 2);
+  const a = await app();
+  eq(a.$('padSheet').hidden, false, '2회차는 키패드가 열려 있다');
+
+  // B5-1 에 적힌 1731 을 그대로 다시 친다 (세 자리만 누른다)
+  a.w.__said = [];
+  for (const k of ['7', '3', '1']) a.press(k);
+  await wait(350);
+  eq(a.said().some((t) => t.startsWith('확인')), true, '★ 같은 번호면 "확인" 이라고 말한다');
+  eq(a.$('hudNote').textContent.includes('1회차와 같습니다'), true, '화면에도 그렇게 적는다');
+
+  // B5-2 에 적힌 1555 대신 1556 을 친다 — 바뀐 것으로 알려야 한다
+  a.w.__said = [];
+  for (const k of ['5', '5', '6']) a.press(k);
+  await wait(350);
+  eq(a.said().some((t) => t.startsWith('바뀜')), true, '★ 다른 번호면 "바뀜" 이라고 말한다');
+  eq(a.$('hudNote').textContent.includes('1555 → 1556'), true, '무엇이 무엇으로 바뀌었는지 적는다');
+}
+
+// ── 27) 초기화는 진짜 초기화 — PC 가 내려보낸 점검 대상도 지워져야 한다
+log('\n▶ 초기화 — [대상]·[못 봄] 도 함께 사라진다');
+{
+  seed('new', { 1: { plate: '1301', status: 'filled', confidence: 'high', round: 1 } }, 1);
+  localStorage.setItem(`busyard:check:${DATE}`,
+    JSON.stringify({ id: 'x', date: DATE, yard: 'new', cars: ['1301', '1302', '1303'] }));
+  const a = await app();
+  eq(a.$('btnMiss').hidden, false, '내려받은 점검 대상이 있으면 [못 봄] 이 보인다');
+
+  a.$('btnDiag').click(); await wait(120);
+  a.$('diagClear').click(); await wait(80);
+  a.$('diagClear').click(); await wait(300);
+
+  eq(localStorage.getItem(`busyard:check:${DATE}`), null, '★ 점검 대상 목록도 지워진다');
+  eq(a.$('btnMiss').hidden, true, '★ [못 봄] 배지가 사라진다');
+  eq(a.$('targetBadge').hidden, true, '[대상] 배지도 사라진다');
+}
+
+// ── 28) 메인 윗줄에서 [일지] 를 뺐다 — 진단 안에 있어야 한다 (아이폰 13 미니)
+log('\n▶ 윗줄 — [일지] 는 진단 안으로');
+{
+  seed('new', {}, 1);
+  const a = await app();
+  eq(a.d.querySelector('.bar-right #btnLog'), null, '메인 윗줄에는 [일지] 가 없다');
+  eq(Boolean(a.d.querySelector('#diagSheet #btnLog')), true, '진단 안에 있다');
+  a.$('btnDiag').click(); await wait(120);
+  a.$('btnLog').click(); await wait(150);
+  eq(a.$('logSheet').hidden, false, '진단에서 눌러 일지가 열린다');
+  eq(a.$('diagSheet').hidden, true, '진단은 닫힌다 (겹쳐 뜨지 않는다)');
+}
+
 log(`\n통과 ${pass} / 실패 ${fail}`);
 document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
 </script>

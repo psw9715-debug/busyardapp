@@ -210,7 +210,7 @@ log('<h2>▶ 그 자리에서 무엇을 읽어 줄까 — 회차마다 다르다
 
   // 1회차는 부르는 대로 받아 적기만 하면 된다. 구역이 바뀔 때만, 그것도 켜 두었을 때만.
   // "구역" 을 붙여 읽는다 — B5 를 다 돌고 B0 으로 넘어가는 그 순간이 분명해야 한다.
-  eq(say({ round: 1, newSeg: true, ttsOn: true }), 'B5 구역', '1회차 — 구역이 바뀌면 구역 이름을');
+  eq(say({ round: 1, newSeg: true, ttsOn: true }), 'B5', '1회차 — 구역이 바뀌면 구역 이름만 ("구역" 은 붙이지 않는다)');
   eq(announceText({ spotSay: 'B5 1번', entry: car, round: 1, newSeg: true, ttsOn: true }),
     'B5 1번', '1회차 — 구역 이름을 모르면 자리 이름이라도');
   eq(say({ round: 1, newSeg: false, ttsOn: true }), null, '1회차 — 구역 안에서는 말이 없다');
@@ -221,7 +221,7 @@ log('<h2>▶ 그 자리에서 무엇을 읽어 줄까 — 회차마다 다르다
     '2회차 — 비디오 수거 차량');
   eq(say({ round: 2, newSeg: true, ttsOn: true, target: 'key' }), 'B5 1번, 천오백팔, 열쇠',
     '2회차 — 구역이 바뀌는 자리의 열쇠 차량');
-  eq(say({ round: 1, newSeg: true, ttsOn: true, target: 'cctv' }), 'B5 구역',
+  eq(say({ round: 1, newSeg: true, ttsOn: true, target: 'cctv' }), 'B5',
     '1회차 — 아직 적기 전이라 대상 안내는 하지 않는다 (구역만 알린다)');
 }
 
