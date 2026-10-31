@@ -10,7 +10,7 @@
 <title>차고지 순회</title>
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
-<link rel="stylesheet" href="src/app.css?v=202611010425">
+<link rel="stylesheet" href="src/app.css?v=202611010449">
 </head>
 <body>
 
@@ -18,6 +18,11 @@
 
   <!-- 상단: 진행 상황 -->
   <header class="bar">
+    <div class="bar-left">
+      <!-- 차고지와 회차를 한 덩어리로 — 누를 때마다 네 가지가 돌아간다
+           (신차고지1차 → 신차고지2차 → 구차고지1차 → 구차고지2차) -->
+      <button class="where" id="btnWhere" aria-label="차고지·회차 바꾸기">신차고지1차</button>
+    </div>
     <div class="bar-right">
       <button class="icon-btn" id="btnMiss" aria-label="아직 못 본 차" hidden>못 봄<span class="badge" id="missBadge"></span></button>
       <button class="icon-btn" id="btnFind" aria-label="차량번호 찾기">찾기</button>
@@ -27,14 +32,6 @@
       <button class="icon-btn" id="btnDiag" aria-label="음성 진단">진단</button>
     </div>
   </header>
-  <!-- 차고지와 회차를 한 줄에 네 칸으로 둔다. 바꿔 가며 두 번 누를 일이 없고,
-       지금 어디 몇 회차인지 누르지 않고도 보인다. 2회차는 색이 다르다. (2026-11-01) -->
-  <nav class="rounds" id="rounds">
-    <button class="rbtn"     data-yard="new" data-round="1">6차고지 1회</button>
-    <button class="rbtn two" data-yard="new" data-round="2">6차고지 2회</button>
-    <button class="rbtn"     data-yard="old" data-round="1">구차고지 1회</button>
-    <button class="rbtn two" data-yard="old" data-round="2">구차고지 2회</button>
-  </nav>
   <div class="progress"><div class="progress-fill" id="progressFill"></div></div>
 
   <!-- 현재 자리 안내판 -->
@@ -266,6 +263,6 @@
 
 <!-- 인쇄 전용 레이아웃 -->
 
-<script type="module" src="src/app.js?v=202611010425"></script>
+<script type="module" src="src/app.js?v=202611010449"></script>
 </body>
 </html>

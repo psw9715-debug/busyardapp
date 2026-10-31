@@ -1,15 +1,15 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202611010425';
-import { YARD_OLD } from './yard-old-data.js?v=202611010425';
-import { BUILD } from './build.js?v=202611010425';
-import { toKoreanSino, announceText } from './plate.js?v=202611010425';
+import { YARD as YARD_NEW } from './yard-data.js?v=202611010449';
+import { YARD_OLD } from './yard-old-data.js?v=202611010449';
+import { BUILD } from './build.js?v=202611010449';
+import { toKoreanSino, announceText } from './plate.js?v=202611010449';
 import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611010425';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611010449';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession, dropSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202611010425';
-import { createSync, getToken, setToken } from './sync.js?v=202611010425';
+} from './store.js?v=202611010449';
+import { createSync, getToken, setToken } from './sync.js?v=202611010449';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1078,11 +1078,15 @@ function highlightSpot(n) {
 
 // ---------------------------------------------------------------- 회차
 
+// 차고지·회차 한 덩어리가 돌아가는 차례
+const 네가지 = [['new', 1], ['new', 2], ['old', 1], ['old', 2]];
+const 차고지말 = { new: '신차고지', old: '구차고지' };
+
 function renderRound() {
-  // 네 칸 가운데 지금 칸만 불을 켠다 (6차고지 1회·2회 / 구차고지 1회·2회)
-  document.querySelectorAll('#rounds .rbtn').forEach((b) => {
-    b.classList.toggle('on', b.dataset.yard === YARD.id && Number(b.dataset.round) === round);
-  });
+  // 지금 어디서 몇 차로 적고 있는지 한 덩어리로 보여 준다 ("신차고지1차")
+  const b = $('btnWhere');
+  b.textContent = `${차고지말[YARD.id]}${round}차`;
+  b.classList.toggle('two', round === 2);
   // 2회차에는 1회차 기록을 죽여서, 아직 차가 안 들어온 자리가 도드라지게 한다
   document.body.classList.toggle('round2', round === 2);
 }
@@ -1709,15 +1713,13 @@ function init() {
     startConfirmWalk();
   }
 
-  // ★ [2026-11-01 둘째] 차고지와 회차를 네 칸으로 늘어놓았다. 차고지를 바꾼 뒤
-  //    회차를 또 누르던 두 걸음이 한 걸음이 되고, 어느 차고지가 몇 회차인지
-  //    누르지 않고도 보인다 (회차는 차고지마다 따로 기억한다).
-  $('rounds').addEventListener('click', (ev) => {
-    const b = ev.target.closest('.rbtn');
-    if (!b) return;
+  // ★ [2026-11-01 둘째] 차고지 이름·화살표·회차 셋으로 쪼개 두었던 것을 한 덩어리로
+  //    합쳤다. 누를 때마다 네 가지가 돌아간다 — 윗줄이 그만큼 짧아지고, 차고지를
+  //    바꾼 뒤 회차를 또 누르던 두 걸음이 한 걸음이 된다.
+  $('btnWhere').addEventListener('click', () => {
     primeAudio();
-    const 차고지 = b.dataset.yard;
-    const 회차 = Number(b.dataset.round);
+    const 이제 = 네가지.findIndex(([y, r]) => y === YARD.id && r === round);
+    const [차고지, 회차] = 네가지[(이제 + 1) % 네가지.length];
     if (차고지 === YARD.id) { switchRound(회차); return; }
     // 차고지를 바꾸면 판·커서·배치도가 전부 그 차고지 것으로 바뀐다.
     // 반쯤 갈아 끼우다 어긋나지 않게 화면을 처음부터 다시 세운다.

@@ -41,34 +41,29 @@ html, body {
 
 /* ---------- 상단 바 ---------- */
 .bar {
-  display: flex; align-items: center; justify-content: flex-end;
+  display: flex; align-items: center; justify-content: space-between;
   /* 아이폰 13 미니는 가로가 좁다. 양쪽 여백을 줄여 글씨가 잘리지 않게 한다 (2026-11-01) */
   padding: 5px 7px 4px;
   gap: 6px;
   flex: none;
 }
-/* ★ [2026-11-01] 차고지·회차는 아래 한 줄(.rounds)로 내렸다. 윗줄은 통째로
-   [찾기]·[대상]·[사진]·[인쇄]·[진단] 몫이 되어 버튼마다 폭이 넓어졌다. */
-.bar-right { display: flex; gap: 4px; flex: 1; min-width: 0; }
+.bar-left { display: flex; align-items: center; min-width: 0; }
+/* 나머지 폭은 전부 [찾기]·[대상]·[사진]·[인쇄]·[진단] 몫이다 — 고르게 나눠 넓게 쓴다 */
+.bar-right { display: flex; gap: 4px; flex: 1; min-width: 0; margin-left: 6px; }
 
-/* 차고지 넷 — 6차고지 1회 / 2회 / 구차고지 1회 / 2회 */
-.rounds { display: flex; gap: 4px; padding: 0 7px 5px; flex: none; }
-.rbtn {
-  flex: 1 1 0; min-width: 0;
-  font-family: inherit; font-size: 12px; font-weight: 700; letter-spacing: -.02em;
-  white-space: nowrap; line-height: 1; padding: 10px 2px;
+/* 차고지·회차 한 덩어리 — "신차고지1차" 네 가지가 돌아간다.
+   셋으로 쪼개 두었더니(이름 ⇄ 회차) 자리만 먹고 두 번 눌러야 했다. (2026-11-01) */
+.where {
+  flex: none; font-family: inherit; font-size: 13px; font-weight: 700;
+  white-space: nowrap; line-height: 1; padding: 9px 9px; letter-spacing: -.02em;
   background: var(--panel-2); color: var(--ink);
   border: 1px solid var(--line); border-radius: 8px;
 }
-/* 2회차는 1회차와 색이 달라야 잘못 누르지 않는다 */
-.rbtn.two { color: var(--r2-ink); border-color: var(--r2-line); }
-/* 지금 보고 있는 칸 — 눌려 있는 것이 멀리서도 보인다 */
-.rbtn.on       { background: var(--ink); color: var(--bg); border-color: var(--ink); }
-.rbtn.two.on   { background: var(--r2-line); color: #fff; border-color: var(--r2-ink); }
-.rbtn:active   { background: var(--line); }
+/* 2차는 색이 달라야 지금 몇 차로 적는지 헷갈리지 않는다 */
+.where.two { background: var(--r2-bg); color: var(--r2-ink); border-color: var(--r2-line); }
+.where:active { background: var(--line); }
 /* 2회차 모드는 윗부분 전체를 보라로 물들여, 지금 몇 회차로 적는지 헷갈리지 않게 한다 */
 body.round2 .bar,
-body.round2 .rounds,
 body.round2 .hud { background: var(--r2-bg); }
 body.round2 .hud { border-bottom: 2px solid var(--r2-line); }
 /* ★ [2026-11-01] 글씨가 흐려서 반투명처럼 보이고, 좁은 화면에서 누르기 어려웠다.
