@@ -86,7 +86,7 @@ log('▶ 2회차에서 "오늘 입력·대상 전부 지우기"');
   seed('new', entries, 2);
   const a = await app();
 
-  eq(a.지금칸(), '신차고지2차', '시작은 신차고지 2차');
+  eq(a.지금칸(), '신 2차', '시작은 신차고지 2차');
   // 2회차 도중 앱이 다시 떠도 확인 걸음을 이어 간다
   eq(a.$('padSheet').hidden, false, '2회차로 켜면 키패드가 열려 있다');
   eq(a.$('padTitle').textContent, 'B5-1번 자리', '돌던 자리에서 이어 간다');
@@ -96,7 +96,7 @@ log('▶ 2회차에서 "오늘 입력·대상 전부 지우기"');
   eq(a.$('diagClear').classList.contains('armed'), true, '한 번 누르면 확인을 받는다');
   a.$('diagClear').click(); await wait(250);         // 두 번 — 실행
 
-  eq(a.지금칸(), '신차고지1차', '지운 뒤에는 1차');
+  eq(a.지금칸(), '신 1차', '지운 뒤에는 1차');
   eq(a.d.body.classList.contains('round2'), false, '2회차 화면 색도 풀린다');
   eq(a.$('hudSpot').textContent, 'B5-1', '첫 자리로');
   eq(a.$('hudCount').textContent, '0 / 136', '판이 비었다');
@@ -115,7 +115,7 @@ log('▶ 2회차에서 "오늘 입력·대상 전부 지우기"');
 log('▶ 지운 뒤 앱을 다시 켜면');
 {
   const a = await app();
-  eq(a.지금칸(), '신차고지1차', '다시 켜도 1차');
+  eq(a.지금칸(), '신 1차', '다시 켜도 1차');
   eq(a.$('hudSpot').textContent, 'B5-1', '다시 켜도 첫 자리');
   eq(a.$('padSheet').hidden, true, '1회차라 키패드는 닫힌 채');
 }
@@ -185,7 +185,7 @@ log('▶ 일지 저장 뒤 초기화');
 
   a.$('logReset').click(); await wait(80);       // 한 번 — 확인
   a.$('logReset').click(); await wait(300);      // 두 번 — 실행
-  eq(a.지금칸(), '신차고지1차', '지운 뒤 1차');
+  eq(a.지금칸(), '신 1차', '지운 뒤 1차');
   eq(a.$('hudCount').textContent, '0 / 136', '판이 비었다');
   eq(a.$('logSheet').hidden, true, '일지 화면이 닫힌다');
   eq(Object.keys(localStorage).filter((k) => k.startsWith('busyard:v1:log:')).length, 1, '일지는 남아 있다');
@@ -890,19 +890,19 @@ log('\n▶ 오늘 지우기 — 다른 차고지 판도 함께');
 }
 
 // ── 32) 차고지·회차 한 덩어리 — 누를 때마다 네 가지가 돌아간다
-log('\n▶ 한 덩어리 (신차고지1차 → 2차 → 구차고지1차 → 2차)');
+log('\n▶ 한 덩어리 (구 1차 → 구 2차 → 신 1차 → 신 2차)');
 {
   seed('new', {}, 1);
   const a = await app();
-  eq(a.지금칸(), '신차고지1차', '지금 어디서 몇 차로 적는지 한 덩어리로 보인다');
+  eq(a.지금칸(), '신 1차', '지금 어디서 몇 차로 적는지 한 덩어리로 보인다');
   eq(a.d.querySelectorAll('.bar-left button').length, 1, '★ 윗줄 왼쪽은 버튼 하나뿐이다');
   eq(a.d.querySelector('#rounds'), null, '네 칸 늘어놓던 줄은 없앴다');
 
   a.$('btnWhere').click(); await wait(400);
-  eq(a.지금칸(), '신차고지2차', '한 번 누르면 2차');
+  eq(a.지금칸(), '신 2차', '한 번 누르면 2차');
   eq(a.$('btnWhere').classList.contains('two'), true, '2차는 색이 다르다');
 
-  // 다음은 구차고지 1차 — 차고지가 바뀌면 화면을 다시 세운다 (여기서는 남긴 쪽지만 본다)
+  // 신 2차 다음은 다시 구 1차 — 차고지가 바뀌면 화면을 다시 세운다 (남긴 쪽지만 본다)
   a.$('btnWhere').click();
   eq(localStorage.getItem('busyard:yard'), 'old', '★ 다음은 구차고지');
   eq(localStorage.getItem('busyard:round:old'), '1', '★ 구차고지 1차로 들어간다');

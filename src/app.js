@@ -1,15 +1,15 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202611010449';
-import { YARD_OLD } from './yard-old-data.js?v=202611010449';
-import { BUILD } from './build.js?v=202611010449';
-import { toKoreanSino, announceText } from './plate.js?v=202611010449';
+import { YARD as YARD_NEW } from './yard-data.js?v=202611010521';
+import { YARD_OLD } from './yard-old-data.js?v=202611010521';
+import { BUILD } from './build.js?v=202611010521';
+import { toKoreanSino, announceText } from './plate.js?v=202611010521';
 import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611010449';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611010521';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession, dropSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202611010449';
-import { createSync, getToken, setToken } from './sync.js?v=202611010449';
+} from './store.js?v=202611010521';
+import { createSync, getToken, setToken } from './sync.js?v=202611010521';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1078,14 +1078,14 @@ function highlightSpot(n) {
 
 // ---------------------------------------------------------------- 회차
 
-// 차고지·회차 한 덩어리가 돌아가는 차례
-const 네가지 = [['new', 1], ['new', 2], ['old', 1], ['old', 2]];
-const 차고지말 = { new: '신차고지', old: '구차고지' };
+// 차고지·회차 한 덩어리가 돌아가는 차례 — 구에서 신으로 (도는 차례 그대로)
+const 네가지 = [['old', 1], ['old', 2], ['new', 1], ['new', 2]];
+const 차고지말 = { new: '신', old: '구' };
 
 function renderRound() {
   // 지금 어디서 몇 차로 적고 있는지 한 덩어리로 보여 준다 ("신차고지1차")
   const b = $('btnWhere');
-  b.textContent = `${차고지말[YARD.id]}${round}차`;
+  b.textContent = `${차고지말[YARD.id]} ${round}차`;
   b.classList.toggle('two', round === 2);
   // 2회차에는 1회차 기록을 죽여서, 아직 차가 안 들어온 자리가 도드라지게 한다
   document.body.classList.toggle('round2', round === 2);

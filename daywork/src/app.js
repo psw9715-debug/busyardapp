@@ -10,15 +10,15 @@
 
 import {
   createState, handleUtterance, setPlate, removeCard, editCard, undo, sendable, barePlate,
-} from './entry.js?v=202611010449';
-import { createListener, isSupported } from './listen.js?v=202611010449';
-import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202611010449';
-import { workDate } from './workdate.js?v=202611010449';
-import { send as sendToPc } from './sync.js?v=202611010449';
-import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202611010449';
-import * as logbook from './log.js?v=202611010449';
-import * as roster from './roster.js?v=202611010449';
-import { beep, primeAudio } from '../../src/voice.js?v=202611010449';
+} from './entry.js?v=202611010521';
+import { createListener, isSupported } from './listen.js?v=202611010521';
+import { loadSession, saveSession, clearSession, listDays, getToken, setToken, tokenSource } from './store.js?v=202611010521';
+import { workDate } from './workdate.js?v=202611010521';
+import { send as sendToPc } from './sync.js?v=202611010521';
+import { BUILD, checkForUpdate, forceUpdate } from './update.js?v=202611010521';
+import * as logbook from './log.js?v=202611010521';
+import * as roster from './roster.js?v=202611010521';
+import { beep, primeAudio } from '../../src/voice.js?v=202611010521';
 
 // 내용을 받을 때 말이 멎고 이만큼 기다린다.
 // 길수록 중간에 쉬어도 한 줄로 들어오지만 그만큼 굼뜨다. 뒷말이 따로 들어와도
