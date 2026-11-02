@@ -42,53 +42,82 @@ eq(agent.decide(mk("excel", mins=11), None, now), "stale", "10분이 지난 요�
 eq(agent.decide(None, None, now), "skip", "요청이 없으면 아무것도")
 eq(agent.decide(mk("save"), None, now), "write", "앱을 열 때의 '엑셀 저장' 부탁도 우리 몫")
 
-print("▶ 랜으로 건네받은 요청을 먼저 집는다")
-# raw 는 CDN 이라 폰이 올린 것이 보이기까지 244초가 걸렸다. 사무실 PC 가 같은 랜의
-# Z: 에 놓아 주면 그 자리에서 집어 간다.
+print("▶ GitHub 를 먼저 본다 — Z: 는 GitHub 에 닿지 않을 때만 (2026-11-03 사용자 결정)")
+# 11-03 00:32·00:52 에 A 의 Z: 가 몇 분씩 막혀 엑셀 넣기가 늦었다. 폰이 올린 것은 GitHub 에
+# 이미 있으므로 A 가 바로 본다 (커밋 번호로 받아 CDN 의 묵은 것을 피한다).
 import io, tempfile  # noqa: E402
 칸 = tempfile.mkdtemp(prefix="agentreq-")
-# tick() 은 진짜 시각으로 '오래된 요청인가' 를 보므로 지금 시각을 쓴다
 지금 = datetime.datetime.now(datetime.timezone.utc).isoformat().replace("+00:00", "Z")
-진짜자리 = agent.result_dir
+진짜자리, 진짜마지막 = agent.result_dir, agent.LAST_FILE
 agent.result_dir = lambda: 칸
-뽑은것 = []
-진짜가져오기, 진짜처리 = agent.fetch, agent.handle
-agent.fetch = lambda name: 뽑은것.append(name) or {"id": "raw것", "what": "excel",
-                                                  "date": "2026-10-01", "yard": "new", "at": 지금}
+agent.LAST_FILE = os.path.join(칸, "마지막요청.txt")
+진짜가져오기, 진짜처리, 진짜랜 = agent.fetch, agent.handle, agent.local_request
+깃 = {"것": None, "막힘": False}
+랜본것 = []
+
+
+def 가짜깃(name):
+    if 깃["막힘"]:
+        raise OSError("GitHub 에 닿지 않음")
+    return 깃["것"]
+
+
+agent.fetch = 가짜깃
+진짜쪽지 = agent.report
+agent.report = lambda *a, **k: None      # ★ 뒤에서 도는 쪽지가 진짜 Z: 에 닿지 않게
+agent.local_request = lambda: 랜본것.append(1) or 진짜랜()
 집은것 = []
 agent.handle = lambda req: 집은것.append(req)
+mk = lambda i: {"id": i, "what": "excel", "date": "2026-10-01", "yard": "new", "at": 지금}  # noqa: E731
 try:
-    eq(agent.local_request(), None, "놓인 것이 없으면 없다고 한다")
-
-    io.open(os.path.join(칸, "요청.json"), "w", encoding="utf-8").write(json.dumps({
-        "id": "랜것", "what": "excel", "date": "2026-10-01", "yard": "new",
-        "at": 지금,
-        "board": {"yard": "new", "entries": {"1": {"plate": "1501", "status": "filled"}}},
-    }, ensure_ascii=False))
-    agent.remember("아무것도아님")
+    io.open(os.path.join(칸, "요청.json"), "w", encoding="utf-8").write(json.dumps(mk("랜것"), ensure_ascii=False))
+    깃["것"] = mk("깃것")
     agent.tick()
-    eq(len(집은것), 1, "한 번 집는다")
-    eq(집은것[0]["id"], "랜것", "raw 가 아니라 랜으로 건네받은 것을 집는다")
-    eq(뽑은것, [], "바깥 망(raw)을 아예 두드리지 않는다")
-    eq(집은것[0]["board"]["entries"]["1"]["plate"], "1501", "판도 함께 들어 있다")
+    eq([r["id"] for r in 집은것], ["깃것"], "★ GitHub 에 온 것을 바로 집는다")
+    eq(랜본것, [], "★ GitHub 가 되면 Z: 를 건드리지 않는다 (Z: 가 막혀도 늦지 않게)")
 
-    # 지난 요청이 그대로 남아 있어도 바깥 길이 막히면 안 된다
-    집은것.clear(); 뽑은것.clear()
-    agent.remember("랜것")                 # 방금 그것은 이미 했다고 적어 둔다
+    집은것.clear(); 깃["것"] = None
     agent.tick()
-    eq(뽑은것, ["print.json"], "이미 한 요청이 남아 있으면 raw 도 본다")
-    eq(집은것[0]["id"], "raw것", "그래서 새 요청을 놓치지 않는다")
+    eq(집은것, [], "새 것이 없으면 아무것도 (Z: 의 지난 것을 다시 하지 않는다)")
 
-    os.remove(os.path.join(칸, "요청.json"))
-    집은것.clear(); 뽑은것.clear()
-    agent.remember("아무것도아님2")
+    깃["막힘"] = True
     agent.tick()
-    eq(뽑은것, ["print.json"], "랜에 없으면 예전처럼 raw 를 본다")
-    eq(집은것[0]["id"], "raw것", "그때는 raw 것을 집는다")
+    eq([r["id"] for r in 집은것], ["랜것"], "GitHub 에 닿지 않을 때만 Z: 로 건네받은 것을 본다")
+
+    집은것.clear(); 깃["막힘"] = False; 깃["것"] = mk("깃것")
+    agent.tick()
+    깃["막힘"] = True
+    agent.tick()
+    eq(집은것, [], "★ 두 길을 오가도 이미 한 요청(깃것·랜것)은 다시 하지 않는다")
 finally:
-    agent.result_dir = 진짜자리
-    agent.fetch, agent.handle = 진짜가져오기, 진짜처리
+    agent.result_dir, agent.LAST_FILE = 진짜자리, 진짜마지막
+    agent.fetch, agent.handle, agent.local_request = 진짜가져오기, 진짜처리, 진짜랜
+    agent.report = 진짜쪽지
     shutil.rmtree(칸, ignore_errors=True)
+
+print("▶ GitHub 의 inbox 커밋 번호를 읽는다 (캐시 없는 길)")
+refs = ("001e# service=git-upload-pack\n0000"
+        "00a4" + "a" * 40 + " HEAD\0multi_ack\n"
+        "003f" + "b" * 40 + " refs/heads/inbox\n"
+        "003e" + "c" * 40 + " refs/heads/main\n0000")
+eq(agent._inbox_sha_from(refs), "b" * 40, "refs/heads/inbox 의 번호")
+eq(agent._inbox_sha_from("0000"), None, "없으면 None")
+
+print("▶ 번호가 그대로면 받지 않고, 바뀌면 그 번호로 받는다")
+받은주소 = []
+진짜번호, 진짜받기 = agent._inbox_sha, agent._get_json
+번호 = ["s1"]
+agent._inbox_sha = lambda: 번호[0]
+agent._get_json = lambda url: 받은주소.append(url) or {"id": "x"}
+agent._etags.clear()
+eq(agent.fetch("print.json"), {"id": "x"}, "처음엔 받는다")
+eq("/s1/inbox/print.json" in 받은주소[-1], True, "★ 커밋 번호가 든 주소로 (묵은 것을 받지 않는다)")
+eq(agent.fetch("print.json"), None, "번호가 그대로면 받지 않는다")
+번호[0] = "s2"
+eq(agent.fetch("print.json"), {"id": "x"}, "번호가 바뀌면 다시 받는다")
+eq(len(받은주소), 2, "받으러 간 것은 두 번뿐")
+agent._inbox_sha, agent._get_json = 진짜번호, 진짜받기
+agent._etags.clear()
 
 print("▶ 적는 동안 띄우는 안내는 한 줄이다")
 # 긴 장문은 읽지 않는다. 어느 차고지인지만 알면 된다.
@@ -239,6 +268,30 @@ _time.sleep(0.05)
 agent.report({"id": "r1", "what": "excel"}, "done", "적음")
 끝쪽지 = json.load(open(os.path.join(칸, "결과_r1.json"), encoding="utf-8"))
 eq(끝쪽지["받음"] < 끝쪽지["at"], True, "★ 받은 때는 집은 때 그대로, 끝낸 때(at)는 그 뒤")
+
+print("▶ 심장 소리에 '지금 하는 일' 을 싣는다 — 멎으면 어디서 멎었는지 보이게 (2026-11-03 00:52)")
+agent.하는중("엑셀에 적기")
+agent.tell_alive(every=0)
+심장 = json.load(open(os.path.join(칸, "살아있음.json"), encoding="utf-8"))
+eq(심장.get("하는일"), "엑셀에 적기", "★ 하던 일")
+eq(bool(심장.get("언제부터")), True, "그 일을 언제 시작했는지")
+
+print("▶ 공유 폴더에 못 쓴 기록은 모아 두었다가 다시 써질 때 함께 남긴다")
+agent._못쓴기록.clear()
+agent._공유기록남기기(os.path.join(칸, "없는폴더", "x", "A기록.log"), "줄1")   # 못 쓴다
+eq(len(agent._못쓴기록), 1, "못 쓴 줄을 쥐고 있다")
+agent._공유기록남기기(os.path.join(칸, "A기록.log"), "줄2")
+eq(open(os.path.join(칸, "A기록.log"), encoding="utf-8").read().count("줄"), 2, "★ 다시 써지면 앞의 것까지 함께")
+eq(len(agent._못쓴기록), 0, "다 남겼으면 비운다")
+
+print("▶ 켤 때 이 PC 의 기록을 공유 폴더에 올린다 (A 에서만 보이던 것을 B 에서 보게)")
+진짜로그 = agent.LOG_FILE
+agent.LOG_FILE = os.path.join(칸, "로컬.log")
+open(agent.LOG_FILE, "w", encoding="utf-8").write("".join(f"줄{i}\n" for i in range(1000)))
+agent.로컬기록올리기(몇줄=300)
+올림 = open(os.path.join(칸, "A로컬기록.log"), encoding="utf-8").read().splitlines()
+eq((len(올림), 올림[-1]), (300, "줄999"), "끝에서 300줄을 올린다")
+agent.LOG_FILE = 진짜로그
 agent.result_dir = 진짜자리
 
 print(f"\n통과 {ok} / 실패 {fail}")

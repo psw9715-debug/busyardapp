@@ -593,8 +593,17 @@ def agent_alive(within=180):
     2026-11-01: 300초였다. 이제 살아 있는 A 를 끝까지 기다리므로(wait_for_agent),
     멎은 것을 늦게 알아채면 그만큼 서서 기다린다. 심장 소리는 1분에 한 번이니
     세 번 놓친 180초면 멎은 것으로 본다.
+
+    ★ [2026-11-03] **파일 시각도 본다.** Z: 는 같은 이름으로 바꿔 쓴 파일을 옛 내용으로
+       보여 줄 때가 있다 — 01:55 에 파일 시각은 01:55:21 인데 읽은 내용은 01:50:07 이었다.
+       내용만 믿고 'A 꺼짐' 이라 폰에 알렸지만 A 는 10초 만에 넣고 인쇄까지 했다.
     """
     import ops_fill
+    try:
+        if time.time() - os.path.getmtime(ops_fill.AGENT_ALIVE) < within:
+            return True
+    except OSError:
+        pass
     try:
         with open(ops_fill.AGENT_ALIVE, encoding="utf-8") as f:
             at = json.load(f)["at"]

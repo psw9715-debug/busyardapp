@@ -39,7 +39,7 @@ import urllib.request
 APP_NAME = "차고지 받아쓰기"
 # ★ [2026-10-28] 이 판 번호는 **installer.iss 의 AppVer 과 같아야 한다.**
 #    (tools\pc\check_판올림.py 가 둘이 어긋나면 실패한다.)
-VERSION = "1.9.3"
+VERSION = "1.9.5"
 REPO = "psw9715-debug/busyardapp"
 # api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
 # raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
@@ -112,6 +112,50 @@ LAST_FILE = os.path.join(HOME, "마지막요청.txt")
 CLOSED_FILE = os.path.join(HOME, "닫은날.txt")       # 하루에 한 번만 닫게
 
 
+_못쓴기록 = []       # 공유 폴더에 못 쓴 줄 — 다시 써질 때 함께 남긴다 (2026-11-03 00:52~01:18 이 통째로 비었다)
+
+
+def _공유기록남기기(길, 줄):
+    _못쓴기록.append(줄)
+    try:
+        with io.open(길, "a", encoding="utf-8") as f:
+            f.write("".join(x + "\n" for x in _못쓴기록))
+        _못쓴기록.clear()
+    except Exception:
+        del _못쓴기록[:-500]             # 너무 오래 못 쓰면 끝의 500줄만 쥔다
+
+
+def 로컬기록올리기(몇줄=600):
+    """이 PC 의 기록(끝 몇 줄)을 공유 폴더에 올린다. 공유 폴더에 못 쓰던 동안의 일도 여기엔 있다."""
+    try:
+        with io.open(LOG_FILE, encoding="utf-8", errors="replace") as f:
+            줄들 = f.read().splitlines()[-몇줄:]
+        os.makedirs(result_dir(), exist_ok=True)
+        with io.open(os.path.join(result_dir(), "A로컬기록.log"), "w", encoding="utf-8") as f:
+            f.write("".join(x + "\n" for x in 줄들))
+    except Exception:
+        pass
+
+
+_한번말함 = {}
+
+
+def log_once(msg, every=600):
+    """같은 말은 every 초에 한 번만 (3초마다 도는 길에서 도배하지 않게)"""
+    now = time.time()
+    if now - _한번말함.get(msg, 0) >= every:
+        _한번말함[msg] = now
+        log(msg)
+
+
+_하는일 = ["쉼", None]
+
+
+def 하는중(무엇):
+    """지금 하는 일을 적어 둔다 — 심장 소리에 실려 사무실 PC 에서 보인다 (멎으면 어디서 멎었는지)."""
+    _하는일[:] = [무엇, datetime.datetime.now().strftime("%H:%M:%S")]
+
+
 def log(msg):
     line = f"{datetime.datetime.now():%H:%M:%S} {msg}"
     os.makedirs(HOME, exist_ok=True)
@@ -122,14 +166,9 @@ def log(msg):
         pass
     # ★ [2026-11-02] 같은 기록을 Z: 에도 남긴다 — A 에 무슨 일이 있었는지 사무실 PC 에서
     #    볼 길이 없어 '01:48 최종 인쇄를 왜 못 끝냈나' 를 끝내 가리지 못했다.
-    try:
-        if not getattr(sys, "frozen", False):
-            raise RuntimeError("시험·개발 중에는 공유 폴더에 남기지 않는다")
-        with io.open(os.path.join(result_dir(), f"A기록_{datetime.date.today():%Y%m%d}.log"),
-                     "a", encoding="utf-8") as f:
-            f.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n")
-    except Exception:
-        pass
+    if getattr(sys, "frozen", False):     # 시험·개발 중에는 공유 폴더에 남기지 않는다
+        _공유기록남기기(os.path.join(result_dir(), f"A기록_{datetime.date.today():%Y%m%d}.log"),
+                    f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {msg}")
     if sys.stdout:                   # 창 없이 묶은 exe 는 내보낼 곳이 없다
         try:
             print(line)
@@ -150,23 +189,43 @@ def _ssl_context():
 _etags = {}
 
 
-def fetch(name):
-    """inbox 의 파일 하나. 지난번과 같으면 None (바뀐 것이 없다)."""
-    # raw 는 5분쯤 묵은 것을 내줄 수 있다. 시각을 붙여 늘 지금 것을 받는다.
-    url = f"{RAW.format(name=urllib.parse.quote(name))}?t={int(time.time())}"
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "busyard-agent",
-        **({"If-None-Match": _etags[name]} if name in _etags else {}),
-    })
+def _inbox_sha_from(text):
+    """git 의 refs 목록(info/refs)에서 inbox 가지의 커밋 번호"""
+    m = re.search(r"([0-9a-f]{40}) refs/heads/inbox(?:\x00|\n|$)", text)
+    return m.group(1) if m else None
+
+
+def _inbox_sha():
+    """GitHub 의 inbox 가지가 지금 어느 커밋인가. CDN 을 타지 않아 늘 지금 것이다 (B 의 ls-remote 와 같은 길)."""
+    req = urllib.request.Request(f"https://github.com/{REPO}.git/info/refs?service=git-upload-pack",
+                                 headers={"User-Agent": "git/2.40 busyard-agent"})
+    with urllib.request.urlopen(req, timeout=10, context=_ssl_context()) as res:
+        return _inbox_sha_from(res.read().decode("utf-8", "replace"))
+
+
+def _get_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "busyard-agent"})
     try:
         with urllib.request.urlopen(req, timeout=20, context=_ssl_context()) as res:
-            if res.headers.get("ETag"):
-                _etags[name] = res.headers["ETag"]
             return json.loads(res.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
-        if e.code in (304, 404):
-            return None          # 바뀐 것이 없거나 아직 없는 파일
+        if e.code == 404:
+            return None          # 아직 없는 파일
         raise
+
+
+def fetch(name):
+    """inbox 의 파일 하나. 지난번에 본 커밋 그대로면 None (바뀐 것이 없다).
+
+    ★ [2026-11-03] raw 주소를 가지 이름으로 부르면 CDN 이 몇 분 묵은 것을 내줬다 (244초).
+       커밋 번호를 먼저 묻고 **그 번호가 든 주소**로 받는다 — 번호가 든 주소는 묵지 않는다.
+    """
+    sha = _inbox_sha()
+    if not sha or _etags.get(name) == sha:
+        return None
+    것 = _get_json(f"https://raw.githubusercontent.com/{REPO}/{sha}/inbox/{urllib.parse.quote(name)}")
+    _etags[name] = sha
+    return 것
 
 
 _받은때 = {}      # 요청 id → A 가 집은 때 (순찰 로그 — 사무실 PC 가 '언제 받고 언제 끝냈나' 를 적는다)
@@ -358,6 +417,7 @@ def tell_alive(every=60):
                        # ★ [2026-10-28] 어느 판이 돌고 있는지 사무실 PC 에서 보이게.
                        #    스스로 깔고 나면 이 숫자가 올라간다 — 깔렸는지를 이것으로 안다.
                        "판": VERSION,
+                       "하는일": _하는일[0], "언제부터": _하는일[1],
                        "at": datetime.datetime.now(datetime.timezone.utc)
                        .isoformat(timespec="seconds").replace("+00:00", "Z")},
                       f, ensure_ascii=False)
@@ -894,22 +954,36 @@ def write_board(board, path, log=log, found=None):
 # ---- 요청 처리 -----------------------------------------------------------
 
 def last_done():
+    """이미 한 요청들 (최근 30개). ★ [2026-11-03] 한 개만 쥐면 두 길(GitHub·Z:)의 서로 다른
+    요청이 번갈아 들어올 때 이미 한 것을 '새 것' 으로 볼 수 있었다."""
     try:
         with io.open(LAST_FILE, encoding="utf-8") as f:
-            return f.read().strip() or None
+            return set(f.read().split())
     except Exception:
-        return None
+        return set()
 
 
 def remember(req_id):
-    os.makedirs(HOME, exist_ok=True)
+    os.makedirs(os.path.dirname(LAST_FILE), exist_ok=True)
+    한것 = [x for x in _한것차례() if x != req_id][-29:] + [req_id]
     with io.open(LAST_FILE, "w", encoding="utf-8") as f:
-        f.write(req_id)
+        f.write("\n".join(한것))
+
+
+def _한것차례():
+    try:
+        with io.open(LAST_FILE, encoding="utf-8") as f:
+            return f.read().split()
+    except Exception:
+        return []
 
 
 def decide(req, done, now):
-    """'write' 적는다 / 'skip' 이미 했거나 우리 일이 아니다 / 'stale' 너무 오래된 요청"""
-    if not req or req.get("id") == done:
+    """'write' 적는다 / 'skip' 이미 했거나 우리 일이 아니다 / 'stale' 너무 오래된 요청
+
+    done 은 이미 한 요청 id 하나(옛 꼴) 또는 그 묶음."""
+    한것 = {done} if isinstance(done, str) else set(done or ())
+    if not req or req.get("id") in 한것:
         return "skip"
     if req.get("what") not in ("excel", "final", "save"):
         return "skip"            # 종이 인쇄와 가져오기는 B(사무실 PC)가 한다
@@ -947,11 +1021,13 @@ def handle(req):
             raise FileNotFoundError(f"{req['date']} {yard} 판을 못 받았습니다")
         path = find_excel(date)
         found = []
+        하는중(f"엑셀에 적기 ({yard})")
         n, was_open = write_board(board, path, found=found)
         printed = False
         인쇄실패 = ""
         if req.get("what") in ("excel", "final"):
             # 적은 결과를 여기서 바로 뽑는다. 사무실 PC 가 큰 파일을 또 열지 않아도 된다.
+            하는중(f"인쇄 ({yard})")
             try:
                 wb = running_workbook(path)
                 if wb is not None:
@@ -1323,13 +1399,14 @@ def local_request():
 
 def tick():
     done = last_done()
-    req = local_request()                 # 랜으로 건네받은 것이 먼저다 (몇 초)
-    if req is None or req.get("id") == done:
-        # 랜에 새 것이 없다 (지난 요청이 그대로 남아 있는 때도 마찬가지다 —
-        # 그 한 장 때문에 바깥 길이 영영 막히면 안 된다). 예전 길로 본다.
-        raw = fetch("print.json")         # 사무실 PC 가 꺼져 있을 때의 길 (몇 분 걸린다)
-        if raw is not None:
-            req = raw
+    # ★ [2026-11-03] **GitHub 를 먼저 본다.** 폰이 올린 요청은 GitHub 에 있다 — 커밋 번호로 받으면
+    #    몇 초 안이다. Z: 는 GitHub 에 닿지 않을 때만 본다 (11-03 00:32·00:52 에 A 의 Z: 가
+    #    몇 분씩 막혀 엑셀 넣기가 그만큼 늦었다).
+    try:
+        req = fetch("print.json")
+    except Exception as e:
+        log_once(f"GitHub 에 닿지 않아 Z: 로 건네받은 것을 봅니다 — {type(e).__name__}: {e}")
+        req = local_request()
     if req is None:
         return
     what = decide(req, done, datetime.datetime.now(datetime.timezone.utc))
@@ -1345,15 +1422,20 @@ def tick():
     #   복사본(차고지입력_1101.xlsx)을 하나 더 만들었다.
     #   기다리는 시간만 늘리면 우리가 죽은 날 PC 가 또 서서 기다린다. 그래서
     #   **집었다는 것부터 알린다** — PC 는 집은 것을 보았을 때만 길게 기다린다.
-    try:
-        report(req, "working", "집었습니다 — 적는 중입니다")
-    except Exception as e:
-        log(f"⚠ 집었다는 쪽지를 놓지 못했습니다 — {type(e).__name__}: {e}")
+    # 쪽지는 Z: 에 놓는다 — Z: 가 막혀도 엑셀 넣기를 붙잡지 않게 뒤에서 놓는다.
+    def 쪽지():
+        try:
+            report(req, "working", "집었습니다 — 적는 중입니다")
+        except Exception as e:
+            log(f"⚠ 집었다는 쪽지를 놓지 못했습니다 — {type(e).__name__}: {e}")
+    threading.Thread(target=쪽지, daemon=True, name="쪽지").start()
+    하는중(f"집은 요청 {req['id']}")
     handle(req)
 
 
 def loop(stop):
     log(f"{APP_NAME} 시작 — 밤에는 {POLL_BUSY}초, 낮에는 {POLL_IDLE // 60}분마다 확인합니다")
+    로컬기록올리기()          # 공유 폴더에 못 남긴 지난 일도 사무실 PC 에서 보이게
 
     # ★ [2026-11-02] 엑셀에 넣는 동안에도 '살아 있다' 를 남긴다. 한 가닥에서 1분에 한 번만
     #    남기던 때는, 일이 길어지면 사무실 PC 가 '멎었다' 로 보고 손을 댔다.
@@ -1370,13 +1452,17 @@ def loop(stop):
         try:
             tell_alive()
             if poll_sec() == POLL_BUSY:      # 순찰하는 밤에만 미리 데워 둔다
+                하는중("엑셀 데우기")
                 warm_up()
             if due_to_close(datetime.datetime.now()):
                 close_ops()
             else:
                 watch_closed()            # 닫은 뒤 02:12 까지 다시 열렸는지 본다
+            하는중("요청 보기")
             tick()
+            하는중("판올림 보기")
             판올림()                      # 공유 폴더에 새 설치본이 올라왔으면 스스로 깐다
+            하는중("쉼")
             last_err = None
         except Exception as e:
             msg = f"{type(e).__name__}: {e}"

@@ -57,5 +57,20 @@ eq((합["id"], 합["msg"]), ("p1", "종이"), "맨 위는 새 결과 (옛 폰도
 eq(len(inbox.결과합치기({"최근": [{"id": str(i)} for i in range(12)]}, {"id": "n"})["최근"]), 10, "열 개까지만")
 eq([x["id"] for x in inbox.결과합치기(None, {"id": "a"})["최근"]], ["a"], "처음")
 
+print("\n▶ A 의 살아있음 — Z: 가 옛 내용을 보여 줘도 파일 시각으로 안다 (2026-11-03 01:53)")
+# 01:55:38 에 본 살아있음.json: 파일 시각 01:55:21, 그런데 읽은 내용은 01:50:07.
+# 내용만 보고 'A 꺼짐' 이라 폰에 알렸지만, A 는 10초 만에 엑셀에 넣고 인쇄까지 했다.
+import json, tempfile, time  # noqa: E401,E402
+import ops_fill  # noqa: E402
+칸 = tempfile.mkdtemp(prefix="심장-")
+진짜심장 = ops_fill.AGENT_ALIVE
+ops_fill.AGENT_ALIVE = os.path.join(칸, "살아있음.json")
+open(ops_fill.AGENT_ALIVE, "w", encoding="utf-8").write(json.dumps({"at": "2026-11-02T16:50:07Z"}))
+eq(inbox.agent_alive(), True, "★ 내용은 오래됐어도 파일이 방금 바뀌었으면 살아 있다")
+옛 = time.time() - 600
+os.utime(ops_fill.AGENT_ALIVE, (옛, 옛))
+eq(inbox.agent_alive(), False, "내용도 파일 시각도 오래됐으면 멎었다")
+ops_fill.AGENT_ALIVE = 진짜심장
+
 print("\n통과 %d / 실패 %d" % (ok, fail))
 sys.exit(1 if fail else 0)
