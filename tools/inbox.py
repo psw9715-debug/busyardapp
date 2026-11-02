@@ -231,9 +231,23 @@ def take_daywork(log=print):
     return written
 
 
+def 결과합치기(앞, status, 몇=10):
+    """새 결과를 맨 위에 두고, 최근 결과들을 '최근' 에 함께 싣는다.
+
+    ★ [2026-11-03] status.json 은 한 장이다. 엑셀 넣기와 종이 인쇄를 연달아 누르면
+       뒤 결과가 앞 결과를 덮어 폰이 앞 것을 끝내 못 봤다. 폰은 제 요청 id 를 '최근' 에서 찾는다.
+    """
+    최근 = [status] + [x for x in ((앞 or {}).get("최근") or []) if x.get("id") != status.get("id")]
+    return {**status, "최근": [{k: v for k, v in x.items() if k != "최근"} for x in 최근[:몇]]}
+
+
 def write_status(status):
-    """폰에 결과를 알린다 (inbox/status.json)"""
-    write_file("inbox/status.json", status, f"PC 결과: {status['state']}")
+    """폰에 결과를 알린다 (inbox/status.json) — 최근 결과들도 함께"""
+    try:
+        앞 = read("inbox/status.json")
+    except Exception:
+        앞 = None
+    write_file("inbox/status.json", 결과합치기(앞, status), f"PC 결과: {status['state']}")
 
 
 def take_files(log=print):
@@ -394,6 +408,47 @@ def decide(req, handled_id, now):
     return "stale" if now - at > STALE else "print"
 
 
+def 기다리며할것(req):
+    """A 를 기다리는 사이에도 바로 해도 되는 요청인가 — A 몫(엑셀 넣기·최종·저장)이 아닌 것."""
+    return req.get("what", "paper") not in ("excel", "final", "save")
+
+
+def 밀린요청(새것부터, 마지막, 처리함):
+    """마지막으로 한 요청 뒤에 온 것들 → 오래된 차례로.
+
+    ★ [2026-11-03] 폰은 inbox/print.json 한 장을 덮어쓴다. B 가 A 를 기다리는 동안
+       누른 종이 인쇄 두 번이 다음 엑셀 요청에 덮여 사라졌다 (00:33:51·00:35:32).
+       그래서 맨 끝 한 장이 아니라 그 사이의 것을 모두 본다. 같은 것(종류·차고지)을
+       여러 번 눌렀으면 마지막 하나만 — 종이가 두 장 나오지 않게.
+    """
+    밀린 = []
+    for r in 새것부터:
+        if r.get("id") == 마지막:
+            break
+        밀린.append(r)
+    끝 = {}
+    for n, r in enumerate(reversed(밀린)):          # 오래된 차례
+        끝[(r.get("what", "paper"), r.get("yard"))] = (n, r)
+    return [r for _n, r in sorted(끝.values(), key=lambda x: x[0]) if r["id"] not in 처리함]
+
+
+def 요청기록(몇=10):
+    """inbox/print.json 의 지난 요청들 (새 것부터). 폰이 한 번 누를 때마다 커밋 하나다."""
+    r = git("log", f"-{몇}", "--format=%H", INBOX_REF, "--", "inbox/print.json")
+    out = []
+    for h in (r.stdout or "").split():
+        rr = git("show", f"{h}:inbox/print.json")
+        if rr.returncode == 0:
+            try:
+                out.append(json.loads(rr.stdout))
+            except ValueError:
+                pass
+    return out
+
+
+_틈틈이 = [None]      # A 를 기다리는 동안 5초마다 부를 것 (watch 가 끼운다)
+
+
 def _load_last():
     try:
         with open(LAST_FILE, encoding="utf-8") as f:
@@ -444,12 +499,20 @@ def agent_note(req_id):
     권한을 들고 도는 이 PC 가 폰에 전해 준다.
     """
     import ops_fill
-    try:
-        with open(ops_fill.AGENT_RESULT, encoding="utf-8") as f:
-            note = json.load(f)
-    except Exception:
-        return None
-    if note.get("id") != req_id:
+    note = None
+    # ★ [2026-11-02] A 1.9.0 부터 요청마다 따로 놓는다 (결과_요청번호.json).
+    #    한 장을 돌려 쓰면 다음 요청이 덮어써 놓칠 수 있었다. 옛 한 장도 그대로 본다.
+    for 길 in (os.path.join(os.path.dirname(ops_fill.AGENT_RESULT), f"결과_{req_id}.json"),
+               ops_fill.AGENT_RESULT):
+        try:
+            with open(길, encoding="utf-8") as f:
+                cand = json.load(f)
+        except Exception:
+            continue
+        if cand.get("id") == req_id:
+            note = cand
+            break
+    if note is None:
         return None
     # '집었습니다' 는 끝난 것이 아니다 — 그것으로 끝낸 척하면 안 된다 (2026-11-01)
     return None if note.get("state") == "working" else note
@@ -492,6 +555,16 @@ def agent_alive(within=180):
         return False
 
 
+def _쪽지요약():
+    import ops_fill
+    try:
+        with open(ops_fill.AGENT_RESULT, encoding="utf-8") as f:
+            n = json.load(f)
+        return f"{n.get('id')} {n.get('state')} {n.get('at')}"
+    except Exception as e:
+        return f"못 읽음 ({type(e).__name__})"
+
+
 def wait_for_agent(req_id, log, secs=360):
     """A 컴퓨터가 적고 쪽지를 놓을 때까지 기다린다. 안 집으면 내가 한다.
 
@@ -517,11 +590,14 @@ def wait_for_agent(req_id, log, secs=360):
     '집었습니다' 쪽지는 이제 기록에 남기는 용도다 — 기다릴지 말지를 그것으로 정하지 않는다.
     """
     if not agent_alive():
-        log("💤 [순회판] A 컴퓨터 받아쓰기가 꺼져 있다 — 이 PC 가 한다")
+        log("💤 [순회판] A 컴퓨터 받아쓰기가 꺼져 있다")
         return None
     until = time.time() + secs
     집었다 = False
-    while time.time() < until:
+    while True:
+        남은 = until - time.time()             # 시계는 한 번만 읽는다
+        if 남은 <= 0:
+            break
         note = agent_note(req_id)
         if note:
             log(f"📨 [순회판] A 컴퓨터: {note['msg']}")
@@ -529,11 +605,18 @@ def wait_for_agent(req_id, log, secs=360):
         if not 집었다 and agent_working(req_id):
             집었다 = True
             log("🤝 [순회판] A 컴퓨터가 집었습니다 — 끝낼 때까지 기다립니다")
-        if not agent_alive():                  # 도중에 멎었다 — 그때 내가 이어받는다
-            log("💤 [순회판] A 컴퓨터가 멎었다 — 이 PC 가 한다")
+        if not agent_alive():                  # 도중에 멎었다
+            log("💤 [순회판] A 컴퓨터가 멎었다 (살아있음 신호가 끊김)")
             return None
+        if int(남은) % 30 == 0:
+            log(f"⏳ [순회판] A 를 기다리는 중 — 요청 {req_id} · 지금 결과 쪽지: {_쪽지요약()}")
+        if _틈틈이[0] and int(남은) % 5 == 0:      # 그 사이 폰이 누른 종이 인쇄는 바로 뽑는다
+            try:
+                _틈틈이[0]()
+            except Exception as e:
+                log(f"⚠ [순회판] 기다리는 사이 다른 요청을 보다가 — {e}")
         time.sleep(1)
-    log("⌛ [순회판] A 컴퓨터가 %d분을 넘겼다 (%s) — 이 PC 가 한다"
+    log("⌛ [순회판] A 컴퓨터가 %d분을 넘겼다 (%s)"
         % (secs // 60, "집고도 못 끝냈다" if 집었다 else "집지도 않았다"))
     return None
 
@@ -576,13 +659,16 @@ def handle(req, log, notify=None):
             note = wait_for_agent(req["id"], log)      # A 가 원본에 적는 쪽이 빠르고 확실하다
             if note and note["state"] != "done":
                 raise RuntimeError(note["msg"])        # A 가 못 했다면 그대로 폰에 알린다
+            # ★ [2026-11-02] **넣는 것은 A 만 한다** (사용자 결정). 21~02시엔 원본이 A 에
+            #    열려 있어 이 PC 가 넣으면 쓸모없는 복사본(차고지입력_*.xlsx)만 생겼다 —
+            #    11-02 01:05·01:52 에 실제로 그랬다. A 가 못 하면 그 사정을 폰에 알린다.
+            if not note:
+                raise RuntimeError(
+                    "A 컴퓨터 받아쓰기가 꺼져 있습니다 — A 컴퓨터를 확인해 주세요"
+                    if not agent_alive() else
+                    "A 컴퓨터가 6분 안에 끝내지 못했습니다 — A 컴퓨터 엑셀을 확인해 주세요")
             if kind == "excel":
-                if note:
-                    state, msg = "done", note["msg"]
-                else:
-                    summary = ops_fill.run(board_date=req["date"], log=log, yard=yard)
-                    tail = "" if agent_alive() else " · A 컴퓨터 받아쓰기가 꺼져 있었음"
-                    state, msg = "done", summary + tail
+                state, msg = "done", note["msg"]
             else:
                 state, msg = "done", ops_fill.run_final(
                     board_date=req["date"], log=log, yard=yard,
@@ -647,6 +733,27 @@ def watch(log=print, stop=None, notify=None, on_daywork=None):
     handled = _load_last()
     seen = None
     last_err = None
+    처리함 = set()        # 기다리는 사이 먼저 한 것
+
+    def 하기(req, 먼저=False):
+        nonlocal handled
+        if not 먼저:
+            handled = req["id"]
+            _save_last(handled)       # 뽑다가 죽어도 같은 요청을 다시 뽑지 않게 먼저 적는다
+        처리함.add(req["id"])
+        if decide(req, None, datetime.datetime.now(datetime.timezone.utc)) == "stale":
+            log(f"⏭ [순회판] {req['at']} 요청은 10분이 지나 뽑지 않음")
+            return
+        handle(req, log, notify)
+
+    def 틈틈이():
+        """A 를 기다리는 사이 — 새로 온 것 가운데 A 몫이 아닌 것(종이 인쇄 등)만 바로 한다."""
+        pull(꼭=True)
+        for req in 밀린요청(요청기록(), handled, 처리함):
+            if 기다리며할것(req):
+                log(f"⚡ [순회판] A 를 기다리는 사이 온 요청을 먼저 합니다 ({req.get('what', 'paper')})")
+                하기(req, 먼저=True)
+    _틈틈이[0] = 틈틈이
     log("📡 [순회판] 폰 인쇄 요청 대기 시작")
     # 첫 인쇄가 느린 것은 엑셀을 띄우는 3초 때문이다. 사람이 기다리지 않는 지금
     # 미리 치러 둔다 — 누르는 순간에는 0.8초면 끝난다. 이 스레드가 쓸 것을 데운다.
@@ -668,15 +775,8 @@ def watch(log=print, stop=None, notify=None, on_daywork=None):
                 dropped = take_daywork(log)          # 차량 특이사항도 같은 기회에 집는다
                 if dropped and on_daywork:
                     on_daywork(dropped)
-                req = read("inbox/print.json")
-                what = decide(req, handled, datetime.datetime.now(datetime.timezone.utc))
-                if what != "skip":
-                    handled = req["id"]
-                    _save_last(handled)       # 뽑다가 죽어도 같은 요청을 다시 뽑지 않게 먼저 적는다
-                    if what == "print":
-                        handle(req, log, notify)
-                    else:
-                        log(f"⏭ [순회판] {req['at']} 요청은 10분이 지나 뽑지 않음")
+                for req in 밀린요청(요청기록(), handled, 처리함):
+                    하기(req)
             last_err = None
         except Exception as e:
             if str(e) != last_err:            # 같은 오류(인터넷 끊김 등)를 5초마다 도배하지 않는다

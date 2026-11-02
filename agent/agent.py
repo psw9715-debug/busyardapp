@@ -39,7 +39,7 @@ import urllib.request
 APP_NAME = "차고지 받아쓰기"
 # ★ [2026-10-28] 이 판 번호는 **installer.iss 의 AppVer 과 같아야 한다.**
 #    (tools\pc\check_판올림.py 가 둘이 어긋나면 실패한다.)
-VERSION = "1.8.0"
+VERSION = "1.9.2"
 REPO = "psw9715-debug/busyardapp"
 # api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
 # raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
@@ -120,6 +120,16 @@ def log(msg):
             f.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n")
     except Exception:
         pass
+    # ★ [2026-11-02] 같은 기록을 Z: 에도 남긴다 — A 에 무슨 일이 있었는지 사무실 PC 에서
+    #    볼 길이 없어 '01:48 최종 인쇄를 왜 못 끝냈나' 를 끝내 가리지 못했다.
+    try:
+        if not getattr(sys, "frozen", False):
+            raise RuntimeError("시험·개발 중에는 공유 폴더에 남기지 않는다")
+        with io.open(os.path.join(result_dir(), f"A기록_{datetime.date.today():%Y%m%d}.log"),
+                     "a", encoding="utf-8") as f:
+            f.write(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S} {msg}\n")
+    except Exception:
+        pass
     if sys.stdout:                   # 창 없이 묶은 exe 는 내보낼 곳이 없다
         try:
             print(line)
@@ -172,6 +182,13 @@ def report(req, state, msg, printed=False):
         json.dump({"id": req["id"], "what": req.get("what"), "state": state,
                    "msg": msg, "printed": bool(printed),
                    "at": at.replace("+00:00", "Z")}, f, ensure_ascii=False)
+    # ★ [2026-11-02] 요청마다 따로도 놓는다 (결과_요청번호.json). 한 장을 돌려 쓰면
+    #    다음 요청이 덮어써 사무실 PC 가 놓칠 수 있었다 (11-02 01:01 실제로 놓쳤다).
+    try:
+        import shutil
+        shutil.copyfile(tmp, os.path.join(result_dir(), f"결과_{req['id']}.json"))
+    except Exception:
+        pass
     os.replace(tmp, result_file())        # 반만 쓰인 쪽지를 사무실 PC 가 읽지 않게
     log(f"📨 결과를 놓았습니다 — {state} · {msg}")
 
@@ -457,8 +474,66 @@ def is_busy(err):
     return code in BUSY
 
 
-def wait_ready(do, label, secs=45, log=log):
-    """엑셀이 받아 줄 때까지 기다리며 되풀이한다. 끝내 안 되면 그대로 올린다."""
+# 엑셀이 칸을 편집할 때 자판이 가 있는 창의 종류 (칸 안 편집 · 수식 입력줄)
+편집창종류 = ("EXCEL6", "EXCEL<")
+
+
+def 편집창인가(종류):
+    return 종류 in 편집창종류
+
+
+def 편집끝내기(파일이름, log=log):
+    """그 엑셀이 칸을 편집 중이면 **그 칸에만** Esc 를 보내 편집을 취소한다. → 보냈는가
+
+    ★ [2026-11-02] 편집 중인 엑셀은 바깥 요청을 아예 받지 않는다. 사용자 결정으로
+       3초 기다린 뒤 취소하고 넣는다. Enter(확정)가 아니라 Esc(취소)인 까닭 — 치다 만 글자가
+       작업자 시트에 남는 것보다, 그 칸 하나를 다시 치는 편이 낫다.
+       엑셀이 대화상자(저장·찾기 등)를 띄워 막힌 것이면 보내지 않는다 — 그 창을 닫아 버린다.
+    """
+    import ctypes
+    import ctypes.wintypes as wt
+    u = ctypes.windll.user32
+    찾음 = []
+
+    @ctypes.WINFUNCTYPE(wt.BOOL, wt.HWND, wt.LPARAM)
+    def 하나(h, _):
+        cls = ctypes.create_unicode_buffer(32)
+        u.GetClassNameW(h, cls, 32)
+        if cls.value == "XLMAIN":
+            n = u.GetWindowTextLengthW(h)
+            buf = ctypes.create_unicode_buffer(n + 1)
+            u.GetWindowTextW(h, buf, n + 1)
+            if os.path.splitext(파일이름)[0] in buf.value:
+                찾음.append(h)
+        return True
+
+    u.EnumWindows(하나, 0)
+    for 엑셀창 in 찾음:
+        class GUITHREADINFO(ctypes.Structure):
+            _fields_ = [("cbSize", wt.DWORD), ("flags", wt.DWORD), ("hwndActive", wt.HWND),
+                        ("hwndFocus", wt.HWND), ("hwndCapture", wt.HWND), ("hwndMenuOwner", wt.HWND),
+                        ("hwndMoveSize", wt.HWND), ("hwndCaret", wt.HWND), ("rcCaret", wt.RECT)]
+        정보 = GUITHREADINFO(cbSize=ctypes.sizeof(GUITHREADINFO))
+        실 = u.GetWindowThreadProcessId(엑셀창, None)
+        if not u.GetGUIThreadInfo(실, ctypes.byref(정보)) or not 정보.hwndFocus:
+            continue
+        cls = ctypes.create_unicode_buffer(32)
+        u.GetClassNameW(정보.hwndFocus, cls, 32)
+        if not 편집창인가(cls.value):
+            log(f"⚠ 엑셀이 편집이 아니라 다른 창({cls.value}) 때문에 바쁩니다 — 건드리지 않습니다")
+            return False
+        u.PostMessageW(정보.hwndFocus, 0x0100, 0x1B, 0)   # WM_KEYDOWN Esc — 그 칸에만
+        u.PostMessageW(정보.hwndFocus, 0x0101, 0x1B, 0)   # WM_KEYUP
+        log("⎋ 입력 중이던 칸을 취소했습니다 (Esc) — 순찰 내용을 넣습니다")
+        return True
+    return False
+
+
+def wait_ready(do, label, secs=45, log=log, on_busy=None):
+    """엑셀이 받아 줄 때까지 기다리며 되풀이한다. 끝내 안 되면 그대로 올린다.
+
+    on_busy: 처음 바쁜 것을 알았을 때 한 번 부른다 (안내 창을 '칸을 마쳐 주세요' 로 바꾸는 데 쓴다).
+    """
     import pythoncom
     until = time.time() + secs
     told = False
@@ -471,6 +546,11 @@ def wait_ready(do, label, secs=45, log=log):
             if not told:
                 log(f"⌛ 엑셀이 바쁩니다({label}) — 편집이 끝나기를 기다립니다")
                 told = True
+                if on_busy:
+                    try:
+                        on_busy()
+                    except Exception:
+                        pass
             time.sleep(1.5)
 
 
@@ -723,10 +803,31 @@ def write_board(board, path, log=log, found=None):
     try:
         # 셀을 편집 중이면 엑셀이 아무 요청도 받지 않는다. 먼저 두드려 보고,
         # 끝내 안 받으면 한 칸도 건드리지 않은 채로 그만둔다 — 반쯤 적는 것이 가장 나쁘다.
+        # ★ [2026-11-02] 누가 칸을 편집하던 중이면 엑셀이 요청을 안 받는다 (사용자 결정):
+        #    "3초 뒤 입력 중인 칸을 취소하고 넣습니다" 를 띄우고, 3초 안에 안 끝나면 그 칸에만
+        #    Esc 를 보내 편집을 끝낸 뒤 넣는다. 작업자가 보던 시트·칸은 옮기지 않는다.
+        import pythoncom
+        안내 = {"창": None}
+
+        def 곧취소():
+            if told:
+                told.close()
+            안내["창"] = notice("3초 뒤 입력 중인 칸을 취소하고 순찰 내용을 넣습니다\n"
+                              "잠시 건들지 마세요", 10, APP_NAME)
         try:
-            wait_ready(lambda: wb.Name, "확인", 45, log)
+            try:
+                wait_ready(lambda: wb.Name, "확인", 3, log, on_busy=곧취소)
+            except pythoncom.com_error as e:
+                if not is_busy(e) or not 편집끝내기(os.path.basename(path), log):
+                    raise
+                wait_ready(lambda: wb.Name, "확인", 20, log)
         except Exception:
-            raise RuntimeError("A 컴퓨터에서 엑셀을 입력 중입니다 — 셀 편집을 마친 뒤 다시 눌러 주세요")
+            raise RuntimeError("A 컴퓨터 엑셀이 다른 창 때문에 바쁩니다 — A 컴퓨터를 확인해 주세요")
+        finally:
+            if 안내["창"]:
+                안내["창"].close()
+        if 안내["창"] and was_open:
+            told = notice(busy_text(yard), 30, APP_NAME)   # 다시 '건들지 마세요' 안내로
         try:
             calc = excel.Calculation
             excel.Calculation = -4135      # 수식이 많아 한 칸씩 다시 계산하면 몇 분 걸린다
@@ -814,8 +915,8 @@ def decide(req, done, now):
 def handle(req):
     """엑셀에 적고, 했다/못 했다를 Z: 에 놓는다.
 
-    [최종 인쇄] 도 적는 것은 똑같다. 종이로 뽑는 것은 프린터가 걸린 사무실 PC 몫이라,
-    그 쪽지는 사무실 PC 가 인쇄까지 마친 뒤에 폰으로 전해 준다.
+    ★ [2026-11-03] 엑셀 넣기(1차·2차, 구·신 가리지 않고)는 **적은 뒤 그 결과를 여기서 뽑는다**
+       (사용자 결정). 엑셀 넣기는 A 만, 종이 인쇄(양식에 차 번호만)는 사무실 PC 만 한다.
     """
     if req.get("what") == "save":
         # 폰에서 차고지 앱을 연 참에 '엑셀 한 번 저장' 만 부탁받은 것이다.
@@ -843,8 +944,9 @@ def handle(req):
         found = []
         n, was_open = write_board(board, path, found=found)
         printed = False
-        if req.get("what") == "final":
-            # 여기서 바로 뽑는다. 사무실 PC 가 큰 파일을 또 열지 않아도 된다.
+        인쇄실패 = ""
+        if req.get("what") in ("excel", "final"):
+            # 적은 결과를 여기서 바로 뽑는다. 사무실 PC 가 큰 파일을 또 열지 않아도 된다.
             try:
                 wb = running_workbook(path)
                 if wb is not None:
@@ -866,7 +968,8 @@ def handle(req):
                             pass
                         quit_excel(excel, wb)
             except Exception as e:
-                log(f"⚠ 여기서는 뽑지 못했습니다 — {type(e).__name__}: {e} (사무실 PC 가 뽑습니다)")
+                인쇄실패 = " · ⚠ 인쇄 못 함"
+                log(f"⚠ 적기는 했는데 뽑지 못했습니다 — {type(e).__name__}: {e}")
     except Exception as e:
         log(f"⚠ {type(e).__name__}: {e}")
         try:
@@ -876,7 +979,7 @@ def handle(req):
         return
 
     tail = find_text(found)
-    mark = " · 인쇄까지 함" if printed else ""
+    mark = " · 인쇄까지 함" if printed else 인쇄실패
     log(f"✅ {date:%m/%d} {'열려 있던 ' if was_open else ''}엑셀에 {n}대 적고 저장했습니다{mark}{tail}")
     try:
         report(req, "done",
@@ -1246,6 +1349,17 @@ def tick():
 
 def loop(stop):
     log(f"{APP_NAME} 시작 — 밤에는 {POLL_BUSY}초, 낮에는 {POLL_IDLE // 60}분마다 확인합니다")
+
+    # ★ [2026-11-02] 엑셀에 넣는 동안에도 '살아 있다' 를 남긴다. 한 가닥에서 1분에 한 번만
+    #    남기던 때는, 일이 길어지면 사무실 PC 가 '멎었다' 로 보고 손을 댔다.
+    def 심장():
+        while not stop.is_set():
+            try:
+                tell_alive(every=0)
+            except Exception:
+                pass
+            stop.wait(20)
+    threading.Thread(target=심장, daemon=True, name="심장").start()
     last_err = None
     while not stop.is_set():
         try:

@@ -204,5 +204,30 @@ eq(after.cell(*agent.block_cells("old")[1]).value is not None, True, "구차고�
 
 opened.Close(SaveChanges=False)
 excel.Quit()
+print("▶ 편집 중인 칸만 Esc 로 취소한다 (대화상자는 건드리지 않는다)")
+eq(agent.편집창인가("EXCEL6"), True, "칸 안 편집 창이면 취소한다")
+eq(agent.편집창인가("EXCEL<"), True, "수식 입력줄 편집이면 취소한다")
+eq(agent.편집창인가("Button"), False, "★ 대화상자 단추면 건드리지 않는다")
+eq(agent.편집창인가("Edit"), False, "★ 대화상자 글칸이면 건드리지 않는다")
+eq(agent.편집끝내기("이런파일은없다.xlsx", log=lambda m: None), False, "그 엑셀 창이 없으면 아무것도 보내지 않는다")
+
+print("▶ 엑셀 넣기도 적은 뒤 A 가 뽑는다 (2026-11-03 사용자 결정 — 종이 인쇄는 B 몫)")
+진짜들 = (agent.find_excel, agent.write_board, agent.running_workbook, agent.print_block, agent.report)
+뽑음, 쪽지 = [], []
+agent.find_excel = lambda d: "가짜.xlsx"
+agent.write_board = lambda board, path, found=None: (62, True)
+agent.running_workbook = lambda p: "열린책"
+agent.print_block = lambda wb, yard: 뽑음.append(yard)
+agent.report = lambda req, state, msg, printed=False: 쪽지.append((state, printed))
+for what in ("excel", "final"):
+    뽑음.clear(); 쪽지.clear()
+    agent.handle({"id": "t-" + what, "what": what, "date": "2026-11-02", "yard": "old", "board": {"entries": {}}})
+    eq((뽑음, 쪽지), (["old"], [("done", True)]), f"★ {what} → 적고 그 차고지를 뽑고 '인쇄까지 함' 을 알린다")
+agent.print_block = lambda wb, yard: (_ for _ in ()).throw(RuntimeError("프린터 없음"))
+쪽지.clear()
+agent.handle({"id": "t-x", "what": "excel", "date": "2026-11-02", "yard": "new", "board": {"entries": {}}})
+eq(쪽지, [("done", False)], "뽑지 못해도 적은 것은 적었다고 알린다")
+agent.find_excel, agent.write_board, agent.running_workbook, agent.print_block, agent.report = 진짜들
+
 print(f"\n통과 {ok} / 실패 {fail}")
 sys.exit(1 if fail else 0)

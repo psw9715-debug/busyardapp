@@ -331,7 +331,7 @@ log('▶ 보내고 주머니에 넣기');
   eq(a.$('printMsg').textContent.includes('폰을 닫으셔도 됩니다'), true,
     '보내자마자 "닫으셔도 됩니다" 라고 알려 준다');
   eq(a.$('printMsg').className, 'print-msg ok', '보낸 것은 초록으로');
-  const sent = JSON.parse(localStorage.getItem('busyard:sent'));
+  const sent = JSON.parse(localStorage.getItem('busyard:sent'))[0];   // 2026-11-03 부터 목록 (연달아 누를 수 있다)
   eq(sent.what, 'excel', '무엇을 보냈는지 적어 둔다 (앱을 닫아도 남게)');
 
   // 주머니에 넣었다가 꺼내 본다. 그 사이 PC 가 끝냈다.
@@ -368,6 +368,31 @@ log('▶ 차찾아 알림');
   eq(a.$('printMsg').className, 'print-msg no', '찾을 차가 남았으면 빨갛게 — 다시 나가야 한다');
   eq(a.$('printMsg').textContent.includes('1234, 5678'), true, '어느 차인지 번호까지 보여 준다');
   eq(a.$('printSheet').hidden, false, '결과 화면이 열려 있다');
+}
+
+// ── 11-2) 엑셀 넣기와 종이 인쇄를 연달아 눌러도 두 결과를 다 받는다 (2026-11-03)
+log('▶ 연달아 보낸 두 결과');
+{
+  seed('new', { 1: { plate: '1501', status: 'filled', round: 1 } }, 1);
+  localStorage.setItem('busyard:ghtoken', '시험토큰');
+  localStorage.setItem('busyard:sent', JSON.stringify([
+    { id: 'e1', what: 'excel', at: Date.now() }, { id: 'p1', what: 'paper', at: Date.now() }]));
+  const a = await app();
+  const real = a.w.fetch;
+  a.w.fetch = (url, opt) => {
+    if (String(url).includes('status.json')) {
+      return Promise.resolve(new a.w.Response(JSON.stringify({
+        id: 'p1', state: 'done', msg: '2026-11-02 62대', at: new Date().toISOString(),
+        최근: [{ id: 'p1', state: 'done', msg: '2026-11-02 62대' },
+               { id: 'e1', state: 'done', msg: 'A 컴퓨터가 엑셀에 62대 적음 · 인쇄까지 함 · 차찾아 없음' }],
+      }), { status: 200 }));
+    }
+    if (String(url).includes('api.github.com')) return Promise.resolve(new a.w.Response('', { status: 404 }));
+    return real(url, opt);
+  };
+  a.d.dispatchEvent(new a.w.Event('visibilitychange'));
+  await until(() => localStorage.getItem('busyard:sent') === null);
+  eq(localStorage.getItem('busyard:sent'), null, '★ 덮인 앞 결과(엑셀)도 찾아서 둘 다 알렸다');
 }
 
 // ── 11-2) 세 자리째를 눌러도 마지막 숫자가 잘리지 않는다

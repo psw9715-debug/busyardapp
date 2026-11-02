@@ -46,6 +46,7 @@ ops_fill.run = lambda **k: called.append("run") or "내가 넣음"
 ops_fill.run_final = lambda **k: called.append(("final", k.get("recorded"))) or "내가 넣고 인쇄"
 sent = {}
 inbox.write_status = lambda st: sent.update(st)
+inbox.write_file = lambda *a, **k: None      # ★ 진짜 inbox 가지(폰이 보는 곳)에 올리지 않는다 (2026-11-03 0대 점검표가 올라갔다)
 inbox.wait_for_agent = lambda i, log, secs=30: inbox.agent_note(i)
 
 inbox.handle({"id": "요청1", "what": "excel", "date": "2026-10-01", "yard": "new"}, log)
@@ -60,14 +61,15 @@ inbox.handle({"id": "요청2", "what": "final", "date": "2026-10-01", "yard": "n
 eq(called, [("final", "A 컴퓨터가 열어 둔 엑셀에 118대 적음")], "적지 않고 원본을 뽑으라고 넘긴다")
 eq(sent["state"], "done", "인쇄까지 마친 뒤에 폰에 알린다")
 
-print("▶ A 가 꺼져 있으면 사무실 PC 가 전처럼 한다")
+print("▶ A 가 꺼져 있어도 사무실 PC 는 엑셀에 넣지 않는다 (2026-11-02 사용자 결정)")
+# 21~02시엔 원본이 A 에 열려 있어 사무실 PC 가 넣으면 쓸모없는 복사본만 생긴다
+# (11-02 01:05 · 01:52 실제로 그랬다). 넣는 것은 A 만 한다. 못 하면 폰에 알린다.
 called.clear(); sent.clear(); os.remove(agent.RESULT_FILE)
 inbox.handle({"id": "요청3", "what": "excel", "date": "2026-10-01", "yard": "new"}, log)
-eq(called, ["run"], "쪽지가 없으면 복사본에 적는다")
-eq(sent["msg"], "내가 넣음 · A 컴퓨터 받아쓰기가 꺼져 있었음",
-   "A 가 꺼져 있었다는 사정까지 폰에 알린다")
+eq(called, [], "★ 쪽지가 없어도 복사본을 만들지 않는다")
+eq(sent["state"], "fail", "넣지 못했다고 폰에 알린다")
+eq("꺼져 있습니다" in sent["msg"], True, "A 가 꺼져 있다는 까닭을 알린다")
 
-# A 가 살아 있는데 쪽지만 없었으면 그 꼬리말은 붙이지 않는다
 import datetime as _dt
 ops_fill.AGENT_ALIVE = os.path.join(box, "받아쓰기", "살아있음.json")
 os.makedirs(os.path.dirname(ops_fill.AGENT_ALIVE), exist_ok=True)
@@ -75,11 +77,19 @@ io.open(ops_fill.AGENT_ALIVE, "w", encoding="utf-8").write(json.dumps(
     {"pc": "A", "at": _dt.datetime.now(_dt.timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")}))
 called.clear(); sent.clear()
 inbox.handle({"id": "요청3b", "what": "excel", "date": "2026-10-01", "yard": "new"}, log)
-eq(sent["msg"], "내가 넣음", "A 가 켜져 있으면 꼬리말을 붙이지 않는다")
+eq(called, [], "A 가 살아 있는데 끝내지 못해도 복사본을 만들지 않는다")
+eq(sent["state"], "fail", "끝내지 못했다고 알린다")
 os.remove(ops_fill.AGENT_ALIVE)
 called.clear(); sent.clear()
 inbox.handle({"id": "요청4", "what": "final", "date": "2026-10-01", "yard": "new"}, log)
-eq(called, [("final", None)], "최종 인쇄도 전처럼 복사본으로")
+eq(called, [], "★ 최종 인쇄도 A 가 못 넣었으면 복사본을 만들지 않는다")
+eq(sent["state"], "fail", "최종 인쇄도 못 넣었다고 알린다")
+
+print("▶ 결과 쪽지를 요청마다 따로 놓는다 (덮어써 놓치지 않게)")
+agent.report({"id": "요청X", "what": "excel"}, "done", "A 컴퓨터가 10대 적음")
+agent.report({"id": "요청Y", "what": "final"}, "working", "집었습니다 — 적는 중입니다")
+eq(inbox.agent_note("요청X") and inbox.agent_note("요청X")["msg"], "A 컴퓨터가 10대 적음",
+   "★ 다음 요청이 결과.json 을 덮어써도 앞 요청 결과를 찾는다")
 
 print("▶ 1차고지도 같은 길로 간다")
 called.clear(); sent.clear()

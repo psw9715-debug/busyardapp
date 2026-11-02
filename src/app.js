@@ -1,15 +1,16 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202611010521';
-import { YARD_OLD } from './yard-old-data.js?v=202611010521';
-import { BUILD } from './build.js?v=202611010521';
-import { toKoreanSino, announceText } from './plate.js?v=202611010521';
+import { YARD as YARD_NEW } from './yard-data.js?v=202611030058';
+import { YARD_OLD } from './yard-old-data.js?v=202611030058';
+import { BUILD } from './build.js?v=202611030058';
+import { toKoreanSino, announceText } from './plate.js?v=202611030058';
 import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611010521';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611030058';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession, dropSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202611010521';
-import { createSync, getToken, setToken } from './sync.js?v=202611010521';
+} from './store.js?v=202611030058';
+import { createSync, getToken, setToken } from './sync.js?v=202611030058';
+import { findStatus, resultSpeech, pendingList } from './result.js?v=202611030058';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1599,38 +1600,62 @@ const PRINT_LABEL = {
 // 그때 결과를 찾아서 보여 준다 — 손에 들고 기다리지 않아도 된다.
 const SENT_KEY = 'busyard:sent';
 
-const loadSent = () => { try { return JSON.parse(localStorage.getItem(SENT_KEY)); } catch (_) { return null; } };
-const saveSent = (v) => { if (v) localStorage.setItem(SENT_KEY, JSON.stringify(v)); else localStorage.removeItem(SENT_KEY); };
+// ★ [2026-11-03] 엑셀 넣기와 종이 인쇄를 연달아 누를 수 있다 — 보낸 것을 목록으로 쥔다.
+const loadSent = () => { try { return pendingList(JSON.parse(localStorage.getItem(SENT_KEY))); } catch (_) { return []; } };
+const saveSent = (list) => { if (list.length) localStorage.setItem(SENT_KEY, JSON.stringify(list)); else localStorage.removeItem(SENT_KEY); };
+const addSent = (s) => saveSent([...loadSent().filter((x) => x.id !== s.id), s]);
+const dropSent = (id) => saveSent(loadSent().filter((x) => x.id !== id));
+const isSent = (id) => loadSent().some((x) => x.id === id);
 
-/** 결과 한 줄을 화면에 쓴다. "차찾아" 가 있으면 눈에 띄게 (다시 나가야 하므로) */
-function showResult(what, st) {
+/** 화면이 꺼져 있거나 다른 앱을 보고 있을 때 — 알림으로 띄운다 (허락한 경우만) */
+async function notifyResult(title, body, tag) {
+  try {
+    if (!document.hidden || !('Notification' in window) || Notification.permission !== 'granted') return;
+    const reg = await navigator.serviceWorker?.ready;
+    if (reg) await reg.showNotification(title, { body, tag, vibrate: [200, 100, 200], renotify: true });
+  } catch (_) { /* 알림을 못 띄워도 화면 결과는 그대로다 */ }
+}
+
+/** 결과를 화면·소리·말·진동으로. "차찾아" 가 있으면 눈에 띄게 (다시 나가야 하므로) */
+function showResult(what, st, id) {
   const label = (PRINT_LABEL[what] || PRINT_LABEL.paper)[0];
+  const 말 = resultSpeech(what, st);
   if (st.state !== 'done') {
     printMsg(`PC가 하지 못했습니다: ${st.msg}`, 'no');
     beep('error');
-    return;
+    navigator.vibrate?.([400, 150, 400]);
+  } else {
+    const hunt = (st.msg || '').includes('차찾아') && !(st.msg || '').includes('차찾아 없음');
+    const bad = hunt || (st.msg || '').includes('인쇄 못 함');
+    printMsg(`${label} — ${st.msg}`, bad ? 'no' : 'ok');
+    beep(bad ? 'warn' : 'done');
+    navigator.vibrate?.(bad ? [200, 100, 200, 100, 200] : [150]);
   }
-  const hunt = (st.msg || '').includes('차찾아') && !(st.msg || '').includes('차찾아 없음');
-  printMsg(`${label} — ${st.msg}`, hunt ? 'no' : 'ok');
-  beep(hunt ? 'warn' : 'done');
+  setTimeout(() => speak(말, { interrupt: false }), 450);   // 삑 소리 뒤에 말로
+  notifyResult(st.state === 'done' ? '✅ 차고지 결과' : '⚠ 차고지 결과', 말, id);
 }
 
 /** 보내 둔 것이 있으면 결과를 찾아본다 (앱을 열 때, 그리고 화면을 다시 켤 때) */
 async function checkSent({ quiet = false } = {}) {
-  const sent = loadSent();
-  if (!sent) return;
   // 하루가 지난 것은 잊는다 — 그 결과는 이미 PC 쪽에서 끝난 일이다
-  if (Date.now() - sent.at > 86400000) { saveSent(null); return; }
+  const list = loadSent().filter((s) => Date.now() - s.at <= 86400000);
+  saveSent(list);
+  if (!list.length) return;
   let st = null;
   try { st = await sync.readStatus(); } catch (_) { return; }
-  if (!st || st.id !== sent.id) {
-    if (!quiet) printMsg(`${(PRINT_LABEL[sent.what] || PRINT_LABEL.paper)[1]}`);
-    return;                       // 아직 하는 중 — 그대로 둔다
+  let 받음 = false;
+  for (const sent of list) {
+    const 결과 = findStatus(st, sent.id);
+    if (!결과) {
+      if (!quiet) printMsg(`${(PRINT_LABEL[sent.what] || PRINT_LABEL.paper)[1]}`);
+      continue;                     // 아직 하는 중 — 그대로 둔다
+    }
+    dropSent(sent.id);
+    $('printSheet').hidden = false;
+    showResult(sent.what, 결과, sent.id);
+    받음 = true;
   }
-  saveSent(null);
-  $('printSheet').hidden = false;
-  showResult(sent.what, st);
-  fetchCheck();                 // 넣고 나면 점검 대상도 새로 받는다
+  if (받음) fetchCheck();          // 넣고 나면 점검 대상도 새로 받는다
 }
 
 async function doPrint(what) {
@@ -1653,6 +1678,9 @@ async function doPrint(what) {
     beep('warn');
   }
 
+  // 화면을 끈 사이 결과가 오면 알림으로 — 처음 한 번만 묻는다 (누른 손길이 있을 때 물어야 한다)
+  try { if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission(); } catch (_) { /* 묻지 못해도 그만 */ }
+
   printing = true;
   if (!(got && got.miss.length)) printMsg('PC로 보내는 중…');
   let id;
@@ -1665,20 +1693,21 @@ async function doPrint(what) {
     return;
   }
   printing = false;
-  saveSent({ id, what, at: Date.now() });
+  addSent({ id, what, at: Date.now() });
   printMsg(`${PRINT_LABEL[what][2]} — 폰을 닫으셔도 됩니다. PC가 알아서 마칩니다.`, 'ok');
-  beep('done');
+  beep('ok');                 // 보냈다는 소리 — 결과(done) 소리와 다르게
 
   // 화면을 보고 있는 동안에는 결과가 오면 바로 보여 준다. 꺼도 그만이다.
   const until = Date.now() + WAIT_MS[what];
   while (Date.now() < until) {
     await new Promise((r) => setTimeout(r, 3000));
-    if (!loadSent()) return;                       // 다른 곳에서 이미 받아 보여 줬다
+    if (!isSent(id)) return;                       // 다른 곳에서 이미 받아 보여 줬다
     let st = null;
     try { st = await sync.readStatus(); } catch (_) { continue; }
-    if (!st || st.id !== id) continue;
-    saveSent(null);
-    showResult(what, st);
+    const 결과 = findStatus(st, id);
+    if (!결과) continue;
+    dropSent(id);
+    showResult(what, 결과, id);
     return;
   }
 }
@@ -2080,7 +2109,7 @@ function askSaveOnce() {
   if (!getToken()) return;
   // 지난번에 보내 둔 것의 결과를 아직 기다리는 중이면 건드리지 않는다 —
   // 같은 우편함(print.json)을 덮어써서 그 결과를 잃지 않게.
-  if (loadSent()) return;
+  if (loadSent().length) return;
   sync.requestSave().catch(() => {});
 }
 

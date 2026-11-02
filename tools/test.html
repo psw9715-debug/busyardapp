@@ -256,6 +256,24 @@ log('<h2>▶ PC 로 보낼 판 — 인쇄에 쓰는 것만 추린다</h2>');
   eq(new TextDecoder().decode(Uint8Array.from(atob(toBase64('휴게실-1')), (c) => c.charCodeAt(0))), '휴게실-1', 'base64 — 한글');
 }
 
+{
+  log('<h2>▶ 결과 알림 — 연달아 눌러도 제 결과를 찾는다 (2026-11-03)</h2>');
+  const { findStatus, resultSpeech, pendingList } = await import(`../src/result.js?t=${Date.now()}`);
+  const st = { id: 'e2', state: 'done', msg: 'A 컴퓨터가 엑셀에 62대 적음 · 인쇄까지 함 · 차찾아 없음',
+    최근: [{ id: 'e2', state: 'done', msg: 'x' }, { id: 'p1', state: 'done', msg: '2026-11-02 62대' }] };
+  eq(findStatus(st, 'e2').msg, st.msg, '맨 위 결과');
+  eq(findStatus(st, 'p1').msg, '2026-11-02 62대', '★ 덮인 앞 결과도 최근 목록에서 찾는다');
+  eq(findStatus(st, 'zz'), null, '아직 없으면 null');
+  eq(findStatus(null, 'zz'), null, '결과 파일이 없으면 null');
+  eq(resultSpeech('excel', st), '엑셀에 넣고 인쇄했습니다. 62대', '엑셀 — A 가 인쇄까지');
+  eq(resultSpeech('excel', { state: 'done', msg: 'A 컴퓨터가 엑셀에 60대 적음 · ⚠ 인쇄 못 함 · ⚠ 차찾아 3대: 1,2,3' }),
+    '엑셀에 넣었습니다. 60대. 인쇄는 못 했습니다. 차찾아 3대', '인쇄 실패·차찾아는 꼭 말한다');
+  eq(resultSpeech('paper', { state: 'done', msg: '2026-11-02 62대' }), '종이 인쇄했습니다. 62대', '종이 인쇄');
+  eq(resultSpeech('paper', { state: 'fail', msg: '프린터 없음' }), '종이 인쇄 실패. 프린터 없음', '실패');
+  eq(pendingList({ id: 'a', what: 'paper', at: 1 }), [{ id: 'a', what: 'paper', at: 1 }], '예전 한 건짜리 기록도 읽는다');
+  eq(pendingList(null), [], '없으면 빈 목록');
+}
+
 log(`통과 ${pass} / 실패 ${fail}`, `sum ${fail === 0 ? 'ok' : 'no'}`);
 document.title = fail === 0 ? `PASS ${pass}` : `FAIL ${fail}`;
 </script>
