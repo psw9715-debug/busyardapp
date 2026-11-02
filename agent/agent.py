@@ -39,7 +39,7 @@ import urllib.request
 APP_NAME = "차고지 받아쓰기"
 # ★ [2026-10-28] 이 판 번호는 **installer.iss 의 AppVer 과 같아야 한다.**
 #    (tools\pc\check_판올림.py 가 둘이 어긋나면 실패한다.)
-VERSION = "1.9.5"
+VERSION = "1.9.6"
 REPO = "psw9715-debug/busyardapp"
 # api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
 # raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
@@ -60,15 +60,16 @@ def poll_sec(now=None):
     return POLL_BUSY if h >= BUSY_FROM or h < BUSY_TO else POLL_IDLE
 STALE = datetime.timedelta(minutes=10)      # 이보다 오래된 요청은 적지 않는다
 
-# 새벽 2시 8분에 운영관리 엑셀을 저장하고 닫는다.
-#   2시 10분에 B(사무실) PC 가 출퇴근 관리 프로그램으로 그 엑셀을 열어야 하는데,
+# 새벽에 운영관리 엑셀을 저장하고 닫는다 — B(사무실) PC 의 출퇴근 관리가 그 엑셀을 열기 **2분 전**.
 #   여기서 열어 두고 있으면 저쪽은 읽기 전용으로만 열린다.
 #   ★ [2026-10-28] 02:09 → 02:08. 1분은 너무 빡빡했다 (사용자 판단).
-CLOSE_AT = (2, 8)
+#   ★ [2026-11-03] 출퇴근 관리가 02:15 로 바뀌었는데 02:08 에 닫고 있었다. 일이 늦어질 수도
+#      있으니 **출퇴근 관리 시각의 2분 전**에 닫는다 (사용자). 그 시각은 B 가 근무일.json 에 적어 준다.
+ATTEND_AT = (2, 15)                         # 출퇴근 관리 시각을 모를 때
+CLOSE_BEFORE = 2                            # 그보다 몇 분 먼저 닫나
 CLOSE_UNTIL = 6                             # 6시(근무 끝)까지는 늦게라도 닫는다
 CLOSE_ASK_SEC = 60                          # 묻고 1분 뒤에는 저절로 닫는다
-# 닫은 뒤에도 이때까지는 **다시 열렸는지 지켜본다** (02:10 에 B 가 열어야 하므로).
-WATCH_UNTIL = (2, 12)
+# 닫은 뒤에도 출퇴근 관리가 열 때까지는 **다시 열렸는지 지켜본다**.
 
 # 공유 폴더는 업무관리\설정.json 에서 본다. A 컴퓨터에는 그 파일이 없을 수 있으므로
 # (받아쓰기만 따로 설치한다) 아래 예비 값으로도 돌게 둔다.
@@ -1091,6 +1092,23 @@ def duty_dates():
         return set()
 
 
+def attend_at():
+    """B 의 출퇴근 관리가 운영관리 엑셀을 여는 시각 (시·분). B 가 근무일.json 에 적어 준다."""
+    try:
+        with io.open(os.path.join(result_dir(), "근무일.json"), encoding="utf-8") as f:
+            시, 분 = json.load(f)["출퇴근"].split(":")
+        return int(시), int(분)
+    except Exception:
+        return ATTEND_AT
+
+
+def close_at():
+    """닫는 시각 — 출퇴근 관리보다 CLOSE_BEFORE 분 먼저"""
+    시, 분 = attend_at()
+    m = 시 * 60 + 분 - CLOSE_BEFORE
+    return m // 60, m % 60
+
+
 def shift_day(now):
     """그 시각이 속한 근무일. 새벽은 전날 밤 근무다 (sctc-copy 와 같은 6시 경계)."""
     return now.date() - datetime.timedelta(days=1) if now.hour < 6 else now.date()
@@ -1117,7 +1135,8 @@ def due_to_close(now, dates=None):
     늦게 풀려도 결국은 닫히게 — 사람이 기다리는 일이 없게 한다.
     """
     지금분 = now.hour * 60 + now.minute
-    if not (CLOSE_AT[0] * 60 + CLOSE_AT[1] <= 지금분 < CLOSE_UNTIL * 60):
+    닫을 = close_at()
+    if not (닫을[0] * 60 + 닫을[1] <= 지금분 < CLOSE_UNTIL * 60):
         return False
     if closed_day() == now.date().isoformat():
         return False
@@ -1238,14 +1257,15 @@ def close_ops(now=None, ask=ask_close):
 
 
 def watch_closed(now=None):
-    """닫은 뒤 02:12 까지, 그 엑셀이 **다시 열렸는지 지켜본다.**
+    """닫은 뒤 출퇴근 관리가 열 때까지, 그 엑셀이 **다시 열렸는지 지켜본다.**
 
     ★ [2026-10-28] 사용자 요청. 02:08 에 닫아도 누군가(또는 다른 프로그램이) 다시 열면
     02:10 에 B 컴퓨터가 읽기 전용으로만 열린다. 닫은 날이라도 이 시간 안에는 계속 본다.
     """
     now = now or datetime.datetime.now()
     지금분 = now.hour * 60 + now.minute
-    if not (CLOSE_AT[0] * 60 + CLOSE_AT[1] <= 지금분 <= WATCH_UNTIL[0] * 60 + WATCH_UNTIL[1]):
+    닫을, 열 = close_at(), attend_at()
+    if not (닫을[0] * 60 + 닫을[1] <= 지금분 <= 열[0] * 60 + 열[1]):
         return False
     if closed_day() != now.date().isoformat():
         return False                       # 아직 닫지도 않았다 — close_ops 가 할 일이다

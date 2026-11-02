@@ -41,7 +41,10 @@ def eq(got, want, label):
         print(f"  FAIL {label}\n       기대 {want!r}\n       실제 {got!r}")
 
 
-근무밤 = datetime.datetime(2026, 10, 26, 2, 8)
+# ★ [2026-11-03] 출퇴근 관리가 여는 시각 **2분 전**에 닫는다 (사용자). 그 시각은 B 가 근무일.json 에 적어 준다.
+진짜시각 = getattr(agent, "attend_at", None)
+agent.attend_at = lambda: (2, 15)          # 진짜 공유 폴더를 읽지 않게 — 오늘 설정값 02:15
+근무밤 = datetime.datetime(2026, 10, 26, 2, 13)
 근무일들 = {"2026-10-25"}          # 새벽 2시는 전날 밤 근무다
 
 
@@ -73,10 +76,10 @@ def 끼우기(wb, 찾을차):
 
 진짜들 = (agent.find_excel, agent.running_workbook, agent.cars_to_find)
 
-print("▶ 닫을 때가 되었는가 (02:08)")
-eq(agent.CLOSE_AT, (2, 8), "닫는 시각은 02:08")
-eq(agent.due_to_close(datetime.datetime(2026, 10, 26, 2, 7), 근무일들), False, "02:07 — 아직")
-eq(agent.due_to_close(근무밤, 근무일들), True, "02:08 — 지금")
+print("▶ 닫을 때가 되었는가 (출퇴근 관리 02:15 → 02:13)")
+eq(agent.close_at(), (2, 13), "★ 출퇴근 관리보다 2분 먼저")
+eq(agent.due_to_close(datetime.datetime(2026, 10, 26, 2, 12), 근무일들), False, "02:12 — 아직")
+eq(agent.due_to_close(근무밤, 근무일들), True, "02:13 — 지금")
 eq(agent.due_to_close(datetime.datetime(2026, 10, 26, 2, 58), 근무일들), True, "02:58 — 아직 창 안")
 eq(agent.due_to_close(datetime.datetime(2026, 10, 26, 5, 59), 근무일들), True, "05:59 — 늦게 켜도 한 번은")
 eq(agent.due_to_close(datetime.datetime(2026, 10, 26, 6, 1), 근무일들), False, "06:01 — 창이 닫혔다")
@@ -113,28 +116,41 @@ try:
     eq(any("끝내 닫히지 않았습니다" in m for m in 적은것), True, "🚨 를 적는다")
     eq(agent.closed_day(), "2026-10-26", "그래도 표시는 찍는다 (무한히 붙들지 않는다)")
 
-    print("▶ 닫은 뒤 02:12 까지 다시 열렸는지 지켜본다")
+    print("▶ 닫은 뒤 출퇴근 관리가 열 때(02:15)까지 다시 열렸는지 지켜본다")
     wb4 = 가짜통합문서()                 # 누군가 다시 열어 두었다
     끼우기(wb4, [])
     적은것.clear()
-    eq(agent.watch_closed(datetime.datetime(2026, 10, 26, 2, 10)), True, "다시 열려 있으면 또 닫는다")
+    eq(agent.watch_closed(datetime.datetime(2026, 10, 26, 2, 14)), True, "다시 열려 있으면 또 닫는다")
     eq((wb4.저장, wb4.닫음), (1, 1), "저장하고 닫는다")
     eq(any("다시 열려 있습니다" in m for m in 적은것), True, "그렇게 적는다")
 
     끼우기(None, [])
-    eq(agent.watch_closed(datetime.datetime(2026, 10, 26, 2, 10)), False, "닫힌 채면 조용히 있는다")
+    eq(agent.watch_closed(datetime.datetime(2026, 10, 26, 2, 14)), False, "닫힌 채면 조용히 있는다")
 
     wb5 = 가짜통합문서()
     끼우기(wb5, [])
-    eq(agent.watch_closed(datetime.datetime(2026, 10, 26, 2, 13)), False, "02:13 은 창 밖 — 보지 않는다")
-    eq(agent.watch_closed(datetime.datetime(2026, 10, 26, 2, 7)), False, "02:07 도 창 밖")
+    eq(agent.watch_closed(datetime.datetime(2026, 10, 26, 2, 16)), False, "02:16 은 창 밖 — 보지 않는다")
+    eq(agent.watch_closed(datetime.datetime(2026, 10, 26, 2, 12)), False, "02:12 도 창 밖")
     eq(wb5.닫음, 0, "그러니 건드리지 않는다")
 
     os.remove(agent.CLOSED_FILE)
-    eq(agent.watch_closed(datetime.datetime(2026, 10, 26, 2, 10)), False,
+    eq(agent.watch_closed(datetime.datetime(2026, 10, 26, 2, 14)), False,
        "아직 닫지도 않은 날에는 지켜보기가 나서지 않는다 (close_ops 의 일이다)")
 finally:
     agent.find_excel, agent.running_workbook, agent.cars_to_find = 진짜들
+
+print("▶ 출퇴근 관리 시각은 B 가 적어 준 것을 읽는다")
+import io, json as _json, tempfile as _tf  # noqa: E401,E402
+칸2 = _tf.mkdtemp(prefix="출퇴근-")
+진짜자리 = agent.result_dir
+agent.result_dir = lambda: 칸2
+agent.attend_at = 진짜시각
+io.open(os.path.join(칸2, "근무일.json"), "w", encoding="utf-8").write(_json.dumps({"dates": [], "출퇴근": "02:30"}))
+eq(agent.attend_at(), (2, 30), "적힌 시각")
+eq(agent.close_at(), (2, 28), "★ 설정을 02:30 으로 바꾸면 닫는 것도 02:28")
+io.open(os.path.join(칸2, "근무일.json"), "w", encoding="utf-8").write(_json.dumps({"dates": []}))
+eq(agent.close_at(), (2, 13), "모르면 02:13 (02:15 의 2분 전)")
+agent.result_dir = 진짜자리
 
 print(f"\n통과 {ok} / 실패 {fail}")
 sys.exit(1 if fail else 0)
