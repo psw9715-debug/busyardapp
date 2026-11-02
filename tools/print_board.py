@@ -109,6 +109,53 @@ _모아둔것 = []                  # 끝날 때 내보내려고 모아 둔다
 _모음자물쇠 = threading.Lock()
 
 
+# ★ [2026-11-03] sctc-copy 가 **강제로** 꺼지면 atexit 이 돌지 않아 숨은 엑셀이 남는다.
+#    그날 밤 여러 번 껐다 켜서 숨은 엑셀이 열몇 개 쌓였고 B PC 가 느려졌다 (사람은 닫을 수도 없다).
+#    띄운 엑셀의 번호·시작 시각을 적어 두고, 다음에 켤 때 그것이 남아 있으면 치운다.
+데운엑셀_기록 = r"D:\업무관리\자료\인쇄용엑셀.txt"   # AppData 는 띄운 쪽에 따라 다른 곳으로 보일 수 있어 피한다
+
+
+def _프로세스(pid):
+    import psutil
+    return psutil.Process(pid)
+
+
+def _데운것적기(pid, 시작):
+    try:
+        os.makedirs(os.path.dirname(데운엑셀_기록), exist_ok=True)
+        with open(데운엑셀_기록, "a", encoding="utf-8") as f:
+            f.write(f"{pid} {시작}\n")
+    except OSError:
+        pass
+
+
+def 지난엑셀치우기():
+    """지난번에 숨겨 띄우고 못 내보낸 엑셀을 끝낸다. 번호와 시작 시각이 같은 EXCEL 만 — 사람이 연 엑셀은 그대로."""
+    try:
+        with open(데운엑셀_기록, encoding="utf-8") as f:
+            줄들 = f.read().split("\n")
+    except OSError:
+        return 0
+    치움 = 0
+    for 줄 in 줄들:
+        try:
+            pid, 시작 = 줄.split()
+            것 = _프로세스(int(pid))
+            if 것.name().lower() == "excel.exe" and abs(것.create_time() - float(시작)) < 1:
+                것.kill()
+                치움 += 1
+        except Exception:
+            continue
+    try:
+        os.remove(데운엑셀_기록)
+    except OSError:
+        pass
+    return 치움
+
+
+_치웠나 = []
+
+
 def _엑셀내보내기(앱):
     try:
         앱.Quit()
@@ -127,10 +174,19 @@ def _데운엑셀():
         except Exception:
             _내엑셀.앱 = None
     # DispatchEx — 열어 둔 엑셀에 붙지 않는다. 붙으면 Quit 할 때 남의 문서까지 닫힌다.
+    with _모음자물쇠:
+        if not _치웠나:                      # 이 프로그램이 처음 띄울 때 한 번 — 지난번 것을 치운다
+            _치웠나.append(지난엑셀치우기())
     앱 = win32com.client.DispatchEx("Excel.Application")
     앱.Visible = False
     try:
         앱.DisplayAlerts = False
+    except Exception:
+        pass
+    try:
+        import win32process
+        pid = win32process.GetWindowThreadProcessId(앱.Hwnd)[1]
+        _데운것적기(pid, _프로세스(pid).create_time())
     except Exception:
         pass
     _내엑셀.앱 = 앱
