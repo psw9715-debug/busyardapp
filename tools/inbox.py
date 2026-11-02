@@ -231,6 +231,55 @@ def take_daywork(log=print):
     return written
 
 
+# ---- 순찰 로그 (2026-11-03) ----------------------------------------------
+# 폰이 보낸 때 · B 가 받은 때 · A 가 받고 끝낸 때 · 인쇄한 때를 근무일마다 한 파일에.
+# sctc-copy 우클릭 → '차고지 순찰 로그보기' 로 본다.
+순찰기록_DIR = r"D:\업무관리\자료\순찰기록"
+_KST = datetime.timezone(datetime.timedelta(hours=9))
+_차고지 = {"old": "구", "new": "신"}
+
+
+def 때글(iso):
+    """'2026-11-02T15:32:46.171Z' → 한국 시각 '00:32:46'"""
+    try:
+        return (datetime.datetime.fromisoformat(iso.replace("Z", "+00:00"))
+                .astimezone(_KST).strftime("%H:%M:%S"))
+    except Exception:
+        return "?"
+
+
+def 첫입력줄들(순찰):
+    """폰이 실어 보낸 {old: {1: iso, 2: iso}, new: {...}} → '🚶 구 1차 첫 입력 22:05:00' 들 (구 → 신, 1차 → 2차)"""
+    out = []
+    for yard in ("old", "new"):
+        for 회 in ("1", "2"):
+            at = ((순찰 or {}).get(yard) or {}).get(회)
+            if at:
+                out.append(f"🚶 {_차고지[yard]} {회}차 첫 입력 {때글(at)}")
+    return out
+
+
+def 순찰로그(날, 줄, 한번만=False):
+    """그 근무일 파일에 '[적은 때] 줄' 한 줄. 한번만 이면 같은 줄이 이미 있을 때 적지 않는다."""
+    try:
+        os.makedirs(순찰기록_DIR, exist_ok=True)
+        길 = os.path.join(순찰기록_DIR, f"{날}.log")
+        if 한번만 and os.path.exists(길) and 줄 in 순찰로그읽기(날):
+            return
+        with open(길, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.datetime.now():%H:%M:%S}] {줄}\n")
+    except OSError:
+        pass          # 로그를 못 적어도 하던 일은 계속한다
+
+
+def 순찰로그읽기(날):
+    try:
+        with open(os.path.join(순찰기록_DIR, f"{날}.log"), encoding="utf-8") as f:
+            return f.read()
+    except OSError:
+        return ""
+
+
 def 결과합치기(앞, status, 몇=10):
     """새 결과를 맨 위에 두고, 최근 결과들을 '최근' 에 함께 싣는다.
 
@@ -637,8 +686,16 @@ def handle(req, log, notify=None):
         hand_to_agent(req, log)
         return
 
+    적을것 = kind in ("excel", "final", "paper", "pull")      # 다시 세기·저장 부탁은 로그에 안 적는다
+    이름 = f"{what}({_차고지.get(req.get('yard'), '?')})"
+    if 적을것:
+        순찰로그(req["date"], f"📱 폰 {이름} 보냄 {때글(req.get('at'))} → B 받음")
+        for 줄 in 첫입력줄들(req.get("순찰")):
+            순찰로그(req["date"], 줄, 한번만=True)
+
     if kind in ("excel", "final"):
         hand_to_agent(req, log)       # 기다리기 전에 먼저 건넨다 — 이것이 빠른 길이다
+        순찰로그(req["date"], "➡ A 컴퓨터에 건넴")
 
     try:
         if kind == "check":
@@ -657,6 +714,8 @@ def handle(req, log, notify=None):
             import ops_fill
             yard = req.get("yard", "new")
             note = wait_for_agent(req["id"], log)      # A 가 원본에 적는 쪽이 빠르고 확실하다
+            if note:
+                순찰로그(req["date"], f"🅰 A 받음 {때글(note.get('받음'))} · 끝 {때글(note.get('at'))} — {note.get('msg')}")
             if note and note["state"] != "done":
                 raise RuntimeError(note["msg"])        # A 가 못 했다면 그대로 폰에 알린다
             # ★ [2026-11-02] **넣는 것은 A 만 한다** (사용자 결정). 21~02시엔 원본이 A 에
@@ -680,6 +739,12 @@ def handle(req, log, notify=None):
     except Exception as e:                    # 프린터·엑셀 오류도 폰에 그대로 알린다
         state, msg = "fail", str(e)
     log(f"{'🖨' if state == 'done' else '⚠'} [순회판] 폰 요청({what}) — {msg}")
+    if 적을것:
+        if kind == "paper":
+            표 = "🖨 B 인쇄 끝" if state == "done" else "⚠ B 인쇄 못 함"
+        else:
+            표 = "📨 B 결과를 폰에 보냄" if state == "done" else "⚠ B 결과(못 함)를 폰에 보냄"
+        순찰로그(req["date"], f"{표} — {msg}")
     # 'check' 는 폰이 2회차를 시작할 때 조용히 부르는 것이다. status.json 을 건드리면
     # 사람이 기다리고 있는 인쇄 결과를 덮어쓰므로, 그것만 적지 않는다.
     if kind != "check":

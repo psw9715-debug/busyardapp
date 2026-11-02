@@ -32,7 +32,7 @@ log = logs.append
 print("▶ A 가 쪽지를 놓는다")
 agent.report({"id": "요청1", "what": "excel"}, "done", "A 컴퓨터가 열어 둔 엑셀에 116대 적음")
 note = json.load(io.open(agent.RESULT_FILE, encoding="utf-8"))
-eq(sorted(note), ["at", "id", "msg", "printed", "state", "what"], "쪽지에 든 것")
+eq(sorted(note), ["at", "id", "msg", "printed", "state", "what", "받음"], "쪽지에 든 것")
 eq((note["id"], note["state"], note["what"]), ("요청1", "done", "excel"), "누가 무엇을 했는지")
 eq(note["at"].endswith("Z"), True, "시각은 Z 로 끝난다")
 
@@ -46,7 +46,8 @@ ops_fill.run = lambda **k: called.append("run") or "내가 넣음"
 ops_fill.run_final = lambda **k: called.append(("final", k.get("recorded"))) or "내가 넣고 인쇄"
 sent = {}
 inbox.write_status = lambda st: sent.update(st)
-inbox.write_file = lambda *a, **k: None      # ★ 진짜 inbox 가지(폰이 보는 곳)에 올리지 않는다 (2026-11-03 0대 점검표가 올라갔다)
+inbox.write_file = lambda *a, **k: None
+inbox.순찰기록_DIR = tempfile.mkdtemp(prefix="순찰기록-")   # 진짜 순찰 로그에 가짜 날짜를 적지 않는다      # ★ 진짜 inbox 가지(폰이 보는 곳)에 올리지 않는다 (2026-11-03 0대 점검표가 올라갔다)
 inbox.wait_for_agent = lambda i, log, secs=30: inbox.agent_note(i)
 
 inbox.handle({"id": "요청1", "what": "excel", "date": "2026-10-01", "yard": "new"}, log)

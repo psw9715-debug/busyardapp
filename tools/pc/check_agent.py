@@ -229,5 +229,17 @@ agent.handle({"id": "t-x", "what": "excel", "date": "2026-11-02", "yard": "new",
 eq(쪽지, [("done", False)], "뽑지 못해도 적은 것은 적었다고 알린다")
 agent.find_excel, agent.write_board, agent.running_workbook, agent.print_block, agent.report = 진짜들
 
+print("▶ 결과 쪽지에 A 가 받은 때를 함께 싣는다 (B 의 순찰 로그)")
+import tempfile, time as _time  # noqa: E401,E402
+칸 = tempfile.mkdtemp(prefix="받음-")
+진짜자리 = agent.result_dir
+agent.result_dir = lambda: 칸
+agent.report({"id": "r1", "what": "excel"}, "working", "집었습니다")
+_time.sleep(0.05)
+agent.report({"id": "r1", "what": "excel"}, "done", "적음")
+끝쪽지 = json.load(open(os.path.join(칸, "결과_r1.json"), encoding="utf-8"))
+eq(끝쪽지["받음"] < 끝쪽지["at"], True, "★ 받은 때는 집은 때 그대로, 끝낸 때(at)는 그 뒤")
+agent.result_dir = 진짜자리
+
 print(f"\n통과 {ok} / 실패 {fail}")
 sys.exit(1 if fail else 0)

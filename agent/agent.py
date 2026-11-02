@@ -39,7 +39,7 @@ import urllib.request
 APP_NAME = "차고지 받아쓰기"
 # ★ [2026-10-28] 이 판 번호는 **installer.iss 의 AppVer 과 같아야 한다.**
 #    (tools\pc\check_판올림.py 가 둘이 어긋나면 실패한다.)
-VERSION = "1.9.2"
+VERSION = "1.9.3"
 REPO = "psw9715-debug/busyardapp"
 # api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
 # raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
@@ -169,6 +169,9 @@ def fetch(name):
         raise
 
 
+_받은때 = {}      # 요청 id → A 가 집은 때 (순찰 로그 — 사무실 PC 가 '언제 받고 언제 끝냈나' 를 적는다)
+
+
 def report(req, state, msg, printed=False):
     """했다/못 했다를 Z: 에 쪽지로 놓는다. 사무실 PC 가 그것을 보고 폰에 전해 준다.
 
@@ -177,10 +180,12 @@ def report(req, state, msg, printed=False):
     """
     os.makedirs(result_dir(), exist_ok=True)
     at = datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="milliseconds")
+    받음 = _받은때.setdefault(req["id"], at)       # 처음 놓는 쪽지(집었습니다)의 때가 받은 때다
     tmp = result_file() + ".tmp"
     with io.open(tmp, "w", encoding="utf-8") as f:
         json.dump({"id": req["id"], "what": req.get("what"), "state": state,
                    "msg": msg, "printed": bool(printed),
+                   "받음": 받음.replace("+00:00", "Z"),
                    "at": at.replace("+00:00", "Z")}, f, ensure_ascii=False)
     # ★ [2026-11-02] 요청마다 따로도 놓는다 (결과_요청번호.json). 한 장을 돌려 쓰면
     #    다음 요청이 덮어써 사무실 PC 가 놓칠 수 있었다 (11-02 01:01 실제로 놓쳤다).

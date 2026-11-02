@@ -38,7 +38,7 @@ export function toBase64(text) {
  * getSession: 올릴 판을 돌려주는 함수
  * onStatus({ state: 'ok'|'fail'|'notoken', at, detail }) — 판 자동 올리기 결과
  */
-export function createSync({ getSession, onStatus }) {
+export function createSync({ getSession, onStatus, getPatrol = () => null }) {
   let timer = null;
   let lastRequestAt = 0;   // 사람이 마지막으로 부탁한 때 (곁다리 저장 부탁이 덮지 않게)
   const shaByName = {};   // 같은 파일을 덮어쓰려면 지금 파일의 sha 가 필요하다
@@ -131,7 +131,9 @@ export function createSync({ getSession, onStatus }) {
       onStatus({ state: 'ok', at: new Date() });
       const session = getSession();
       const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-      await put('print.json', { id, date: session.date, at: new Date().toISOString(), what, yard: session.yard },
+      // 순찰 첫 입력 시각도 함께 — PC 가 순찰 로그에 적는다 (따로 보내지 않는다)
+      await put('print.json', { id, date: session.date, at: new Date().toISOString(), what, yard: session.yard,
+        순찰: getPatrol() },
         `${session.date} ${{ excel: '엑셀 입력', pull: '가져오기' }[what] || '인쇄'} 요청`);
       lastRequestAt = Date.now();
       return id;

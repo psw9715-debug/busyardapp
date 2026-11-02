@@ -1,16 +1,17 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202611030058';
-import { YARD_OLD } from './yard-old-data.js?v=202611030058';
-import { BUILD } from './build.js?v=202611030058';
-import { toKoreanSino, announceText } from './plate.js?v=202611030058';
+import { YARD as YARD_NEW } from './yard-data.js?v=202611030112';
+import { YARD_OLD } from './yard-old-data.js?v=202611030112';
+import { BUILD } from './build.js?v=202611030112';
+import { toKoreanSino, announceText } from './plate.js?v=202611030112';
 import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611030058';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611030112';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession, dropSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202611030058';
-import { createSync, getToken, setToken } from './sync.js?v=202611030058';
-import { findStatus, resultSpeech, pendingList } from './result.js?v=202611030058';
+} from './store.js?v=202611030112';
+import { createSync, getToken, setToken } from './sync.js?v=202611030112';
+import { findStatus, resultSpeech, pendingList } from './result.js?v=202611030112';
+import { markFirst } from './patrol-log.js?v=202611030112';
 
 // ---------------------------------------------------------------- 상태
 
@@ -115,8 +116,19 @@ let voice = null;
 
 // 판이 바뀌면 입력이 멎고 30초 뒤 GitHub 에 올려 둔다. 사무실 PC 가 받아서 인쇄한다.
 let syncState = { state: getToken() ? 'idle' : 'notoken' };
+// 차고지·회차별 첫 입력 시각 — 엑셀 넣기·종이 인쇄를 부탁할 때 함께 보낸다 (2026-11-03)
+const PATROL_KEY = 'busyard:patrol';
+const loadPatrol = () => { try { return JSON.parse(localStorage.getItem(PATROL_KEY)); } catch (_) { return null; } };
+function markPatrol() {
+  try {
+    const v = markFirst(loadPatrol(), workDate(), YARD.id, round, new Date().toISOString());
+    localStorage.setItem(PATROL_KEY, JSON.stringify(v));
+  } catch (_) { /* 시각을 못 적어도 순찰은 그대로 */ }
+}
+
 const sync = createSync({
   getSession: () => session,
+  getPatrol: () => { const v = loadPatrol(); return v && v.date === workDate() ? v.기록 : null; },
   onStatus: (st) => { syncState = st; if (!$('diagSheet').hidden) openDiag(); },
 });
 onSave(() => sync.schedule());
@@ -412,6 +424,7 @@ function confirmSpot() {
     return;
   }
   beep('ok');
+  markPatrol();
   const from = cursor;
   cursor = nextSpotAfter(cursor);
   saveCursor();
@@ -425,6 +438,7 @@ function confirmSpot() {
 
 function commit(spot, entry, { announce = true } = {}) {
   const 전 = session.entries[spot];     // 적기 전에 있던 것 — 2회차에 견줘 봐야 한다
+  markPatrol();
   setEntry(session, spot, { ...entry, round });
   paintSpot(spot);
 

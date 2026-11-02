@@ -370,6 +370,37 @@ log('▶ 차찾아 알림');
   eq(a.$('printSheet').hidden, false, '결과 화면이 열려 있다');
 }
 
+// ── 11-3) 첫 입력 시각을 적어 두었다가 엑셀 넣기 때 함께 보낸다 (2026-11-03)
+log('▶ 순찰 첫 입력 시각을 함께 보낸다');
+{
+  seed('new', {}, 1);
+  localStorage.setItem('busyard:ghtoken', '시험토큰');
+  localStorage.removeItem('busyard:patrol');
+  const a = await app();
+  eq(localStorage.getItem('busyard:patrol'), null, '★ 켜기만 해서는 적지 않는다');
+  let 보낸것 = null;
+  const real = a.w.fetch;
+  a.w.fetch = (url, opt) => {
+    const u = String(url);
+    if (opt && opt.method === 'PUT') {
+      if (u.includes('print.json')) 보낸것 = JSON.parse(decodeURIComponent(escape(atob(JSON.parse(opt.body).content))));
+      return Promise.resolve(new a.w.Response(JSON.stringify({ content: { sha: 'x' } }), { status: 201 }));
+    }
+    if (u.includes('api.github.com')) return Promise.resolve(new a.w.Response('', { status: 404 }));
+    return real(url, opt);
+  };
+  a.$('btnPad').click(); await wait(150);
+  for (const k of ['5', '0', '1']) a.press(k);
+  await wait(150);
+  const 적음 = JSON.parse(localStorage.getItem('busyard:patrol') || 'null');
+  eq(Boolean(적음 && 적음.기록.new && 적음.기록.new[1]), true, '첫 칸을 적으면 신 1차 첫 입력 시각이 남는다');
+  a.$('btnPrint').click(); await wait(80);
+  a.$('printExcel').click();
+  await until(() => 보낸것 !== null);
+  eq(보낸것 && 보낸것.순찰 && 보낸것.순찰.new && 보낸것.순찰.new[1], 적음 && 적음.기록.new[1],
+    '★ 엑셀 넣기 요청에 그 시각이 실려 간다');
+}
+
 // ── 11-2) 엑셀 넣기와 종이 인쇄를 연달아 눌러도 두 결과를 다 받는다 (2026-11-03)
 log('▶ 연달아 보낸 두 결과');
 {
