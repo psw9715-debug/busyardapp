@@ -280,6 +280,57 @@ log('<h2>▶ 발화 종료 후 자동 재시작 (사파리는 continuous 무시)
   v.stop();
 }
 
+log('<h2>▶ 안내 음성 뒤 인식이 소리 없이 멈추면 새로 켠다 (2026-11-08 B0-1 안내 뒤 먹통)</h2>');
+{
+  const { v, tokens } = harness();
+  v.start();
+  const first = window.__sr;
+  first.finalize('천삼백오십일');                 // 한 대 넣었다
+  await sleep(50);
+  const stuck = window.__sr;                       // 이어폰으로 'B0-1' 안내 → 사파리가 아무 말 없이 멈춘다
+  window.dispatchEvent(new Event('busyard:spoke')); // 안내 음성이 끝났다
+  await waitFor(() => window.__sr !== stuck && window.__sr._started, 4000);
+  eq(window.__sr !== stuck && window.__sr._started, true, '★ 안내 뒤 신호가 없으면 새 인식으로 다시 켠다 (손으로 껐다 켠 것과 같다)');
+  window.__sr.finalize('천삼백오십이');
+  eq(tokens.slice(-1), ['1352'], '★ 그 다음 번호가 들어간다');
+  stuck._end();                                    // 옛 것이 뒤늦게 끝나도
+  await sleep(200);
+  eq(window.__instances.filter(x => x._started).length, 1, '켜진 인식은 하나뿐 (옛 것이 또 켜지 않는다)');
+  v.stop();
+}
+
+log('<h2>▶ 안내 뒤 바로 다음 번호를 말하고 있으면 끊지 않는다</h2>');
+{
+  const { v, tokens } = harness();
+  v.start();
+  const live = window.__sr;
+  window.dispatchEvent(new Event('busyard:spoke'));
+  await sleep(300);
+  live.say('천삼백');                               // 바로 말하기 시작 → 신호가 온다
+  await sleep(1600);
+  eq(window.__sr === live && live._started, true, '★ 말하는 중인 인식은 그대로 둔다 (말 앞이 잘리지 않게)');
+  live.finalize('천삼백오십삼');
+  eq(tokens.slice(-1), ['1353'], '그 번호가 그대로 들어간다');
+  v.stop();
+}
+
+log('<h2>▶ 켜 둔 인식에서 한동안 아무 신호가 없으면 새로 켠다</h2>');
+{
+  const { v, tokens } = (() => {
+    const tokens = [];
+    const v = createVoice({ onToken: t => tokens.push(t.plate || t.type), stuckMs: 300 });
+    return { v, tokens };
+  })();
+  v.start();
+  const stuck = window.__sr;
+  await waitFor(() => window.__sr !== stuck && window.__sr._started, 3000);
+  eq(window.__sr !== stuck, true, '★ 신호 없이 멈춘 인식을 감시가 새로 켠다');
+  v.stop();
+  const 끈때 = window.__sr;
+  await sleep(800);
+  eq(window.__sr === 끈때 && !끈때._started, true, '끄면 감시도 멈춘다');
+}
+
 log('<h2>▶ 중지하면 재시작하지 않음</h2>');
 {
   const { v } = harness();

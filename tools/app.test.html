@@ -401,6 +401,33 @@ log('▶ 순찰 첫 입력 시각을 함께 보낸다');
     '★ 엑셀 넣기 요청에 그 시각이 실려 간다');
 }
 
+// ── 11-4) 같은 번호가 두 자리에 있으면 보내기 전에 막고 알린다 (2026-11-08)
+log('▶ 중복 번호는 보내기 전에');
+{
+  seed('new', { 1: { plate: '1351', status: 'filled', round: 1 }, 2: { plate: '1351', status: 'filled', round: 1 } }, 1);
+  localStorage.setItem('busyard:ghtoken', '시험토큰');
+  const a = await app();
+  let 보냄 = 0;
+  const real = a.w.fetch;
+  a.w.fetch = (url, opt) => {
+    const u = String(url);
+    if (opt && opt.method === 'PUT') {
+      if (u.includes('print.json')) 보냄 += 1;
+      return Promise.resolve(new a.w.Response(JSON.stringify({ content: { sha: 'x' } }), { status: 201 }));
+    }
+    if (u.includes('api.github.com')) return Promise.resolve(new a.w.Response('', { status: 404 }));
+    return real(url, opt);
+  };
+  a.$('btnPrint').click(); await wait(80);
+  a.$('printPaper').click(); await wait(200);
+  eq(a.$('printMsg').textContent.includes('같은 번호가 두 자리'), true, '★ 1351 이 두 자리에 있다고 알린다');
+  eq(a.$('printMsg').className, 'print-msg no', '빨갛게');
+  eq(보냄, 0, '★ 처음 누를 때는 보내지 않는다');
+  a.$('printPaper').click();
+  await until(() => 보냄 === 1);
+  eq(보냄, 1, '한 번 더 누르면 그대로 보낸다');
+}
+
 // ── 11-2) 엑셀 넣기와 종이 인쇄를 연달아 눌러도 두 결과를 다 받는다 (2026-11-03)
 log('▶ 연달아 보낸 두 결과');
 {
@@ -645,7 +672,7 @@ log('▶ 2회차 시작 — 점검 대상 다시 받기');
   a.w.fetch = (url, opt) => {
     const u = String(url);
     if (u.includes('print.json') && opt && opt.method === 'PUT') {
-      const 온것 = JSON.parse(a.w.atob(JSON.parse(opt.body).content));
+      const 온것 = JSON.parse(decodeURIComponent(escape(a.w.atob(JSON.parse(opt.body).content))));   // 한글 칸(저장)까지 읽게
       if (온것.what === 'check') 부탁 = 온것;      // 앱을 열며 보내는 'save' 부탁은 세지 않는다
       return Promise.resolve(new a.w.Response(JSON.stringify({ content: { sha: 's1' } }), { status: 200 }));
     }
@@ -662,6 +689,7 @@ log('▶ 2회차 시작 — 점검 대상 다시 받기');
   a.$('btnWhere').click();
   await until(() => 부탁 !== null);
   eq(부탁 && 부탁.what, 'check', "2회차를 누르면 PC 에 'check' 를 부탁한다");
+  eq(부탁 && 부탁.저장, true, "★ A 에게 열린 엑셀을 먼저 저장하라고 함께 부탁한다 (2026-11-08)");
   eq(부탁 && 부탁.yard, 'new', '어느 차고지인지 함께 보낸다');
 
   await until(() => a.$('missBadge').textContent.trim() === '1');

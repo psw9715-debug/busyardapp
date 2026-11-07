@@ -41,6 +41,10 @@ eq(agent.decide(mk("excel", i="a"), "a", now), "skip", "같은 요청을 두 번
 eq(agent.decide(mk("excel", mins=11), None, now), "stale", "10분이 지난 요청은 건너뛴다")
 eq(agent.decide(None, None, now), "skip", "요청이 없으면 아무것도")
 eq(agent.decide(mk("save"), None, now), "write", "앱을 열 때의 '엑셀 저장' 부탁도 우리 몫")
+_저장 = dict(mk("check"), 저장=True)
+eq(agent.decide(_저장, None, now), "write", "★ 2회차 시작의 다시 세기에 '저장' 이 붙으면 A 가 먼저 저장한다 (2026-11-08)")
+eq(agent.decide(dict(mk("pull"), 저장=True), None, now), "write", "★ 구차고지 2회차 가져오기도 먼저 저장")
+eq(agent.decide(mk("check"), None, now), "skip", "저장이 안 붙은 다시 세기는 B 몫")
 
 print("▶ GitHub 를 먼저 본다 — Z: 는 GitHub 에 닿지 않을 때만 (2026-11-03 사용자 결정)")
 # 11-03 00:32·00:52 에 A 의 Z: 가 몇 분씩 막혀 엑셀 넣기가 늦었다. 폰이 올린 것은 GitHub 에
@@ -257,6 +261,27 @@ agent.print_block = lambda wb, yard: (_ for _ in ()).throw(RuntimeError("프린�
 agent.handle({"id": "t-x", "what": "excel", "date": "2026-11-02", "yard": "new", "board": {"entries": {}}})
 eq(쪽지, [("done", False)], "뽑지 못해도 적은 것은 적었다고 알린다")
 agent.find_excel, agent.write_board, agent.running_workbook, agent.print_block, agent.report = 진짜들
+
+print("▶ 다시 세기·가져오기 전에 열린 엑셀을 저장하고 쪽지를 놓는다 (2026-11-08)")
+진짜저장, 진짜쪽지2 = agent.save_ops, agent.report
+쪽지들 = []
+agent.report = lambda req, state, msg, printed=False: 쪽지들.append((state, msg))
+agent.save_ops = lambda now=None: (True, "1108 운영관리.xlsx 저장함")
+agent.handle({"id": "c1", "what": "check", "저장": True, "date": "2026-11-07", "yard": "new"})
+eq(쪽지들, [("done", "A 컴퓨터: 1108 운영관리.xlsx 저장함")], "★ 저장하고 '저장함' 쪽지 — B 는 이것을 보고 센다")
+쪽지들.clear()
+불림 = []
+def _바빠서(now=None):
+    불림.append(1)
+    if len(불림) == 1:
+        raise RuntimeError("Call was rejected by callee.")   # 직원이 칸을 입력 중
+    return True, "저장함"
+agent.save_ops = _바빠서
+진짜끝내기 = agent.편집끝내기
+agent.편집끝내기 = lambda 이름, log=None: True
+agent.handle({"id": "c2", "what": "check", "저장": True, "date": "2026-11-07", "yard": "new"})
+eq((len(불림), 쪽지들[-1][0]), (2, "done"), "★ 입력 중이라 막히면 그 칸만 Esc 하고 다시 저장한다")
+agent.save_ops, agent.report, agent.편집끝내기 = 진짜저장, 진짜쪽지2, 진짜끝내기
 
 print("▶ 결과 쪽지에 A 가 받은 때를 함께 싣는다 (B 의 순찰 로그)")
 import tempfile, time as _time  # noqa: E401,E402

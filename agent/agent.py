@@ -39,7 +39,7 @@ import urllib.request
 APP_NAME = "차고지 받아쓰기"
 # ★ [2026-10-28] 이 판 번호는 **installer.iss 의 AppVer 과 같아야 한다.**
 #    (tools\pc\check_판올림.py 가 둘이 어긋나면 실패한다.)
-VERSION = "1.9.6"
+VERSION = "1.9.7"
 REPO = "psw9715-debug/busyardapp"
 # api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
 # raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
@@ -986,7 +986,9 @@ def decide(req, done, now):
     한것 = {done} if isinstance(done, str) else set(done or ())
     if not req or req.get("id") in 한것:
         return "skip"
-    if req.get("what") not in ("excel", "final", "save"):
+    if req.get("what") in ("check", "pull") and req.get("저장"):
+        pass                     # ★ [2026-11-08] 2회차 시작 — B 가 세기 전에 열린 엑셀을 저장한다
+    elif req.get("what") not in ("excel", "final", "save"):
         return "skip"            # 종이 인쇄와 가져오기는 B(사무실 PC)가 한다
     at = datetime.datetime.fromisoformat(req["at"].replace("Z", "+00:00"))
     return "stale" if now - at > STALE else "write"
@@ -1006,6 +1008,23 @@ def handle(req):
             log(f"💾 {msg}")
         except Exception as e:
             log(f"⚠ 저장하지 못했습니다 — {type(e).__name__}: {e}")
+        return
+
+    if req.get("what") in ("check", "pull"):
+        # ★ [2026-11-08] 2회차를 시작하며 폰이 부탁한다 — 담당 직원이 넣고 저장하지 않은 것까지
+        #    파일에 들어가야 B 가 바르게 센다. 칸을 입력 중이라 막히면 그 칸만 Esc 하고 다시.
+        하는중("2회차 앞 저장")
+        try:
+            try:
+                _, msg = save_ops()
+            except Exception:
+                편집끝내기(os.path.basename(find_excel(ops_date(datetime.datetime.now()))))
+                _, msg = save_ops()
+            log(f"💾 {msg} (2회차 앞)")
+            report(req, "done", f"A 컴퓨터: {msg}")
+        except Exception as e:
+            log(f"⚠ 2회차 앞 저장 못 함 — {type(e).__name__}: {e}")
+            report(req, "error", f"A 컴퓨터: 저장 못 함 — {e}")
         return
 
     yard = req.get("yard", "new")

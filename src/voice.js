@@ -5,7 +5,7 @@
 // 또 한 세션의 전사(transcript)를 누적해서 돌려주므로, 이미 처리한 토큰 개수를
 // 기억해 두고 새로 늘어난 것만 앱에 넘긴다.
 
-import { extractSequence } from './plate.js?v=202611030112';
+import { extractSequence } from './plate.js?v=202611080223';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 
@@ -14,8 +14,10 @@ const FAST_MS = 70;
 
 export const isSupported = () => Boolean(SR);
 
-export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
+export function createVoice({ onToken, onInterim, onStatus, settleMs = 450, stuckMs = 8000 }) {
   let rec = null;
+  let lastEventAt = 0;     // 인식 엔진이 마지막으로 무엇이든 알려 온 때
+  let watchdog = null;
   let wanted = false;      // 사용자가 켜 둔 상태인가
   let running = false;     // 실제 엔진이 도는 중인가
   let consumed = 0;        // 현재 세션에서 이미 앱에 넘긴 토큰 개수
@@ -72,6 +74,7 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
     r.maxAlternatives = 1;
 
     r.onstart = () => {
+      lastEventAt = Date.now();
       running = true; consumed = 0; settled = ''; pending = '';
       status('listening');
     };
@@ -80,6 +83,7 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
       // 끊은 뒤에 뒤늦게 도착한 결과는 버린다. 안 그러면 방금 넣은 번호가
       // 새 세션의 빈 상태에서 한 번 더 들어간다.
       if (!running) return;
+      lastEventAt = Date.now();
 
       // 사파리는 세션 시작부터의 전사를 누적해서 준다.
       // 확정된 부분과 아직 말하는 중인 부분을 나눠서 받는다.
@@ -116,6 +120,7 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
     };
 
     r.onerror = (e) => {
+      lastEventAt = Date.now();
       if (e.error === 'no-speech' || e.error === 'aborted') return;   // 흔한 일, 그냥 재시작
       if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
         wanted = false;
@@ -127,6 +132,7 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
     };
 
     r.onend = () => {
+      lastEventAt = Date.now();
       running = false;
       clearTimeout(settleTimer);
       // 사파리가 확정을 안 준 채 세션을 끝내는 경우가 있다. 말은 이미 끝났으니
@@ -143,6 +149,38 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
 
     return r;
   }
+
+  /**
+   * 인식을 통째로 새로 켠다 — 손으로 껐다 켠 것과 같다.
+   *
+   * ★ [2026-11-08] 이어폰으로 다음 구역 안내("B0-1")가 나가면 아이폰은 소리 길을 재생 쪽으로
+   *   돌리면서 듣고 있던 인식을 **아무 신호 없이** 멈춘다. onend 도 오지 않아 우리는 아직
+   *   듣는 줄 알았고, 그 뒤로는 아무리 말해도 들어가지 않았다 (껐다 켜야 됐다).
+   *   옛 인식은 손을 떼게 하고(늦게 오는 onend 가 또 켜지 않게) 새 것으로 시작한다.
+   */
+  function hardRestart() {
+    if (!wanted) return;
+    const old = rec;
+    rec = null;
+    running = false;
+    consumed = 0; settled = ''; pending = '';
+    clearTimeout(settleTimer);
+    if (old) {
+      old.onstart = old.onresult = old.onerror = old.onend = null;
+      try { old.abort(); } catch (_) { /* 이미 멈춰 있다 */ }
+    }
+    lastEventAt = Date.now();
+    clearTimeout(restartTimer);
+    restartTimer = setTimeout(safeStart, 120);
+  }
+
+  // 안내 음성이 끝나고 1.5초 동안 인식에서 아무 신호가 없으면 멈춘 것이다 — 새로 켠다.
+  // 바로 다음 번호를 말하기 시작했으면 신호가 오므로 건드리지 않는다 (말 앞을 자르지 않게).
+  const onSpoke = () => {
+    const 끝난때 = Date.now();
+    setTimeout(() => { if (wanted && lastEventAt < 끝난때) hardRestart(); }, 1500);
+  };
+  window.addEventListener('busyard:spoke', onSpoke);
 
   function safeStart() {
     if (!wanted || running) return;
@@ -161,10 +199,17 @@ export function createVoice({ onToken, onInterim, onStatus, settleMs = 450 }) {
       if (!SR) { status('unsupported'); return; }
       wanted = true;
       status('starting');
+      lastEventAt = Date.now();
+      // 켜 둔 인식에서 stuckMs 넘게 아무 신호가 없으면 멈춘 것으로 보고 새로 켠다
+      clearInterval(watchdog);
+      watchdog = setInterval(() => {
+        if (wanted && Date.now() - lastEventAt > stuckMs) hardRestart();
+      }, Math.min(1000, Math.max(100, stuckMs / 3)));
       safeStart();
     },
     stop() {
       wanted = false;
+      clearInterval(watchdog);
       clearTimeout(restartTimer);
       clearTimeout(settleTimer);
       if (rec && running) { try { rec.abort(); } catch (_) {} }
@@ -271,6 +316,8 @@ export function speak(text, { rate = 1.25, interrupt = true } = {}) {
   u.lang = 'ko-KR';
   u.rate = rate;
   if (interrupt) window.speechSynthesis.cancel();
+  // ★ [2026-11-08] 안내가 끝나면 알린다 — 음성 인식이 소리 없이 멈췄을 수 있어 새로 켠다 (createVoice)
+  u.onend = () => { try { window.dispatchEvent(new Event('busyard:spoke')); } catch (_) { /* 없어도 그만 */ } };
   window.speechSynthesis.speak(u);
   // 대략적인 재생 시간(ms) — 되먹임 차단 구간 계산용
   return Math.max(600, (text.length / rate) * 130);

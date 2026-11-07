@@ -133,7 +133,9 @@ export function createSync({ getSession, onStatus, getPatrol = () => null }) {
       const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
       // 순찰 첫 입력 시각도 함께 — PC 가 순찰 로그에 적는다 (따로 보내지 않는다)
       await put('print.json', { id, date: session.date, at: new Date().toISOString(), what, yard: session.yard,
-        순찰: getPatrol() },
+        순찰: getPatrol(),
+        // ★ [2026-11-08] 가져오기(구차고지 2회차)는 A 가 열린 엑셀을 먼저 저장한 뒤 읽는다
+        ...(what === 'pull' ? { 저장: true } : {}) },
         `${session.date} ${{ excel: '엑셀 입력', pull: '가져오기' }[what] || '인쇄'} 요청`);
       lastRequestAt = Date.now();
       return id;
@@ -147,7 +149,8 @@ export function createSync({ getSession, onStatus, getPatrol = () => null }) {
     async requestCheck() {
       const session = getSession();
       const id = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-      await put('print.json', { id, date: session.date, at: new Date().toISOString(), what: 'check', yard: session.yard },
+      // ★ [2026-11-08] 저장: A 가 열린 운영관리 엑셀을 먼저 저장한다 — 담당 직원이 넣고 저장하지 않은 것까지
+      await put('print.json', { id, date: session.date, at: new Date().toISOString(), what: 'check', yard: session.yard, 저장: true },
         `${session.date} 점검 대상 다시 세기`);
       lastRequestAt = Date.now();
       return id;

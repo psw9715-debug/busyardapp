@@ -1,17 +1,18 @@
-import { YARD as YARD_NEW } from './yard-data.js?v=202611030112';
-import { YARD_OLD } from './yard-old-data.js?v=202611030112';
-import { BUILD } from './build.js?v=202611030112';
-import { toKoreanSino, announceText } from './plate.js?v=202611030112';
+import { YARD as YARD_NEW } from './yard-data.js?v=202611080223';
+import { YARD_OLD } from './yard-old-data.js?v=202611080223';
+import { BUILD } from './build.js?v=202611080223';
+import { toKoreanSino, announceText } from './plate.js?v=202611080223';
 import { WALK_ORDER } from './walk-order.js?v=__STAMP__';
-import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611030112';
+import { createVoice, isSupported, beep, speak, speakDigit, digitSpeaking, primeAudio } from './voice.js?v=202611080223';
 import {
   loadSession, setEntry, countFilled, workDate, clearSession, dropSession,
   saveLog, listLogs, readLog, deleteLog, restoreLog, mergeLegacyRound2,
   countRound, ROUNDS, upgradeSession, onSave, deleteLogs,
-} from './store.js?v=202611030112';
-import { createSync, getToken, setToken } from './sync.js?v=202611030112';
-import { findStatus, resultSpeech, pendingList } from './result.js?v=202611030112';
-import { markFirst } from './patrol-log.js?v=202611030112';
+} from './store.js?v=202611080223';
+import { createSync, getToken, setToken } from './sync.js?v=202611080223';
+import { findStatus, resultSpeech, pendingList } from './result.js?v=202611080223';
+import { markFirst } from './patrol-log.js?v=202611080223';
+import { findDuplicates, dupKey } from './dupes.js?v=202611080223';
 
 // ---------------------------------------------------------------- 상태
 
@@ -1491,6 +1492,7 @@ async function forceUpdate() {
 //   엑셀 입력 — 그날 "입출차 운영관리" 의 6차고지 칸에 그대로 (손으로 옮겨 적던 일)
 // 종이는 금방 나오지만, 운영관리 엑셀은 파일이 무거워 여는 데만 30초가 넘는다
 const WAIT_MS = { paper: 90000, excel: 300000, final: 300000 };
+let dupAcked = '';          // 그대로 보내겠다고 한 번 더 누른 중복
 let printing = false;   // 보낸 요청의 결과를 기다리는 중
 
 function printMsg(text, kind) {
@@ -1680,6 +1682,20 @@ async function doPrint(what) {
   if (!getToken()) {
     printMsg('토큰이 없습니다 — [진단] → PC 전송에서 넣으세요', 'no');
     beep('error');
+    return;
+  }
+
+  // ★ [2026-11-08] 같은 번호가 두 자리에 있으면 보내기 전에 긴급하게 알린다 (B5 와 B2 에 1351).
+  //   고친 뒤 다시 누르면 보낸다. 그대로 보내야 하면 같은 중복에서 한 번 더 누르면 보낸다.
+  const dups = findDuplicates(session.entries, spotName);
+  if (dups.length && dupKey(dups) !== dupAcked) {
+    dupAcked = dupKey(dups);
+    const 글 = dups.map((d) => `${d.plate} (${d.spots.join(', ')})`).join(' · ');
+    printMsg(`⚠ 같은 번호가 두 자리에 있습니다: ${글} — 고친 뒤 다시 누르세요. 그대로 보내려면 한 번 더 누르세요`, 'no');
+    beep('error');
+    setTimeout(() => beep('error'), 350);
+    navigator.vibrate?.([300, 120, 300, 120, 300]);
+    speak(`중복 번호가 있습니다. ${dups.map((d) => d.spots.join(' 과 ')).join(', ')}`, { interrupt: true });
     return;
   }
 

@@ -707,10 +707,16 @@ def handle(req, log, notify=None):
         순찰로그(req["date"], "➡ A 컴퓨터에 건넴")
 
     try:
+        저장말 = ""
+        if kind in ("check", "pull") and req.get("저장"):
+            # ★ [2026-11-08] 담당 직원이 엑셀에 넣고 저장하지 않으면 이 PC 는 옛 값을 읽는다
+            #    (그날 2회차에 '찾을 차' 가 잔뜩 나왔다). A 가 열린 엑셀을 먼저 저장하고 쪽지를 놓는다.
+            note = wait_for_agent(req["id"], log, secs=45)
+            저장말 = " · " + (note["msg"] if note else "A 저장 확인 못 함 (저장된 파일로 셈)")
         if kind == "check":
             # 2회차를 시작할 때 폰이 조용히 부른다. 인쇄도 입력도 하지 않고,
             # 지금 엑셀에 적힌 것만으로 '아직 찾을 차' 를 다시 세어 내려보낸다.
-            state, msg = "done", "다시 셈"
+            state, msg = "done", "다시 셈" + 저장말
         elif kind == "pull":
             import ops_fill
             yard = req.get("yard", "old")
@@ -718,7 +724,7 @@ def handle(req, log, notify=None):
             write_file("inbox/pulled.json", {
                 "id": req["id"], "yard": yard, "date": req["date"], "entries": entries,
             }, f"{req['date']} 엑셀에서 가져온 판")
-            state, msg = "done", f"{len(entries)}대 가져옴"
+            state, msg = "done", f"{len(entries)}대 가져옴" + 저장말
         elif kind in ("excel", "final"):
             import ops_fill
             yard = req.get("yard", "new")

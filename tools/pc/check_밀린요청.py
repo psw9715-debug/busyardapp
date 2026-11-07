@@ -72,5 +72,21 @@ os.utime(ops_fill.AGENT_ALIVE, (옛, 옛))
 eq(inbox.agent_alive(), False, "내용도 파일 시각도 오래됐으면 멎었다")
 ops_fill.AGENT_ALIVE = 진짜심장
 
+print("\n▶ 2회차 다시 세기 — A 가 저장한 뒤에 센다 (2026-11-08 저장 안 한 엑셀로 셌다)")
+기다린것 = []
+진짜기다림, 진짜상태, 진짜점검, 진짜올림 = inbox.wait_for_agent, inbox.write_status, inbox.push_checklist, inbox.write_file
+inbox.wait_for_agent = lambda i, log, secs=360: 기다린것.append((i, secs)) or {"state": "done", "msg": "A 컴퓨터: 저장함"}
+상태들 = []
+inbox.write_status = lambda st: 상태들.append(st)
+inbox.push_checklist = lambda req, log: None
+inbox.write_file = lambda *a, **k: None
+inbox.순찰기록_DIR = tempfile.mkdtemp(prefix="순찰기록-")
+inbox.handle({"id": "k1", "what": "check", "저장": True, "date": "2026-11-07", "yard": "new"}, lambda m: None)
+eq(기다린것, [("k1", 45)], "★ A 의 저장 쪽지를 45초까지 기다린 뒤 센다")
+기다린것.clear()
+inbox.handle({"id": "k2", "what": "check", "date": "2026-11-07", "yard": "new"}, lambda m: None)
+eq(기다린것, [], "저장이 안 붙은 것은 기다리지 않는다 (옛 폰)")
+inbox.wait_for_agent, inbox.write_status, inbox.push_checklist, inbox.write_file = 진짜기다림, 진짜상태, 진짜점검, 진짜올림
+
 print("\n통과 %d / 실패 %d" % (ok, fail))
 sys.exit(1 if fail else 0)
