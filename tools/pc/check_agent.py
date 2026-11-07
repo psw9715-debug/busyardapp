@@ -236,7 +236,7 @@ eq(after.cell(*cells_new[7]).value, None, "공차 자리도 비운다")
 eq(after.cell(*agent.block_cells("old")[1]).value is not None, True, "구차고지 칸은 건드리지 않았다")
 
 opened.Close(SaveChanges=False)
-excel.Quit()
+agent.quit_excel(excel, opened)   # ★ Quit 만으론 숨은 엑셀이 남았다 (2026-11-08) — 안 나가면 그 프로세스를 끊는다
 print("▶ 편집 중인 칸만 Esc 로 취소한다 (대화상자는 건드리지 않는다)")
 eq(agent.편집창인가("EXCEL6"), True, "칸 안 편집 창이면 취소한다")
 eq(agent.편집창인가("EXCEL<"), True, "수식 입력줄 편집이면 취소한다")

@@ -39,7 +39,7 @@ import urllib.request
 APP_NAME = "차고지 받아쓰기"
 # ★ [2026-10-28] 이 판 번호는 **installer.iss 의 AppVer 과 같아야 한다.**
 #    (tools\pc\check_판올림.py 가 둘이 어긋나면 실패한다.)
-VERSION = "1.9.7"
+VERSION = "1.9.8"
 REPO = "psw9715-debug/busyardapp"
 # api.github.com 은 토큰 없이 한 시간에 60번뿐이다. 10초마다 보면 금세 막힌다.
 # raw 는 그 제한이 없으므로 받아 오기만 하는 이쪽은 raw 로 읽는다.
@@ -522,9 +522,15 @@ def running_workbook(path):
             pass
 
     if opened:
-        log(f"ℹ 열려 있는 통합문서 {len(opened)}개 중에 찾는 것이 없습니다 — {opened[:3]}")
-        log(f"   (찾던 것: {want})")
+        # ★ [2026-11-08] 닫은 뒤에는 데우기가 3초마다 내일 대장을 찾아 이 말을 밤새 남겼다 — 한 시간에 한 번만
+        if time.time() - _못찾음말함.get(want, 0) >= 3600:
+            _못찾음말함[want] = time.time()
+            log(f"ℹ 열려 있는 통합문서 {len(opened)}개 중에 찾는 것이 없습니다 — {opened[:3]}")
+            log(f"   (찾던 것: {want})")
     return None
+
+
+_못찾음말함 = {}
 
 
 # 엑셀이 "지금은 못 받는다" 고 되돌리는 코드들. 셀을 편집 중이거나, 메뉴를 열어
