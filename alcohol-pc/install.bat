@@ -1,5 +1,5 @@
 @echo off
-set PS=%SystemRoot%\System32\WindowsPowerShell1.0\powershell.exe
+set PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe
 if not exist "%PS%" (
   echo PowerShell not found: %PS%
   echo Please tell Claude this message.
