@@ -2,7 +2,7 @@
 # 이 파일은 UTF-8 BOM 으로 저장해야 한다 (PowerShell 5.1 이 한글을 읽으려면).
 # 측정 프로그램은 건드리지 않는다: 로그인과 GET 조회만 한다 (출퇴근 관리가 B PC 에서 하는 것과 같다).
 param([switch]$NoRun)
-$VERSION = '1.0.6'
+$VERSION = '1.0.8'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }   # 옛 .NET 은 TLS1.2 를 따로 켜야 GitHub 에 닿는다
 
 $Dir   = if ($env:ALCOHOL_TEST_DIR) { $env:ALCOHOL_TEST_DIR } else { Join-Path $env:ProgramData 'AlcoholWatch' }
@@ -58,10 +58,19 @@ function Get-Alarms($rows, $photos, $nowUtc, $st) {
 # ── 측정 프로그램 로그로 즉시 판정 (순수 함수) ───────────────────────────────
 # 2026-11-13 로그 실측: 찰칵(로그인캡처 끝) 뒤 끝나지 못한 7건 중 5건은 1~6초 안에 '0x81 음주측정기 에러' 가 찍히고 프로그램이 창을 닫았다.
 # 나머지는 창이 닫힘(사람이 닫기, 또는 측정기가 준비 상태로 돌아감). 정상 300건은 '측정완료캡처 시작' 이 먼저 나온다.
+# 2026-11-14 오충균 건: 찰칵 뒤 '불어주세요'(bytes6 06)가 12~17초 늦게 나오고 그동안 음악만 흐른다(직원이 카드를 다시 찍으면 풀림).
+# 어제·오늘 약 440세션에서 찰칵 뒤 첫 진행 신호(06·완료·에러·미측정)까지 정상은 0~3초, 이 증상 2건은 12·14초 → 5초면 가를 수 있다.
+function Test-Stuck($st, $now) {
+    if ($st.Pending -and -not $st.Progress -and -not $st.Stuck -and $st.CapAt -and (($now - $st.CapAt).TotalSeconds -ge 5)) {
+        $st.Stuck = $true; return "(참고·시간 기준) 찰칵 뒤 5초가 지나도 '불어주세요' 안내가 안 나옴"
+    }
+    return $null
+}
 # 반환: $null(아무 일 없음) / 'NEW'(새 측정 시작) / 경보 사유 문자열
-function Step-AppLog($line, $st) {
+function Step-AppLog($line, $st, $now = (Get-Date)) {
+    if ($line -match 'bytes6 06|측정완료캡처 시작|음주측정기 에러|미측정캡처 시작') { $st.Progress = $true }
     if ($line -match 'readySoundPlayRunFlag') { $st.Pending = $false; $st.Fired = $false; return 'NEW' }
-    if ($line -match '로그인캡처 끝') { $st.Pending = $true; return $null }
+    if ($line -match '로그인캡처 끝') { $st.Pending = $true; $st.CapAt = $now; $st.Progress = $false; $st.Stuck = $false; return $null }
     if ($line -match '측정완료캡처 시작') { $st.Pending = $false; return $null }
     if ($st.Pending -and -not $st.Fired -and $line -match '미측정캡처 시작') { $st.Fired = $true; return '측정기가 미측정으로 끝냈습니다' }
     if ($line -match 'Close MainWindow') {
@@ -148,31 +157,38 @@ function Close-Alarm {
     try { if ($x.Voice) { $x.Voice.SpeakAsyncCancelAll(); $x.Voice.Dispose() } } catch { }
     try { $x.Form.Close(); $x.Form.Dispose() } catch { }
 }
-$script:AppSt = @{ Pending = $false; Fired = $false }
+$script:AppSt = @{ Pending = $false; Fired = $false; Progress = $false; Stuck = $false; CapAt = $null }
 $script:AppPath = $null; $script:AppPos = 0L; $script:AppRest = ''; $script:LogAlarmAt = [DateTime]::MinValue
 function Poll-AppLog {
     try {
+        $lines = @()
         $path = Join-Path $AppLogDir ("ManagementApp.{0}.log" -f (Get-Date -Format 'yyyyMMdd'))
-        if (-not (Test-Path $path)) { return }
-        $len = (Get-Item $path).Length
-        if ($path -ne $script:AppPath) { $script:AppPath = $path; $script:AppPos = $len; $script:AppRest = ''; return }   # 켠 때/날이 바뀐 때는 옛 줄을 다시 읽지 않는다
-        if ($len -le $script:AppPos) { if ($len -lt $script:AppPos) { $script:AppPos = $len }; return }
-        $fs = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
-        try { [void]$fs.Seek($script:AppPos, 'Begin'); $buf = New-Object byte[] ($len - $script:AppPos); $n = $fs.Read($buf, 0, $buf.Length); $script:AppPos += $n }
-        finally { $fs.Dispose() }
-        $text = $script:AppRest + [Text.Encoding]::UTF8.GetString($buf, 0, $n)
-        $parts = $text -split "`n"
-        $script:AppRest = $parts[-1]
-        foreach ($ln in $parts[0..($parts.Count - 2)]) {
-            $r = Step-AppLog $ln $script:AppSt
-            if ($r -eq 'NEW') { if ($script:Alarm -and $script:Alarm.Empid -eq 'log') { Close-Alarm } }
-            elseif ($r) {
-                $script:LogAlarmAt = Get-Date
-                Show-Alarm ([pscustomobject]@{ Name = ''; Empid = 'log'; Count = 0; Why = "측정 프로그램 로그: $r"
-                    Text = "음주측정이 되지 않았습니다`r`n다시 측정해 주세요"; Say = '음주측정이 되지 않았습니다! 다시 측정해 주세요!' })
+        if (Test-Path $path) {
+            $len = (Get-Item $path).Length
+            if ($path -ne $script:AppPath) { $script:AppPath = $path; $script:AppPos = $len; $script:AppRest = '' }   # 켠 때/날이 바뀐 때는 옛 줄을 다시 읽지 않는다
+            elseif ($len -lt $script:AppPos) { $script:AppPos = $len }
+            elseif ($len -gt $script:AppPos) {
+                $fs = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
+                try { [void]$fs.Seek($script:AppPos, 'Begin'); $buf = New-Object byte[] ($len - $script:AppPos); $n = $fs.Read($buf, 0, $buf.Length); $script:AppPos += $n }
+                finally { $fs.Dispose() }
+                $parts = ($script:AppRest + [Text.Encoding]::UTF8.GetString($buf, 0, $n)) -split "`n"
+                $script:AppRest = $parts[-1]
+                if ($parts.Count -gt 1) { $lines = $parts[0..($parts.Count - 2)] }
             }
         }
+        foreach ($ln in $lines) {
+            $r = Step-AppLog $ln $script:AppSt
+            if ($r -eq 'NEW') { if ($script:Alarm -and $script:Alarm.Empid -eq 'log') { Close-Alarm } }
+            elseif ($r) { Raise-LogAlarm $r }
+        }
+        $r = Test-Stuck $script:AppSt (Get-Date)
+        if ($r) { Raise-LogAlarm $r }
     } catch { }
+}
+function Raise-LogAlarm($why) {
+    $script:LogAlarmAt = Get-Date
+    Show-Alarm ([pscustomobject]@{ Name = ''; Empid = 'log'; Count = 0; Why = "측정 프로그램 로그: $why"
+        Text = "음주측정이 되지 않았습니다`r`n다시 측정해 주세요"; Say = '음주측정이 되지 않았습니다! 다시 측정해 주세요!' })
 }
 function Pump($sec) {
     $end = (Get-Date).AddSeconds($sec)
@@ -317,6 +333,25 @@ function Save-Shot {
         return $name
     } catch { return $null }
 }
+# 프로그램이 지금 화면에 쓰고 있는 글(예: '측정대기중...', '음주측정기 준비중...', '측정기에 불어주세요.')을 UI Automation 으로 읽는다. 읽기만 한다.
+try { Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes } catch { }
+$script:UiTreeDone = $false; $script:UiLastAt = [DateTime]::MinValue; $script:UiLastText = ''
+function Get-UiTexts {
+    try {
+        $p = Get-Process -Name 'Wellcom.Alcohol.Kendo.Winform' -ErrorAction Stop | Select-Object -First 1
+        $cond = New-Object Windows.Automation.PropertyCondition([Windows.Automation.AutomationElement]::ProcessIdProperty, $p.Id)
+        $win = [Windows.Automation.AutomationElement]::RootElement.FindFirst('Children', $cond)
+        if (-not $win) { return '(창 없음)' }
+        $all = $win.FindAll('Descendants', [Windows.Automation.Condition]::TrueCondition)
+        if (-not $script:UiTreeDone) {     # 처음 한 번, 어떤 요소가 읽히는지 전체를 남긴다 (/ui-tree.txt)
+            $script:UiTreeDone = $true
+            $o = foreach ($e in $all) { $c = $e.Current; "{0}`t{1}`t{2}`t{3}" -f $c.ControlType.ProgrammaticName, $c.AutomationId, $c.ClassName, $c.Name }
+            [IO.File]::WriteAllLines((Join-Path $Dir 'ui-tree.txt'), @("창: $($win.Current.Name)  요소 $($all.Count)개") + @($o), (New-Object Text.UTF8Encoding $true))
+        }
+        $t = foreach ($e in $all) { $n = $e.Current.Name; if ($n -and $n.Length -le 40) { $n } }
+        return (@($t | Select-Object -Unique) -join ' | ')
+    } catch { return "(읽기 실패: $($_.Exception.Message))" }
+}
 function Get-Age($r, $nowUtc) {
     try { return ($nowUtc - [DateTime]::ParseExact(([string]$r.createdate).Substring(0, 19), 'yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)).TotalSeconds } catch { return 9999 }
 }
@@ -325,8 +360,10 @@ function Record-Session($rows, $photos, $nowUtc) {
     if ($act.Count -gt 0) { $script:ShotUntil = (Get-Date).AddSeconds(6) }
     if ($act.Count -eq 0 -and (Get-Date) -gt $script:ShotUntil) { return }
     $name = Save-Shot
+    $ui = $script:UiLastText
+    if (((Get-Date) - $script:UiLastAt).TotalSeconds -ge 2) { $script:UiLastAt = Get-Date; $ui = Get-UiTexts; $script:UiLastText = $ui }
     $who = ($rows | Where-Object { (Get-Age $_ $nowUtc) -le $MaxAge } | ForEach-Object { "$($_.empname)#$($_.count)=$(([string]$_.result).Trim())[" + ((@($photos["$($_.empid)|$($_.count)"])) -join ',') + "]" }) -join ' '
-    Add-Content -Path (Join-Path $Dir 'session.log') -Encoding UTF8 -Value ("{0} 화면={1} 앞창='{2}' {3}" -f (Get-Date -Format 'MM-dd HH:mm:ss.f'), $name, [FgWin]::Title(), $who)
+    Add-Content -Path (Join-Path $Dir 'session.log') -Encoding UTF8 -Value ("{0} 화면={1} 앞창='{2}' 화면문구=[{3}] {4}" -f (Get-Date -Format 'MM-dd HH:mm:ss.f'), $name, [FgWin]::Title(), $ui, $who)
 }
 
 # ── 내보내기: 정해진 PC(B)만, 정해진 파일만, 읽기 전용 ─────────────────────────
@@ -361,10 +398,10 @@ function Serve-One {
         $txt = 'text/plain; charset=utf-8'
         if ($Allow -notcontains $ip) { Send-Http $c 403 $txt ([Text.Encoding]::UTF8.GetBytes('forbidden')) }
         elseif ($path -eq '/') {
-            $list = @('inventory.txt', 'watch.log', 'session.log', 'alerts.log') + @(Get-ChildItem $AppLogDir -Filter 'ManagementApp.*.log' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 4 | ForEach-Object { 'app/' + $_.Name }) + @(Get-ChildItem $ShotDir -Filter *.jpg -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 300 | ForEach-Object { 'shots/' + $_.Name })
+            $list = @('inventory.txt', 'watch.log', 'session.log', 'alerts.log', 'ui-tree.txt') + @(Get-ChildItem $AppLogDir -Filter 'ManagementApp.*.log' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 4 | ForEach-Object { 'app/' + $_.Name }) + @(Get-ChildItem $ShotDir -Filter *.jpg -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 300 | ForEach-Object { 'shots/' + $_.Name })
             Send-Http $c 200 $txt ([Text.Encoding]::UTF8.GetBytes(("v$VERSION`n" + ($list -join "`n"))))
         }
-        elseif ($path -in '/inventory.txt', '/watch.log', '/session.log', '/alerts.log' -and (Test-Path (Join-Path $Dir $path.TrimStart('/')))) {
+        elseif ($path -in '/inventory.txt', '/watch.log', '/session.log', '/alerts.log', '/ui-tree.txt' -and (Test-Path (Join-Path $Dir $path.TrimStart('/')))) {
             Send-Http $c 200 $txt (Read-Shared (Join-Path $Dir $path.TrimStart('/')))
         }
         elseif ($path -match '^/app/(ManagementApp\.\d{8}\.log)$' -and (Test-Path (Join-Path $AppLogDir $Matches[1]))) {
