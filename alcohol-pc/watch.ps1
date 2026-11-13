@@ -2,7 +2,7 @@
 # 이 파일은 UTF-8 BOM 으로 저장해야 한다 (PowerShell 5.1 이 한글을 읽으려면).
 # 측정 프로그램은 건드리지 않는다: 로그인과 GET 조회만 한다 (출퇴근 관리가 B PC 에서 하는 것과 같다).
 param([switch]$NoRun)
-$VERSION = '1.0.0'
+$VERSION = '1.0.1'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }   # 옛 .NET 은 TLS1.2 를 따로 켜야 GitHub 에 닿는다
 
 $Dir   = if ($env:ALCOHOL_TEST_DIR) { $env:ALCOHOL_TEST_DIR } else { Join-Path $env:ProgramData 'AlcoholWatch' }
@@ -102,7 +102,7 @@ function Show-Alarm($a) {
     $l = New-Object Windows.Forms.Label
     $l.Dock = 'Fill'; $l.TextAlign = 'MiddleCenter'; $l.ForeColor = [Drawing.Color]::White
     $l.Font = New-Object Drawing.Font('맑은 고딕', 36, [Drawing.FontStyle]::Bold)
-    $l.Text = "$($a.Name)님`r`n음주측정이 되지 않았습니다`r`n다시 측정해 주세요"
+    $l.Text = if ($a.Text) { $a.Text } else { "$($a.Name)님`r`n음주측정이 되지 않았습니다`r`n다시 측정해 주세요" }
     $f.Controls.Add($l)
     $f.Show()
     $snd = $null
@@ -111,7 +111,7 @@ function Show-Alarm($a) {
     try {
         $voice = New-Object Speech.Synthesis.SpeechSynthesizer
         $voice.SelectVoiceByHints('NotSet', 'NotSet', 0, [Globalization.CultureInfo]'ko-KR')
-        $voice.SpeakAsync("$($a.Name)님! 음주측정이 되지 않았습니다! 다시 측정해 주세요!") | Out-Null
+        $voice.SpeakAsync($(if ($a.Say) { $a.Say } else { "$($a.Name)님! 음주측정이 되지 않았습니다! 다시 측정해 주세요!" })) | Out-Null
     } catch { }
     $script:Alarm = @{ Form = $f; Snd = $snd; Voice = $voice; Until = (Get-Date).AddSeconds($AlarmShow); Empid = $a.Empid; Count = $a.Count }
     Log "경보 $($a.Name) $($a.Count)회차 — $($a.Why)"
@@ -169,7 +169,7 @@ function Start-Inventory {
 function Send-Report {
     try {
         $dst = Join-Path $NasDir '보고'
-        if (-not (Test-Path $NasDir)) { return }
+        if (-not (Test-Path $NasDir)) { if (-not $script:NasLogged) { $script:NasLogged = $true; Log 'NAS 에 닿지 않아 보고를 못 올립니다 (판올림은 GitHub 로 받습니다)' }; return }
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
         foreach ($n in 'watch.log', 'inventory.txt') {
             $s = Join-Path $Dir $n; if (Test-Path $s) { Copy-Item $s (Join-Path $dst "음주PC_$n") -Force }
@@ -198,6 +198,22 @@ function Update-Self {
 }
 $VERSION_V = [Version]$VERSION
 
+# 시험 경보: GitHub 의 demo.txt 내용이 지난번과 다르면 화면 경보를 한 번 띄운다 (실제 측정 없이 경보가 보이는지 원격으로 확인).
+# 처음 켠 때는 지금 내용을 기억만 하고 띄우지 않는다.
+function Test-Demo {
+    try {
+        $b = (Invoke-WebRequest -Uri (($GitUrl -replace 'watch\.ps1$', 'demo.txt') + '?t=' + [DateTime]::Now.Ticks) -UseBasicParsing -TimeoutSec 8).Content
+        $cur = ([string]$b).Trim().TrimStart([char]0xFEFF)
+    } catch { return }
+    $f = Join-Path $Dir 'demo-last.txt'
+    $last = $null; if (Test-Path $f) { $last = (Get-Content $f -Raw -Encoding UTF8).Trim() }
+    if ($cur -eq $last) { return }
+    Set-Content -Path $f -Value $cur -Encoding UTF8
+    if ($null -eq $last) { return }
+    Show-Alarm ([pscustomobject]@{ Name = '시험'; Empid = 'demo'; Count = 0; Why = '원격 시험 경보'
+        Text = "시험 경보입니다`r`n이 창이 보이면 정상입니다"; Say = '시험 경보입니다. 이 소리가 들리면 정상입니다.' })
+}
+
 # 끄기 쪽지: NAS 에 STOP 파일이 있으면 시작프로그램을 지우고 끝낸다 (자리에 못 가도 끌 수 있게).
 function Test-Stop {
     try {
@@ -217,7 +233,7 @@ while ($true) {
     $now = Get-Date
     if (($now - $lastInv).TotalMinutes -ge 360) { $lastInv = $now; Start-Inventory }
     if (($now - $lastRep).TotalMinutes -ge 5) { $lastRep = $now; Send-Report }
-    if (($now - $lastUpd).TotalMinutes -ge 5 -and -not $script:Alarm) { $lastUpd = $now; Test-Stop; Update-Self }
+    if (($now - $lastUpd).TotalMinutes -ge 5 -and -not $script:Alarm) { $lastUpd = $now; Test-Stop; Test-Demo; Update-Self }
     try {
         $today = $now.ToString('yyyyMMdd')
         $raw = @(Get-Api "/btest/admin/$today/$today")
