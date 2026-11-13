@@ -2,7 +2,7 @@
 # 이 파일은 UTF-8 BOM 으로 저장해야 한다 (PowerShell 5.1 이 한글을 읽으려면).
 # 측정 프로그램은 건드리지 않는다: 로그인과 GET 조회만 한다 (출퇴근 관리가 B PC 에서 하는 것과 같다).
 param([switch]$NoRun)
-$VERSION = '1.0.3'
+$VERSION = '1.0.4'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }   # 옛 .NET 은 TLS1.2 를 따로 켜야 GitHub 에 닿는다
 
 $Dir   = if ($env:ALCOHOL_TEST_DIR) { $env:ALCOHOL_TEST_DIR } else { Join-Path $env:ProgramData 'AlcoholWatch' }
@@ -52,6 +52,24 @@ function Get-Alarms($rows, $photos, $nowUtc, $st) {
         if ($why) { $st.Told[$key] = 1; $out += [pscustomobject]@{ Key = $key; Name = ([string]$r.empname); Empid = [string]$r.empid; Count = $n; Why = $why } }
     }
     return , $out
+}
+
+# ── 측정 프로그램 로그로 즉시 판정 (순수 함수) ───────────────────────────────
+# 2026-11-13 로그 실측: 찰칵(로그인캡처 끝) 뒤 끝나지 못한 7건 중 5건은 1~6초 안에 '0x81 음주측정기 에러' 가 찍히고 프로그램이 창을 닫았다.
+# 나머지는 창이 닫힘(사람이 닫기, 또는 측정기가 준비 상태로 돌아감). 정상 300건은 '측정완료캡처 시작' 이 먼저 나온다.
+# 반환: $null(아무 일 없음) / 'NEW'(새 측정 시작) / 경보 사유 문자열
+function Step-AppLog($line, $st) {
+    if ($line -match 'readySoundPlayRunFlag') { $st.Pending = $false; $st.Fired = $false; return 'NEW' }
+    if ($line -match '로그인캡처 끝') { $st.Pending = $true; return $null }
+    if ($line -match '측정완료캡처 시작') { $st.Pending = $false; return $null }
+    if ($line -match 'Close MainWindow') {
+        $was = $st.Pending -and -not $st.Fired
+        $st.Pending = $false
+        if ($was) { $st.Fired = $true; return '측정 창이 끝나지 못하고 닫혔습니다' }
+        return $null
+    }
+    if ($st.Pending -and -not $st.Fired -and $line -match '음주측정기 에러') { $st.Fired = $true; return '음주측정기 에러가 났습니다' }
+    return $null
 }
 
 if ($NoRun) { return }
@@ -123,9 +141,35 @@ function Close-Alarm {
     try { if ($x.Voice) { $x.Voice.SpeakAsyncCancelAll(); $x.Voice.Dispose() } } catch { }
     try { $x.Form.Close(); $x.Form.Dispose() } catch { }
 }
+$script:AppSt = @{ Pending = $false; Fired = $false }
+$script:AppPath = $null; $script:AppPos = 0L; $script:AppRest = ''; $script:LogAlarmAt = [DateTime]::MinValue
+function Poll-AppLog {
+    try {
+        $path = Join-Path $AppLogDir ("ManagementApp.{0}.log" -f (Get-Date -Format 'yyyyMMdd'))
+        if (-not (Test-Path $path)) { return }
+        $len = (Get-Item $path).Length
+        if ($path -ne $script:AppPath) { $script:AppPath = $path; $script:AppPos = $len; $script:AppRest = ''; return }   # 켠 때/날이 바뀐 때는 옛 줄을 다시 읽지 않는다
+        if ($len -le $script:AppPos) { if ($len -lt $script:AppPos) { $script:AppPos = $len }; return }
+        $fs = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite')
+        try { [void]$fs.Seek($script:AppPos, 'Begin'); $buf = New-Object byte[] ($len - $script:AppPos); $n = $fs.Read($buf, 0, $buf.Length); $script:AppPos += $n }
+        finally { $fs.Dispose() }
+        $text = $script:AppRest + [Text.Encoding]::UTF8.GetString($buf, 0, $n)
+        $parts = $text -split "`n"
+        $script:AppRest = $parts[-1]
+        foreach ($ln in $parts[0..($parts.Count - 2)]) {
+            $r = Step-AppLog $ln $script:AppSt
+            if ($r -eq 'NEW') { if ($script:Alarm -and $script:Alarm.Empid -eq 'log') { Close-Alarm } }
+            elseif ($r) {
+                $script:LogAlarmAt = Get-Date
+                Show-Alarm ([pscustomobject]@{ Name = ''; Empid = 'log'; Count = 0; Why = "측정 프로그램 로그: $r"
+                    Text = "음주측정이 되지 않았습니다`r`n다시 측정해 주세요"; Say = '음주측정이 되지 않았습니다! 다시 측정해 주세요!' })
+            }
+        }
+    } catch { }
+}
 function Pump($sec) {
     $end = (Get-Date).AddSeconds($sec)
-    while ((Get-Date) -lt $end) { [Windows.Forms.Application]::DoEvents(); Serve-One; Start-Sleep -Milliseconds 100 }
+    while ((Get-Date) -lt $end) { [Windows.Forms.Application]::DoEvents(); Serve-One; Poll-AppLog; Start-Sleep -Milliseconds 100 }
 }
 
 # 살펴보기: 측정 프로그램의 위치·로그·튕김 흔적을 파일로 남긴다 (읽기만, 별도 작업으로 — 경보를 늦추지 않게).
@@ -345,7 +389,7 @@ while ($true) {
             } catch { }
         }
         Record-Session $rows $photos $nowUtc
-        foreach ($a in (Get-Alarms $rows $photos $nowUtc $st)) { Show-Alarm $a }
+        foreach ($a in (Get-Alarms $rows $photos $nowUtc $st)) { if (((Get-Date) - $script:LogAlarmAt).TotalSeconds -gt 60) { Show-Alarm $a } }
         # 경보를 끌 때: 시간이 다 됐거나, 그 사람이 결과를 받았거나 다시 찍었다
         if ($script:Alarm) {
             $x = $script:Alarm

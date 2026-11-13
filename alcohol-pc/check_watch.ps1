@@ -49,4 +49,13 @@ $st = NewSt; $ph = @{ 'a|1' = @('로그인') }
 [void](Get-Alarms @(Row 'a' 1 'R' 200 $now) $ph $now.AddSeconds(-14) $st)
 Expect '90초 지난 옛 회차는 조용' ((Get-Alarms @(Row 'a' 1 'R' 200 $now) $ph $now $st).Count -eq 0)
 
+# 9) 측정 프로그램 로그 즉시 판정 (2026-11-13 실제 로그 모양)
+function Run-Log($lines) { $st = @{ Pending = $false; Fired = $false }; $o = @(); foreach ($l in $lines) { $r = Step-AppLog $l $st; if ($r -and $r -ne 'NEW') { $o += $r } }; return , $o }
+$ready = 'bytes6 05 readySoundPlayRunFlag SoundPlay.Ready bytes6 :'
+Expect '정상(찰칵→측정완료→닫힘)은 조용'   ((Run-Log @($ready, '로그인캡처 끝', '측정완료캡처 시작', 'Close MainWindow')).Count -eq 0)
+Expect '찰칵 뒤 0x81 에러 → 즉시 경보'      ((Run-Log @($ready, '로그인캡처 끝', '0x81 음주측정기 에러 bytes25 :', 'Close MainWindow')).Count -eq 1)
+Expect '찰칵 뒤 완료 없이 창 닫힘 → 경보'   ((Run-Log @($ready, '로그인캡처 끝', 'close click', 'Close MainWindow')).Count -eq 1)
+Expect '에러 뒤 닫힘은 두 번 울리지 않음'   ((Run-Log @($ready, '로그인캡처 끝', '0x81 음주측정기 에러 bytes25 :', 'Close MainWindow')).Count -eq 1)
+Expect '찰칵 전(준비 중) 에러·닫힘은 조용'  ((Run-Log @($ready, '0x81 음주측정기 에러 bytes25 :', 'Close MainWindow')).Count -eq 0)
+
 if ($fail) { "`n실패 $fail 건"; exit 1 } else { "`n모두 통과" }
