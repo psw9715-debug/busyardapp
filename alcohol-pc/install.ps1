@@ -1,6 +1,7 @@
 ﻿# 음주측정 PC 설치 — 한 번만 돌리면 이후는 스스로 갱신한다. UTF-8 BOM 으로 저장.
 #   powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/psw9715-debug/busyardapp/main/alcohol-pc/install.ps1 | iex"
 $ErrorActionPreference = 'Stop'
+try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }   # 옛 .NET 은 TLS1.2 를 따로 켜야 GitHub 에 닿는다
 $Dir    = Join-Path $env:ProgramData 'AlcoholWatch'
 $Git    = 'https://raw.githubusercontent.com/psw9715-debug/busyardapp/main/alcohol-pc/watch.ps1'
 $NasDir = '\\192.168.35.22\sctc17\유틸리티\음주PC에이전트'
