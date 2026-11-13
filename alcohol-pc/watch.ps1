@@ -2,7 +2,7 @@
 # 이 파일은 UTF-8 BOM 으로 저장해야 한다 (PowerShell 5.1 이 한글을 읽으려면).
 # 측정 프로그램은 건드리지 않는다: 로그인과 GET 조회만 한다 (출퇴근 관리가 B PC 에서 하는 것과 같다).
 param([switch]$NoRun)
-$VERSION = '1.0.2'
+$VERSION = '1.0.3'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }   # 옛 .NET 은 TLS1.2 를 따로 켜야 GitHub 에 닿는다
 
 $Dir   = if ($env:ALCOHOL_TEST_DIR) { $env:ALCOHOL_TEST_DIR } else { Join-Path $env:ProgramData 'AlcoholWatch' }
@@ -274,6 +274,7 @@ function Record-Session($rows, $photos, $nowUtc) {
 $Allow = @('192.168.35.99', '127.0.0.1')
 $ExportPort = 8765
 if ($env:ALCOHOL_TEST_PORT) { $ExportPort = [int]$env:ALCOHOL_TEST_PORT }
+$AppLogDir = if ($env:ALCOHOL_TEST_APPLOG) { $env:ALCOHOL_TEST_APPLOG } else { 'C:\Wellcomsnt\Wellcom.Alcohol.Kendo.Winform\Log' }   # 측정 프로그램 자신의 로그(읽기만)
 $script:Srv = $null
 try { $script:Srv = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Any, $ExportPort); $script:Srv.Start() }
 catch { Log "내보내기 포트 $ExportPort 를 못 엶: $($_.Exception.Message)"; $script:Srv = $null }
@@ -301,11 +302,14 @@ function Serve-One {
         $txt = 'text/plain; charset=utf-8'
         if ($Allow -notcontains $ip) { Send-Http $c 403 $txt ([Text.Encoding]::UTF8.GetBytes('forbidden')) }
         elseif ($path -eq '/') {
-            $list = @('inventory.txt', 'watch.log', 'session.log') + @(Get-ChildItem $ShotDir -Filter *.jpg -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 300 | ForEach-Object { 'shots/' + $_.Name })
+            $list = @('inventory.txt', 'watch.log', 'session.log') + @(Get-ChildItem $AppLogDir -Filter 'ManagementApp.*.log' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 4 | ForEach-Object { 'app/' + $_.Name }) + @(Get-ChildItem $ShotDir -Filter *.jpg -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 300 | ForEach-Object { 'shots/' + $_.Name })
             Send-Http $c 200 $txt ([Text.Encoding]::UTF8.GetBytes(("v$VERSION`n" + ($list -join "`n"))))
         }
         elseif ($path -in '/inventory.txt', '/watch.log', '/session.log' -and (Test-Path (Join-Path $Dir $path.TrimStart('/')))) {
             Send-Http $c 200 $txt (Read-Shared (Join-Path $Dir $path.TrimStart('/')))
+        }
+        elseif ($path -match '^/app/(ManagementApp\.\d{8}\.log)$' -and (Test-Path (Join-Path $AppLogDir $Matches[1]))) {
+            Send-Http $c 200 $txt (Read-Shared (Join-Path $AppLogDir $Matches[1]))
         }
         elseif ($path -match '^/shots/([0-9_]+\.jpg)$' -and (Test-Path (Join-Path $ShotDir $Matches[1]))) {
             Send-Http $c 200 'image/jpeg' (Read-Shared (Join-Path $ShotDir $Matches[1]))
