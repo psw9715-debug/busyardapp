@@ -2,7 +2,7 @@
 # 이 파일은 UTF-8 BOM 으로 저장해야 한다 (PowerShell 5.1 이 한글을 읽으려면).
 # 측정 프로그램은 건드리지 않는다: 로그인과 GET 조회만 한다 (출퇴근 관리가 B PC 에서 하는 것과 같다).
 param([switch]$NoRun)
-$VERSION = '1.0.5'
+$VERSION = '1.0.6'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }   # 옛 .NET 은 TLS1.2 를 따로 켜야 GitHub 에 닿는다
 
 $Dir   = if ($env:ALCOHOL_TEST_DIR) { $env:ALCOHOL_TEST_DIR } else { Join-Path $env:ProgramData 'AlcoholWatch' }
@@ -14,6 +14,7 @@ $Base   = '/Wellcom.Alcohol.Measure.Web'
 $Done   = 'Y', 'N', 'S', 'D'        # 결과가 난 것
 $ClickWait = 13                     # 찰칵(준비) 뒤 이 초가 지나도 측정완료가 없으면 알린다
 $MaxAge    = 90                     # 카드 뒤 이보다 지난 회차는 알리지 않는다
+$OnSiteAlarm = $false               # 데이터 수집 단계: 음주측정 PC 화면 경보는 끄고 기록만 한다(alerts.log). 켜는 것은 사용자가 정한 뒤에.
 $AlarmShow = 40                     # 경보를 띄워 두는 초
 
 function Log($m) {
@@ -113,6 +114,11 @@ function Get-Api($path) {
 # 화면 경보: 화면 한가운데 크게 + 소리 + (한국어 음성이 있으면) 말. 사람이 읽을 때까지 40초.
 $script:Alarm = $null
 function Show-Alarm($a) {
+    if (-not $OnSiteAlarm -and $a.Empid -ne 'demo') {
+        Log "경보 감지(화면은 꺼 둠) $($a.Name) $($a.Count)회차 — $($a.Why)"
+        try { Add-Content -Path (Join-Path $Dir 'alerts.log') -Encoding UTF8 -Value ("{0} {1} {2}" -f (Get-Date -Format 'MM-dd HH:mm:ss'), $a.Name, $a.Why) } catch { }
+        return
+    }
     Close-Alarm
     if ($env:ALCOHOL_TEST_NOUI) { Log "경보 $($a.Name) $($a.Count)회차 — $($a.Why)"; return }
     $f = New-Object Windows.Forms.Form
@@ -355,10 +361,10 @@ function Serve-One {
         $txt = 'text/plain; charset=utf-8'
         if ($Allow -notcontains $ip) { Send-Http $c 403 $txt ([Text.Encoding]::UTF8.GetBytes('forbidden')) }
         elseif ($path -eq '/') {
-            $list = @('inventory.txt', 'watch.log', 'session.log') + @(Get-ChildItem $AppLogDir -Filter 'ManagementApp.*.log' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 4 | ForEach-Object { 'app/' + $_.Name }) + @(Get-ChildItem $ShotDir -Filter *.jpg -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 300 | ForEach-Object { 'shots/' + $_.Name })
+            $list = @('inventory.txt', 'watch.log', 'session.log', 'alerts.log') + @(Get-ChildItem $AppLogDir -Filter 'ManagementApp.*.log' -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 4 | ForEach-Object { 'app/' + $_.Name }) + @(Get-ChildItem $ShotDir -Filter *.jpg -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 300 | ForEach-Object { 'shots/' + $_.Name })
             Send-Http $c 200 $txt ([Text.Encoding]::UTF8.GetBytes(("v$VERSION`n" + ($list -join "`n"))))
         }
-        elseif ($path -in '/inventory.txt', '/watch.log', '/session.log' -and (Test-Path (Join-Path $Dir $path.TrimStart('/')))) {
+        elseif ($path -in '/inventory.txt', '/watch.log', '/session.log', '/alerts.log' -and (Test-Path (Join-Path $Dir $path.TrimStart('/')))) {
             Send-Http $c 200 $txt (Read-Shared (Join-Path $Dir $path.TrimStart('/')))
         }
         elseif ($path -match '^/app/(ManagementApp\.\d{8}\.log)$' -and (Test-Path (Join-Path $AppLogDir $Matches[1]))) {
