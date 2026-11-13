@@ -2,7 +2,7 @@
 # 이 파일은 UTF-8 BOM 으로 저장해야 한다 (PowerShell 5.1 이 한글을 읽으려면).
 # 측정 프로그램은 건드리지 않는다: 로그인과 GET 조회만 한다 (출퇴근 관리가 B PC 에서 하는 것과 같다).
 param([switch]$NoRun)
-$VERSION = '1.0.1'
+$VERSION = '1.0.2'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }   # 옛 .NET 은 TLS1.2 를 따로 켜야 GitHub 에 닿는다
 
 $Dir   = if ($env:ALCOHOL_TEST_DIR) { $env:ALCOHOL_TEST_DIR } else { Join-Path $env:ProgramData 'AlcoholWatch' }
@@ -125,7 +125,7 @@ function Close-Alarm {
 }
 function Pump($sec) {
     $end = (Get-Date).AddSeconds($sec)
-    while ((Get-Date) -lt $end) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 100 }
+    while ((Get-Date) -lt $end) { [Windows.Forms.Application]::DoEvents(); Serve-One; Start-Sleep -Milliseconds 100 }
 }
 
 # 살펴보기: 측정 프로그램의 위치·로그·튕김 흔적을 파일로 남긴다 (읽기만, 별도 작업으로 — 경보를 늦추지 않게).
@@ -225,6 +225,95 @@ function Test-Stop {
     } catch { }
 }
 
+# ── 증거 모으기 ──────────────────────────────────────────────────────────────
+# 측정이 진행 중인 동안(카드 뒤 90초 안, 결과 없음) 화면을 1초마다 작게 저장하고, 끝난 뒤 6초까지 더 저장한다.
+# → 정상 측정과 '안전운전하세요' 전에 끊긴 측정의 화면을 비교해 원인을 찾는다. 읽기 전용, 측정 프로그램은 건드리지 않는다.
+Add-Type -TypeDefinition @"
+using System; using System.Runtime.InteropServices; using System.Text;
+public static class FgWin {
+  [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  public static string Title() { var s = new StringBuilder(256); GetWindowText(GetForegroundWindow(), s, 256); return s.ToString(); }
+}
+"@
+$ShotDir = Join-Path $Dir 'shots'
+$script:ShotCount = 0; $script:ShotUntil = [DateTime]::MinValue
+function Save-Shot {
+    try {
+        New-Item -ItemType Directory $ShotDir -Force | Out-Null
+        $b = [Windows.Forms.SystemInformation]::VirtualScreen
+        $bmp = New-Object Drawing.Bitmap($b.Width, $b.Height)
+        $g = [Drawing.Graphics]::FromImage($bmp); $g.CopyFromScreen($b.Left, $b.Top, 0, 0, $bmp.Size); $g.Dispose()
+        $small = New-Object Drawing.Bitmap($bmp, [int]($b.Width / 2), [int]($b.Height / 2))
+        $enc = [Drawing.Imaging.ImageCodecInfo]::GetImageEncoders() | Where-Object { $_.MimeType -eq 'image/jpeg' }
+        $ep = New-Object Drawing.Imaging.EncoderParameters(1)
+        $ep.Param[0] = New-Object Drawing.Imaging.EncoderParameter([Drawing.Imaging.Encoder]::Quality, [long]60)
+        $name = (Get-Date -Format 'MMdd_HHmmss_f') + '.jpg'
+        $small.Save((Join-Path $ShotDir $name), $enc, $ep); $small.Dispose(); $bmp.Dispose()
+        $script:ShotCount++
+        if ($script:ShotCount % 100 -eq 0) {      # 오래된 것부터 지운다 (900장을 넘기면 300장)
+            $all = @(Get-ChildItem $ShotDir -Filter *.jpg | Sort-Object Name)
+            if ($all.Count -gt 900) { $all | Select-Object -First 300 | Remove-Item -Force -ErrorAction SilentlyContinue }
+        }
+        return $name
+    } catch { return $null }
+}
+function Get-Age($r, $nowUtc) {
+    try { return ($nowUtc - [DateTime]::ParseExact(([string]$r.createdate).Substring(0, 19), 'yyyy-MM-ddTHH:mm:ss', [Globalization.CultureInfo]::InvariantCulture, [Globalization.DateTimeStyles]::AssumeUniversal -bor [Globalization.DateTimeStyles]::AdjustToUniversal)).TotalSeconds } catch { return 9999 }
+}
+function Record-Session($rows, $photos, $nowUtc) {
+    $act = @($rows | Where-Object { $Done -notcontains ([string]$_.result).Trim() -and (Get-Age $_ $nowUtc) -le $MaxAge })
+    if ($act.Count -gt 0) { $script:ShotUntil = (Get-Date).AddSeconds(6) }
+    if ($act.Count -eq 0 -and (Get-Date) -gt $script:ShotUntil) { return }
+    $name = Save-Shot
+    $who = ($rows | Where-Object { (Get-Age $_ $nowUtc) -le $MaxAge } | ForEach-Object { "$($_.empname)#$($_.count)=$(([string]$_.result).Trim())[" + ((@($photos["$($_.empid)|$($_.count)"])) -join ',') + "]" }) -join ' '
+    Add-Content -Path (Join-Path $Dir 'session.log') -Encoding UTF8 -Value ("{0} 화면={1} 앞창='{2}' {3}" -f (Get-Date -Format 'MM-dd HH:mm:ss.f'), $name, [FgWin]::Title(), $who)
+}
+
+# ── 내보내기: 정해진 PC(B)만, 정해진 파일만, 읽기 전용 ─────────────────────────
+$Allow = @('192.168.35.99', '127.0.0.1')
+$ExportPort = 8765
+if ($env:ALCOHOL_TEST_PORT) { $ExportPort = [int]$env:ALCOHOL_TEST_PORT }
+$script:Srv = $null
+try { $script:Srv = New-Object Net.Sockets.TcpListener([Net.IPAddress]::Any, $ExportPort); $script:Srv.Start() }
+catch { Log "내보내기 포트 $ExportPort 를 못 엶: $($_.Exception.Message)"; $script:Srv = $null }
+if ($script:Srv -and -not $env:ALCOHOL_TEST_PORT) {
+    try {   # 방화벽 규칙(관리자일 때만 되고, 아니면 말없이 넘어간다)
+        $out = netsh advfirewall firewall add rule name=AlcoholWatch dir=in action=allow protocol=TCP localport=$ExportPort remoteip=192.168.35.99 2>&1 | Out-String
+        Log ("방화벽 규칙: " + $out.Trim())
+    } catch { }
+}
+function Send-Http($c, $code, $ctype, [byte[]]$body) {
+    $head = [Text.Encoding]::ASCII.GetBytes("HTTP/1.1 $code OK`r`nContent-Type: $ctype`r`nContent-Length: $($body.Length)`r`nConnection: close`r`n`r`n")
+    $ns = $c.GetStream(); $ns.Write($head, 0, $head.Length); $ns.Write($body, 0, $body.Length); $ns.Flush()
+}
+function Read-Shared($path) {
+    $fs = [IO.File]::Open($path, 'Open', 'Read', 'ReadWrite'); try { $ms = New-Object IO.MemoryStream; $fs.CopyTo($ms); return $ms.ToArray() } finally { $fs.Dispose() }
+}
+function Serve-One {
+    if (-not $script:Srv -or -not $script:Srv.Pending()) { return }
+    $c = $script:Srv.AcceptTcpClient()
+    try {
+        $ip = $c.Client.RemoteEndPoint.Address.ToString()
+        $c.ReceiveTimeout = 2000
+        $buf = New-Object byte[] 2048; $n = $c.GetStream().Read($buf, 0, 2048)
+        $path = ([Text.Encoding]::ASCII.GetString($buf, 0, $n) -split ' ')[1]
+        $txt = 'text/plain; charset=utf-8'
+        if ($Allow -notcontains $ip) { Send-Http $c 403 $txt ([Text.Encoding]::UTF8.GetBytes('forbidden')) }
+        elseif ($path -eq '/') {
+            $list = @('inventory.txt', 'watch.log', 'session.log') + @(Get-ChildItem $ShotDir -Filter *.jpg -ErrorAction SilentlyContinue | Sort-Object Name | Select-Object -Last 300 | ForEach-Object { 'shots/' + $_.Name })
+            Send-Http $c 200 $txt ([Text.Encoding]::UTF8.GetBytes(("v$VERSION`n" + ($list -join "`n"))))
+        }
+        elseif ($path -in '/inventory.txt', '/watch.log', '/session.log' -and (Test-Path (Join-Path $Dir $path.TrimStart('/')))) {
+            Send-Http $c 200 $txt (Read-Shared (Join-Path $Dir $path.TrimStart('/')))
+        }
+        elseif ($path -match '^/shots/([0-9_]+\.jpg)$' -and (Test-Path (Join-Path $ShotDir $Matches[1]))) {
+            Send-Http $c 200 'image/jpeg' (Read-Shared (Join-Path $ShotDir $Matches[1]))
+        }
+        else { Send-Http $c 404 $txt ([Text.Encoding]::UTF8.GetBytes('not found')) }
+    } catch { } finally { try { $c.Close() } catch { } }
+}
+
 # ── 본 반복 ──────────────────────────────────────────────────────────────────
 Log "시작 v$VERSION"
 $st = @{ Click = @{}; Told = @{} }
@@ -251,6 +340,7 @@ while ($true) {
                 $photos["$($r.empid)|$($r.count)"] = @($list | ForEach-Object { [string]$_.type })
             } catch { }
         }
+        Record-Session $rows $photos $nowUtc
         foreach ($a in (Get-Alarms $rows $photos $nowUtc $st)) { Show-Alarm $a }
         # 경보를 끌 때: 시간이 다 됐거나, 그 사람이 결과를 받았거나 다시 찍었다
         if ($script:Alarm) {
