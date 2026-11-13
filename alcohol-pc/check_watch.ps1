@@ -58,4 +58,11 @@ Expect '찰칵 뒤 완료 없이 창 닫힘 → 경보'   ((Run-Log @($ready, '�
 Expect '에러 뒤 닫힘은 두 번 울리지 않음'   ((Run-Log @($ready, '로그인캡처 끝', '0x81 음주측정기 에러 bytes25 :', 'Close MainWindow')).Count -eq 1)
 Expect '찰칵 전(준비 중) 에러·닫힘은 조용'  ((Run-Log @($ready, '0x81 음주측정기 에러 bytes25 :', 'Close MainWindow')).Count -eq 0)
 
+Expect '미측정캡처는 창이 닫히기 전에 경보'  ((Run-Log @($ready, '로그인캡처 끝', '미측정캡처 시작')).Count -eq 1)
+Expect '미측정 뒤 닫힘은 두 번 울리지 않음'  ((Run-Log @($ready, '로그인캡처 끝', '미측정캡처 시작', '미측정캡처 끝', 'Close MainWindow')).Count -eq 1)
+# 10) 닿지 않는 NAS 를 확인해도 2.5초 안에 돌아와야 한다 (경보가 같이 멈추면 안 된다 — 11-14 04:16 에 3분 늦은 일)
+$sw = [Diagnostics.Stopwatch]::StartNew()
+$c = New-Object Net.Sockets.TcpClient; $ar = $c.BeginConnect('192.168.35.250', 445, $null, $null); [void]$ar.AsyncWaitHandle.WaitOne(1500); $c.Close()
+Expect '닿지 않는 주소 확인이 2.5초 안에 끝남' ($sw.Elapsed.TotalSeconds -lt 2.5)
+
 if ($fail) { "`n실패 $fail 건"; exit 1 } else { "`n모두 통과" }

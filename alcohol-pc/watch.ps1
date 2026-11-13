@@ -2,7 +2,7 @@
 # 이 파일은 UTF-8 BOM 으로 저장해야 한다 (PowerShell 5.1 이 한글을 읽으려면).
 # 측정 프로그램은 건드리지 않는다: 로그인과 GET 조회만 한다 (출퇴근 관리가 B PC 에서 하는 것과 같다).
 param([switch]$NoRun)
-$VERSION = '1.0.4'
+$VERSION = '1.0.5'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }   # 옛 .NET 은 TLS1.2 를 따로 켜야 GitHub 에 닿는다
 
 $Dir   = if ($env:ALCOHOL_TEST_DIR) { $env:ALCOHOL_TEST_DIR } else { Join-Path $env:ProgramData 'AlcoholWatch' }
@@ -62,6 +62,7 @@ function Step-AppLog($line, $st) {
     if ($line -match 'readySoundPlayRunFlag') { $st.Pending = $false; $st.Fired = $false; return 'NEW' }
     if ($line -match '로그인캡처 끝') { $st.Pending = $true; return $null }
     if ($line -match '측정완료캡처 시작') { $st.Pending = $false; return $null }
+    if ($st.Pending -and -not $st.Fired -and $line -match '미측정캡처 시작') { $st.Fired = $true; return '측정기가 미측정으로 끝냈습니다' }
     if ($line -match 'Close MainWindow') {
         $was = $st.Pending -and -not $st.Fired
         $st.Pending = $false
@@ -210,10 +211,18 @@ function Start-Inventory {
 }
 
 # 보고: NAS 에 닿으면 기록을 올려 둔다 (밖에서 읽는 길). 못 닿으면 말없이 넘어간다.
+function Test-NasUp {
+    try {
+        $c = New-Object Net.Sockets.TcpClient
+        $ar = $c.BeginConnect('192.168.35.22', 445, $null, $null)
+        $ok = $ar.AsyncWaitHandle.WaitOne(1500) -and $c.Connected
+        $c.Close(); return [bool]$ok
+    } catch { return $false }
+}
 function Send-Report {
     try {
         $dst = Join-Path $NasDir '보고'
-        if (-not (Test-Path $NasDir)) { if (-not $script:NasLogged) { $script:NasLogged = $true; Log 'NAS 에 닿지 않아 보고를 못 올립니다 (판올림은 GitHub 로 받습니다)' }; return }
+        if (-not (Test-NasUp) -or -not (Test-Path $NasDir)) { if (-not $script:NasLogged) { $script:NasLogged = $true; Log 'NAS 에 닿지 않아 보고를 못 올립니다 (판올림은 GitHub 로 받습니다)' }; return }
         New-Item -ItemType Directory -Path $dst -Force | Out-Null
         foreach ($n in 'watch.log', 'inventory.txt') {
             $s = Join-Path $Dir $n; if (Test-Path $s) { Copy-Item $s (Join-Path $dst "음주PC_$n") -Force }
@@ -227,10 +236,10 @@ function Get-Ver($text) { if ($text -match "\`$VERSION\s*=\s*'(\d+)\.(\d+)\.(\d+
 function Update-Self {
     $new = $null
     try {
-        $b = (Invoke-WebRequest -Uri ($GitUrl + '?t=' + [DateTime]::Now.Ticks) -UseBasicParsing -TimeoutSec 8).Content
+        $b = (Invoke-WebRequest -Uri ($GitUrl + '?t=' + [DateTime]::Now.Ticks) -UseBasicParsing -TimeoutSec 4).Content
         if ($b -is [byte[]]) { $new = [Text.Encoding]::UTF8.GetString($b) } else { $new = [string]$b }
     } catch { }
-    if (-not $new) { try { $p = Join-Path $NasDir 'watch.ps1'; if (Test-Path $p) { $new = [IO.File]::ReadAllText($p, [Text.Encoding]::UTF8) } } catch { } }
+    if (-not $new -and (Test-NasUp)) { try { $p = Join-Path $NasDir 'watch.ps1'; if (Test-Path $p) { $new = [IO.File]::ReadAllText($p, [Text.Encoding]::UTF8) } } catch { } }
     if (-not $new) { return }
     $new = $new.TrimStart([char]0xFEFF)
     if ((Get-Ver $new) -le $VERSION_V) { return }
@@ -246,7 +255,7 @@ $VERSION_V = [Version]$VERSION
 # 처음 켠 때는 지금 내용을 기억만 하고 띄우지 않는다.
 function Test-Demo {
     try {
-        $b = (Invoke-WebRequest -Uri (($GitUrl -replace 'watch\.ps1$', 'demo.txt') + '?t=' + [DateTime]::Now.Ticks) -UseBasicParsing -TimeoutSec 8).Content
+        $b = (Invoke-WebRequest -Uri (($GitUrl -replace 'watch\.ps1$', 'demo.txt') + '?t=' + [DateTime]::Now.Ticks) -UseBasicParsing -TimeoutSec 4).Content
         $cur = ([string]$b).Trim().TrimStart([char]0xFEFF)
     } catch { return }
     $f = Join-Path $Dir 'demo-last.txt'
@@ -261,7 +270,7 @@ function Test-Demo {
 # 끄기 쪽지: NAS 에 STOP 파일이 있으면 시작프로그램을 지우고 끝낸다 (자리에 못 가도 끌 수 있게).
 function Test-Stop {
     try {
-        if (Test-Path (Join-Path $NasDir 'STOP')) {
+        if ((Test-NasUp) -and (Test-Path (Join-Path $NasDir 'STOP'))) {
             Remove-Item (Join-Path ([Environment]::GetFolderPath('Startup')) 'AlcoholWatch.vbs') -Force -ErrorAction SilentlyContinue
             Log 'STOP 쪽지를 보고 시작프로그램을 지우고 끝냅니다'
             Close-Alarm; $mutex.ReleaseMutex(); Stop-Process -Name wscript -ErrorAction SilentlyContinue; exit 0
