@@ -2,7 +2,7 @@
 # 이 파일은 UTF-8 BOM 으로 저장해야 한다 (PowerShell 5.1 이 한글을 읽으려면).
 # 측정 프로그램은 건드리지 않는다: 로그인과 GET 조회만 한다 (출퇴근 관리가 B PC 에서 하는 것과 같다).
 param([switch]$NoRun)
-$VERSION = '1.0.8'
+$VERSION = '1.0.9'
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }   # 옛 .NET 은 TLS1.2 를 따로 켜야 GitHub 에 닿는다
 
 $Dir   = if ($env:ALCOHOL_TEST_DIR) { $env:ALCOHOL_TEST_DIR } else { Join-Path $env:ProgramData 'AlcoholWatch' }
@@ -58,19 +58,10 @@ function Get-Alarms($rows, $photos, $nowUtc, $st) {
 # ── 측정 프로그램 로그로 즉시 판정 (순수 함수) ───────────────────────────────
 # 2026-11-13 로그 실측: 찰칵(로그인캡처 끝) 뒤 끝나지 못한 7건 중 5건은 1~6초 안에 '0x81 음주측정기 에러' 가 찍히고 프로그램이 창을 닫았다.
 # 나머지는 창이 닫힘(사람이 닫기, 또는 측정기가 준비 상태로 돌아감). 정상 300건은 '측정완료캡처 시작' 이 먼저 나온다.
-# 2026-11-14 오충균 건: 찰칵 뒤 '불어주세요'(bytes6 06)가 12~17초 늦게 나오고 그동안 음악만 흐른다(직원이 카드를 다시 찍으면 풀림).
-# 어제·오늘 약 440세션에서 찰칵 뒤 첫 진행 신호(06·완료·에러·미측정)까지 정상은 0~3초, 이 증상 2건은 12·14초 → 5초면 가를 수 있다.
-function Test-Stuck($st, $now) {
-    if ($st.Pending -and -not $st.Progress -and -not $st.Stuck -and $st.CapAt -and (($now - $st.CapAt).TotalSeconds -ge 5)) {
-        $st.Stuck = $true; return "(참고·시간 기준) 찰칵 뒤 5초가 지나도 '불어주세요' 안내가 안 나옴"
-    }
-    return $null
-}
 # 반환: $null(아무 일 없음) / 'NEW'(새 측정 시작) / 경보 사유 문자열
-function Step-AppLog($line, $st, $now = (Get-Date)) {
-    if ($line -match 'bytes6 06|측정완료캡처 시작|음주측정기 에러|미측정캡처 시작') { $st.Progress = $true }
+function Step-AppLog($line, $st) {
     if ($line -match 'readySoundPlayRunFlag') { $st.Pending = $false; $st.Fired = $false; return 'NEW' }
-    if ($line -match '로그인캡처 끝') { $st.Pending = $true; $st.CapAt = $now; $st.Progress = $false; $st.Stuck = $false; return $null }
+    if ($line -match '로그인캡처 끝') { $st.Pending = $true; return $null }
     if ($line -match '측정완료캡처 시작') { $st.Pending = $false; return $null }
     if ($st.Pending -and -not $st.Fired -and $line -match '미측정캡처 시작') { $st.Fired = $true; return '측정기가 미측정으로 끝냈습니다' }
     if ($line -match 'Close MainWindow') {
@@ -157,7 +148,7 @@ function Close-Alarm {
     try { if ($x.Voice) { $x.Voice.SpeakAsyncCancelAll(); $x.Voice.Dispose() } } catch { }
     try { $x.Form.Close(); $x.Form.Dispose() } catch { }
 }
-$script:AppSt = @{ Pending = $false; Fired = $false; Progress = $false; Stuck = $false; CapAt = $null }
+$script:AppSt = @{ Pending = $false; Fired = $false }
 $script:AppPath = $null; $script:AppPos = 0L; $script:AppRest = ''; $script:LogAlarmAt = [DateTime]::MinValue
 function Poll-AppLog {
     try {
@@ -181,8 +172,6 @@ function Poll-AppLog {
             if ($r -eq 'NEW') { if ($script:Alarm -and $script:Alarm.Empid -eq 'log') { Close-Alarm } }
             elseif ($r) { Raise-LogAlarm $r }
         }
-        $r = Test-Stuck $script:AppSt (Get-Date)
-        if ($r) { Raise-LogAlarm $r }
     } catch { }
 }
 function Raise-LogAlarm($why) {

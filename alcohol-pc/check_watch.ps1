@@ -65,15 +65,4 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 $c = New-Object Net.Sockets.TcpClient; $ar = $c.BeginConnect('192.168.35.250', 445, $null, $null); [void]$ar.AsyncWaitHandle.WaitOne(1500); $c.Close()
 Expect '닿지 않는 주소 확인이 2.5초 안에 끝남' ($sw.Elapsed.TotalSeconds -lt 2.5)
 
-# 11) 찰칵 뒤 5초 넘게 진행 신호 없음(음악만 도는 상태)
-function Run-Stuck($steps) {   # $steps: @(@('줄', 초), ...) 줄이 들어온 시각(초)과 마지막에 검사할 시각
-    $st = @{ Pending = $false; Fired = $false; Progress = $false; Stuck = $false; CapAt = $null }; $t0 = Get-Date
-    foreach ($x in $steps[0..($steps.Count - 2)]) { [void](Step-AppLog $x[0] $st $t0.AddSeconds($x[1])) }
-    return (Test-Stuck $st $t0.AddSeconds($steps[-1][1]))
-}
-Expect '찰칵 뒤 12초 조용하면 음악만 도는 상태'   ([bool](Run-Stuck @(@($ready,0), @('로그인캡처 끝',3), @('검사',15))))
-Expect '찰칵 뒤 3초에 06 이 나오면 정상'          (-not (Run-Stuck @(@($ready,0), @('로그인캡처 끝',3), @('bytes6 06 SoundPlay.Ready',4), @('검사',15))))
-Expect '찰칵 뒤 1초에 완료되면 정상'              (-not (Run-Stuck @(@($ready,0), @('로그인캡처 끝',3), @('측정완료캡처 시작',4), @('검사',15))))
-Expect '찰칵 뒤 4초까지는 아직 아님'              (-not (Run-Stuck @(@($ready,0), @('로그인캡처 끝',3), @('검사',7))))
-
 if ($fail) { "`n실패 $fail 건"; exit 1 } else { "`n모두 통과" }
