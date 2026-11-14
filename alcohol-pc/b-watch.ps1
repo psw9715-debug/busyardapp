@@ -5,7 +5,7 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File b-watch.ps1            # 감시 시작
 #   powershell -NoProfile -ExecutionPolicy Bypass -File b-watch.ps1 -Test      # 번쩍임만 한 번 보기
 param([string]$Url = 'http://192.168.35.23:8765/alerts.log', [switch]$Test, [switch]$DryRun, [string]$OutFile = '',
-      [string]$AttendanceTitle = '출근 현황 관리 시스템', [switch]$WithAttendance)
+      [string]$AttendanceTitle = '출근 현황 관리 시스템', [switch]$WithAttendance, [string]$SignalFile = '')
 
 Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @"
 using System; using System.Windows.Forms;
@@ -93,6 +93,7 @@ while ($true) {
                 $prefix = if ($name) { "$name  " } else { '' }
                 $kind = if ($why -match '에러') { '음주측정기 에러' } elseif ($why -match '멈췄') { '측정대기중에서 멈춤(불어주세요 안 나옴)' } elseif ($why -match '닫혔') { '측정이 끝나지 못하고 닫힘' } else { '미측정' }
                 $text = $prefix + $kind
+                if ($level -eq 'red' -and $SignalFile -and -not $DryRun) { try { Set-Content -Path $SignalFile -Value (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -Encoding UTF8 } catch { } }
                 if ($DryRun) { Add-Content -Path $OutFile -Value ("{0:HH:mm:ss.fff} [{1}] {2}" -f (Get-Date), $level, $text) -Encoding UTF8 } else { Show-Flash $text $level }
             }
             $seen = $lines.Count
