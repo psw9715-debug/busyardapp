@@ -65,4 +65,9 @@ $sw = [Diagnostics.Stopwatch]::StartNew()
 $c = New-Object Net.Sockets.TcpClient; $ar = $c.BeginConnect('192.168.35.250', 445, $null, $null); [void]$ar.AsyncWaitHandle.WaitOne(1500); $c.Close()
 Expect '닿지 않는 주소 확인이 2.5초 안에 끝남' ($sw.Elapsed.TotalSeconds -lt 2.5)
 
+# 11) 깨진 이름 복구 (서버가 UTF-8 을 Latin-1 로 읽히게 보낼 때)
+$garbled = [Text.Encoding]::GetEncoding(28591).GetString([Text.Encoding]::UTF8.GetBytes('이헌진'))
+Expect '깨진 이름을 되돌림'            ((Fix-Name $garbled) -eq '이헌진')
+Expect '멀쩡한 이름은 그대로'          ((Fix-Name '이헌진') -eq '이헌진')
+
 if ($fail) { "`n실패 $fail 건"; exit 1 } else { "`n모두 통과" }
