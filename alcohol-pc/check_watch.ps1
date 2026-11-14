@@ -70,4 +70,15 @@ $garbled = [Text.Encoding]::GetEncoding(28591).GetString([Text.Encoding]::UTF8.G
 Expect '깨진 이름을 되돌림'            ((Fix-Name $garbled) -eq '이헌진')
 Expect '멀쩡한 이름은 그대로'          ((Fix-Name '이헌진') -eq '이헌진')
 
+# 10) 화면 문구로 판정: '측정대기중...' 이 10초 넘게 그대로면 한 번만
+$t0 = Get-Date; $ss = @{ StallSince = $null; StallFired = $false }
+Expect '대기중 처음 봄 → 조용'             ($null -eq (Step-Stall '측정대기중...' $t0 $ss))
+Expect '대기중 9초 → 조용'                 ($null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(9) $ss))
+Expect '대기중 10초 그대로 → 경보'         ($null -ne (Step-Stall '금일측정정보 | 측정대기중...' $t0.AddSeconds(10) $ss))
+Expect '같은 멈춤은 두 번 알리지 않음'     ($null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(20) $ss))
+$ss = @{ StallSince = $null; StallFired = $false }
+[void](Step-Stall '측정대기중...' $t0 $ss)
+Expect '8초 뒤 불어주세요로 바뀌면 조용'   ($null -eq (Step-Stall '측정기에 불어주세요.' $t0.AddSeconds(8) $ss))
+Expect '바뀐 뒤 다시 대기중이면 처음부터'  ($null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(12) $ss) -and $null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(20) $ss))
+
 if ($fail) { "`n실패 $fail 건"; exit 1 } else { "`n모두 통과" }

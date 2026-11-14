@@ -88,10 +88,10 @@ while ($true) {
                 $m = [regex]::Match($ln, '^(\d\d-\d\d \d\d:\d\d:\d\d)\s+(.*?)\s*측정 프로그램 로그:\s*(.+)$')
                 if (-not $m.Success) { continue }
                 $name = $m.Groups[2].Value.Trim(); $why = $m.Groups[3].Value.Trim()
-                $level = if ($why -match '에러|닫혔') { 'red' } elseif ($why -match '미측정') { 'yellow' } else { $null }
+                $level = if ($why -match '에러|닫혔|멈췄') { 'red' } elseif ($why -match '미측정') { 'yellow' } else { $null }
                 if (-not $level) { continue }
                 $prefix = if ($name) { "$name  " } else { '' }
-                $kind = if ($why -match '에러') { '음주측정기 에러' } elseif ($why -match '닫혔') { '측정이 끝나지 못하고 닫힘' } else { '미측정' }
+                $kind = if ($why -match '에러') { '음주측정기 에러' } elseif ($why -match '멈췄') { '측정대기중에서 멈춤(불어주세요 안 나옴)' } elseif ($why -match '닫혔') { '측정이 끝나지 못하고 닫힘' } else { '미측정' }
                 $text = $prefix + $kind
                 if ($DryRun) { Add-Content -Path $OutFile -Value ("{0:HH:mm:ss.fff} [{1}] {2}" -f (Get-Date), $level, $text) -Encoding UTF8 } else { Show-Flash $text $level }
             }
