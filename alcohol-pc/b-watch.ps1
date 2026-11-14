@@ -32,7 +32,7 @@ function Wait-Ui($ms) { $end = (Get-Date).AddMilliseconds($ms); while ((Get-Date
 # 붉은 번쩍임(클릭이 통과하고 포커스를 뺏지 않는다) + 가운데 글 + 짧은 소리
 function Show-Flash($text, $level) {
     $color = if ($level -eq 'red') { [Drawing.Color]::Red } else { [Drawing.Color]::Gold }
-    $times = if ($level -eq 'red') { 3 } else { 1 }
+    $times = if ($level -eq 'red') { 6 } else { 1 }
     $forms = foreach ($sc in [Windows.Forms.Screen]::AllScreens) {
         $f = New-Object ClickThroughForm
         $f.FormBorderStyle = 'None'; $f.StartPosition = 'Manual'; $f.Bounds = $sc.Bounds; $f.TopMost = $true; $f.ShowInTaskbar = $false
@@ -41,19 +41,19 @@ function Show-Flash($text, $level) {
     $banner = New-Object ClickThroughForm
     $banner.FormBorderStyle = 'None'; $banner.StartPosition = 'Manual'; $banner.TopMost = $true; $banner.ShowInTaskbar = $false
     $b = [Windows.Forms.Screen]::PrimaryScreen.Bounds
-    $banner.Size = New-Object Drawing.Size(900, 160); $banner.Location = New-Object Drawing.Point(($b.Left + ($b.Width - 900) / 2), ($b.Top + 80))
+    $banner.Size = New-Object Drawing.Size(1100, 260); $banner.Location = New-Object Drawing.Point(($b.Left + ($b.Width - 1100) / 2), ($b.Top + 80))
     $banner.BackColor = [Drawing.Color]::Black; $banner.Opacity = 0.85
     $l = New-Object Windows.Forms.Label; $l.Dock = 'Fill'; $l.TextAlign = 'MiddleCenter'; $l.ForeColor = $color
-    $l.Font = New-Object Drawing.Font('맑은 고딕', 28, [Drawing.FontStyle]::Bold); $l.Text = $text; $banner.Controls.Add($l)
+    $l.Font = New-Object Drawing.Font('맑은 고딕', 36, [Drawing.FontStyle]::Bold); $l.Text = $(if ($level -eq 'red') { $text + "`r`n다시 음주측정을 요청하세요!" } else { $text }); $banner.Controls.Add($l)
     $banner.Show()
     for ($i = 0; $i -lt $times; $i++) {
         foreach ($f in $forms) { $f.Show() }
-        if ($level -eq 'red') { [Media.SystemSounds]::Exclamation.Play() }
-        Wait-Ui 260
+        if ($level -eq 'red') { [Media.SystemSounds]::Exclamation.Play(); try { [Console]::Beep(1400, 180); [Console]::Beep(1000, 180) } catch { } }
+        Wait-Ui 320
         foreach ($f in $forms) { $f.Hide() }
         Wait-Ui 160
     }
-    Wait-Ui 3500
+    Wait-Ui $(if ($level -eq 'red') { 9000 } else { 3500 })
     $banner.Close(); $banner.Dispose(); foreach ($f in $forms) { $f.Close(); $f.Dispose() }
 }
 
