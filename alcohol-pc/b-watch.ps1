@@ -1,8 +1,11 @@
 ﻿# B PC(사용자 PC) 전용: 음주측정 PC 지킴이의 alerts.log 를 2초마다 읽어, 끊김이 기록되면 내 화면을 붉게 번쩍이고 짧게 울린다.
 # 읽기만 한다(음주 PC 에는 아무것도 쓰지 않는다). UTF-8 BOM 으로 저장.
+# 출퇴근 관리(창 제목 '출근 현황 관리 시스템')가 떠 있을 때만 번쩍이고, 없으면 아무것도 하지 않는다.
+# -WithAttendance 로 출퇴근 관리가 띄웠다면, 그 창이 1분 넘게 없을 때 스스로 끝낸다.
 #   powershell -NoProfile -ExecutionPolicy Bypass -File b-watch.ps1            # 감시 시작
 #   powershell -NoProfile -ExecutionPolicy Bypass -File b-watch.ps1 -Test      # 번쩍임만 한 번 보기
-param([string]$Url = 'http://192.168.35.23:8765/alerts.log', [switch]$Test, [switch]$DryRun, [string]$OutFile = '')
+param([string]$Url = 'http://192.168.35.23:8765/alerts.log', [switch]$Test, [switch]$DryRun, [string]$OutFile = '',
+      [string]$AttendanceTitle = '출근 현황 관리 시스템', [switch]$WithAttendance)
 
 Add-Type -ReferencedAssemblies System.Windows.Forms, System.Drawing -TypeDefinition @"
 using System; using System.Windows.Forms;
@@ -12,6 +15,17 @@ public class ClickThroughForm : Form {
 }
 "@
 Add-Type -AssemblyName System.Windows.Forms, System.Drawing
+
+Add-Type -TypeDefinition @"
+using System; using System.Collections.Generic; using System.Runtime.InteropServices; using System.Text;
+public static class WinTitles {
+  delegate bool EnumProc(IntPtr h, IntPtr l);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc p, IntPtr l);
+  [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  public static bool Has(string part) { bool found = false; EnumWindows((h, l) => { var s = new StringBuilder(256); GetWindowText(h, s, 256); if (s.Length > 0 && s.ToString().Contains(part)) { found = true; return false; } return true; }, IntPtr.Zero); return found; }
+}
+"@
+function Test-Attendance { return [WinTitles]::Has($AttendanceTitle) }
 
 function Wait-Ui($ms) { $end = (Get-Date).AddMilliseconds($ms); while ((Get-Date) -lt $end) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 20 } }
 
@@ -56,7 +70,16 @@ function Get-Lines {
 }
 
 $seen = -1   # 시작할 때 이미 있는 줄은 울리지 않는다
+$absentSince = $null
 while ($true) {
+    if (-not (Test-Attendance)) {
+        $seen = -1      # 출퇴근 관리가 꺼진 동안의 기록은 울리지 않는다(다시 켜질 때 지금 줄 수에서 다시 시작)
+        if (-not $absentSince) { $absentSince = Get-Date }
+        if ($WithAttendance -and ((Get-Date) - $absentSince).TotalSeconds -gt 60) { return }
+        if ($DryRun) { Start-Sleep -Milliseconds 1000 } else { Wait-Ui 2000 }
+        continue
+    }
+    $absentSince = $null
     $lines = Get-Lines
     if ($null -ne $lines) {
         if ($seen -lt 0 -or $lines.Count -lt $seen) { $seen = $lines.Count }
