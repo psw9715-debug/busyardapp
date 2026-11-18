@@ -73,12 +73,40 @@ Expect '멀쩡한 이름은 그대로'          ((Fix-Name '이헌진') -eq '이
 # 10) 화면 문구로 판정: '측정대기중...' 이 10초 넘게 그대로면 한 번만
 $t0 = Get-Date; $ss = @{ StallSince = $null; StallFired = $false }
 Expect '대기중 처음 봄 → 조용'             ($null -eq (Step-Stall '측정대기중...' $t0 $ss))
-Expect '대기중 9초 → 조용'                 ($null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(9) $ss))
-Expect '대기중 10초 그대로 → 경보'         ($null -ne (Step-Stall '금일측정정보 | 측정대기중...' $t0.AddSeconds(10) $ss))
+Expect '대기중 4초 → 조용'                 ($null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(4) $ss))
+Expect '대기중 5초 그대로 → 경보'          ($null -ne (Step-Stall '금일측정정보 | 측정대기중...' $t0.AddSeconds(5) $ss))
 Expect '같은 멈춤은 두 번 알리지 않음'     ($null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(20) $ss))
 $ss = @{ StallSince = $null; StallFired = $false }
 [void](Step-Stall '측정대기중...' $t0 $ss)
 Expect '8초 뒤 불어주세요로 바뀌면 조용'   ($null -eq (Step-Stall '측정기에 불어주세요.' $t0.AddSeconds(8) $ss))
-Expect '바뀐 뒤 다시 대기중이면 처음부터'  ($null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(12) $ss) -and $null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(20) $ss))
+Expect '바뀐 뒤 다시 대기중이면 처음부터'  ($null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(12) $ss) -and $null -eq (Step-Stall '측정대기중...' $t0.AddSeconds(14) $ss))
+
+# 11) '측정기에 불어주세요.' 가 18초 넘게 그대로 (정현철 1차)
+$bs = @{ StallSince = $null; StallFired = $false }; $b0 = Get-Date
+Expect '불어주세요 처음 봄 → 조용'              ($null -eq (Step-Stall '측정기에 불어주세요.' $b0 $bs '불어주세요' 18 'x'))
+Expect '불어주세요 11초(정상 중 가장 긴 것) → 조용' ($null -eq (Step-Stall '측정기에 불어주세요.' $b0.AddSeconds(11) $bs '불어주세요' 18 'x'))
+Expect '불어주세요 18초 그대로 → 경보'          ((Step-Stall '측정기에 불어주세요.' $b0.AddSeconds(18) $bs '불어주세요' 18 'x') -eq 'x')
+Expect '같은 멈춤은 두 번 알리지 않음'          ($null -eq (Step-Stall '측정기에 불어주세요.' $b0.AddSeconds(30) $bs '불어주세요' 18 'x'))
+$bs = @{ StallSince = $null; StallFired = $false }
+[void](Step-Stall '측정기에 불어주세요.' $b0 $bs '불어주세요' 18 'x')
+Expect '15초 뒤 측정중으로 바뀌면 조용'         ($null -eq (Step-Stall '측정중.' $b0.AddSeconds(15) $bs '불어주세요' 18 'x'))
+
+# 12) 사이렌(삐뽀삐뽀) WAV — 1초, 올바른 WAV 머리
+$sw = New-SirenBytes
+Expect '사이렌은 RIFF/WAVE 머리를 가진다'      ([Text.Encoding]::ASCII.GetString($sw, 0, 4) -eq 'RIFF' -and [Text.Encoding]::ASCII.GetString($sw, 8, 4) -eq 'WAVE')
+Expect '사이렌 길이 약 1초(0.25초×4음, 22050Hz·16비트·모노)' ($sw.Length -eq 44 + 4 * [int](22050 * 0.25) * 2)
+Expect '사이렌은 소리가 있다(전부 0이 아님)'     ((($sw[100..400] | Measure-Object -Maximum).Maximum) -gt 0)
+
+# 13) 무한 음악이 안 풀리면 15초마다 다시, 최대 3번 (자리를 비운 사이)
+$rs = @{ StallSince = $null; StallFired = $false }; $r0 = Get-Date; $m = "x"
+[void](Step-Stall '측정대기중...' $r0 $rs '측정대기중' 5 $m 15 3)
+Expect '5초에 첫 안내'                        ((Step-Stall '측정대기중...' $r0.AddSeconds(5) $rs '측정대기중' 5 $m 15 3) -eq $m)
+Expect '그 뒤 14초 안엔 다시 안 한다'         ($null -eq (Step-Stall '측정대기중...' $r0.AddSeconds(18) $rs '측정대기중' 5 $m 15 3))
+Expect '15초 지나면 한 번 더'                 ((Step-Stall '측정대기중...' $r0.AddSeconds(20) $rs '측정대기중' 5 $m 15 3) -eq $m)
+Expect '또 15초 지나면 세 번째'               ((Step-Stall '측정대기중...' $r0.AddSeconds(35) $rs '측정대기중' 5 $m 15 3) -eq $m)
+Expect '세 번이 끝이다(네 번째는 없음)'       ($null -eq (Step-Stall '측정대기중...' $r0.AddSeconds(60) $rs '측정대기중' 5 $m 15 3))
+[void](Step-Stall '측정기에 불어주세요.' $r0.AddSeconds(61) $rs '측정대기중' 5 $m 15 3)
+[void](Step-Stall '측정대기중...' $r0.AddSeconds(62) $rs '측정대기중' 5 $m 15 3)
+Expect '풀렸다가 또 멈추면 처음부터 다시 센다' ((Step-Stall '측정대기중...' $r0.AddSeconds(67) $rs '측정대기중' 5 $m 15 3) -eq $m)
 
 if ($fail) { "`n실패 $fail 건"; exit 1 } else { "`n모두 통과" }

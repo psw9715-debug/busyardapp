@@ -91,7 +91,7 @@ while ($true) {
                 $level = if ($why -match '에러|닫혔|멈췄') { 'red' } elseif ($why -match '미측정') { 'yellow' } else { $null }
                 if (-not $level) { continue }
                 $prefix = if ($name) { "$name  " } else { '' }
-                $kind = if ($why -match '에러') { '음주측정기 에러' } elseif ($why -match '멈췄') { '측정대기중에서 멈춤(불어주세요 안 나옴)' } elseif ($why -match '닫혔') { '측정이 끝나지 못하고 닫힘' } else { '미측정' }
+                $kind = if ($why -match '에러') { '음주측정기 에러' } elseif ($why -match '불어주세요') { '불어주세요 화면에서 멈춤(불었는데 안 넘어감)' } elseif ($why -match '멈췄') { '측정대기중에서 멈춤(불어주세요 안 나옴)' } elseif ($why -match '닫혔') { '측정이 끝나지 못하고 닫힘' } else { '미측정' }
                 $text = $prefix + $kind
                 if ($level -eq 'red' -and $SignalFile -and -not $DryRun) { try { Set-Content -Path $SignalFile -Value (Get-Date -Format 'yyyy-MM-dd HH:mm:ss') -Encoding UTF8 } catch { } }
                 if ($DryRun) { Add-Content -Path $OutFile -Value ("{0:HH:mm:ss.fff} [{1}] {2}" -f (Get-Date), $level, $text) -Encoding UTF8 } else { Show-Flash $text $level }
