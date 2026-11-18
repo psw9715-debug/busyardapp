@@ -109,4 +109,18 @@ Expect '세 번이 끝이다(네 번째는 없음)'       ($null -eq (Step-Stall
 [void](Step-Stall '측정대기중...' $r0.AddSeconds(62) $rs '측정대기중' 5 $m 15 3)
 Expect '풀렸다가 또 멈추면 처음부터 다시 센다' ((Step-Stall '측정대기중...' $r0.AddSeconds(67) $rs '측정대기중' 5 $m 15 3) -eq $m)
 
+# 14) 창 닫기 도구 — 진짜 창으로 (닫을 창·두고 볼 창)
+Add-Type -AssemblyName System.Windows.Forms
+$me = (Get-Process -Id $PID).ProcessName
+$fa = New-Object Windows.Forms.Form; $fa.Text = 'main'; $fa.ShowInTaskbar = $false; $fa.Opacity = 0; $fa.Show()
+$fb = New-Object Windows.Forms.Form; $fb.Text = '음주측정시스템'; $fb.ShowInTaskbar = $false; $fb.Opacity = 0; $fb.Show()
+[Windows.Forms.Application]::DoEvents()
+Expect '다른 프로세스 이름이면 아무것도 닫지 않는다' ([WinClose]::CloseByTitle('없는프로세스', 'main') -eq 0)
+Expect "제목이 'main' 인 창 하나를 닫는다"           ([WinClose]::CloseByTitle($me, 'main') -eq 1)
+for ($k = 0; $k -lt 20; $k++) { [Windows.Forms.Application]::DoEvents(); Start-Sleep -Milliseconds 25 }
+Expect "닫힌 창은 사라졌다 (사람이 X 를 누른 것처럼)" ($fa.IsDisposed)
+Expect "제목이 다른 창('음주측정시스템')은 그대로"   (-not $fb.IsDisposed -and $fb.Visible)
+Expect '이미 닫혔으면 더 닫을 것이 없다'             ([WinClose]::CloseByTitle($me, 'main') -eq 0)
+$fb.Close(); $fb.Dispose()
+
 if ($fail) { "`n실패 $fail 건"; exit 1 } else { "`n모두 통과" }
