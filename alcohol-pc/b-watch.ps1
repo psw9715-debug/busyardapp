@@ -32,7 +32,7 @@ function Wait-Ui($ms) { $end = (Get-Date).AddMilliseconds($ms); while ((Get-Date
 # 붉은 번쩍임(클릭이 통과하고 포커스를 뺏지 않는다) + 가운데 글 + 짧은 소리
 function Show-Flash($text, $level) {
     $color = if ($level -eq 'red') { [Drawing.Color]::Red } else { [Drawing.Color]::Gold }
-    $times = if ($level -eq 'red') { 6 } else { 1 }
+    $times = if ($level -eq 'red') { 3 } else { 1 }
     $forms = foreach ($sc in [Windows.Forms.Screen]::AllScreens) {
         $f = New-Object ClickThroughForm
         $f.FormBorderStyle = 'None'; $f.StartPosition = 'Manual'; $f.Bounds = $sc.Bounds; $f.TopMost = $true; $f.ShowInTaskbar = $false
@@ -53,7 +53,7 @@ function Show-Flash($text, $level) {
         foreach ($f in $forms) { $f.Hide() }
         Wait-Ui 160
     }
-    Wait-Ui $(if ($level -eq 'red') { 9000 } else { 3500 })
+    Wait-Ui $(if ($level -eq 'red') { 5000 } else { 3000 })
     $banner.Close(); $banner.Dispose(); foreach ($f in $forms) { $f.Close(); $f.Dispose() }
 }
 
@@ -99,5 +99,5 @@ while ($true) {
             $seen = $lines.Count
         }
     }
-    if ($DryRun) { Start-Sleep -Milliseconds 1000 } else { Wait-Ui 2000 }
+    if ($DryRun) { Start-Sleep -Milliseconds 500 } else { Wait-Ui 1000 }
 }
