@@ -123,4 +123,14 @@ Expect "제목이 다른 창('음주측정시스템')은 그대로"   (-not $fb.
 Expect '이미 닫혔으면 더 닫을 것이 없다'             ([WinClose]::CloseByTitle($me, 'main') -eq 0)
 $fb.Close(); $fb.Dispose()
 
+# 15) 무한 음악 = 찰칵 뒤 준비 신호(06)를 못 받음 (2026-11-26 김수열)
+function Wait-Of($lines) { $st = @{ Pending = $false; Fired = $false; Waiting = $false }; foreach ($l in $lines) { [void](Step-AppLog $l $st) }; return $st.Waiting }
+$ready = 'bytes6 05 readySoundPlayRunFlag SoundPlay.Ready bytes6 :'
+Expect '찰칵 뒤 06 이 없으면 기다리는 중'        (Wait-Of @($ready, '로그인캡처 끝'))
+Expect '★ 김수열: 다시 찍으며 06 이 오면 끝'      (-not (Wait-Of @($ready, '로그인캡처 끝', '.ctor MainWindow INSTANCE', 'bytes6 06 SoundPlay.Ready')))
+Expect '바로 측정완료면 기다리는 중 아님'          (-not (Wait-Of @($ready, '로그인캡처 끝', '측정완료캡처 시작')))
+Expect '창이 닫히면 기다리는 중 아님'              (-not (Wait-Of @($ready, '로그인캡처 끝', 'Close MainWindow')))
+Expect '새 창(05)이 열리면 다시 처음부터'          (-not (Wait-Of @($ready, '로그인캡처 끝', $ready)))
+Expect '찰칵 전에는 기다리는 중 아님'              (-not (Wait-Of @($ready)))
+
 if ($fail) { "`n실패 $fail 건"; exit 1 } else { "`n모두 통과" }
