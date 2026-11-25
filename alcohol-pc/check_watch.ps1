@@ -133,4 +133,11 @@ Expect '창이 닫히면 기다리는 중 아님'              (-not (Wait-Of @(
 Expect '새 창(05)이 열리면 다시 처음부터'          (-not (Wait-Of @($ready, '로그인캡처 끝', $ready)))
 Expect '찰칵 전에는 기다리는 중 아님'              (-not (Wait-Of @($ready)))
 
+# 16) 로그만으로 '대기중' 이라 판정해도 화면이 대기중일 때만 알린다 (2026-11-26 고성민: 정상 측정인데 로그가 늦게 적혀 오탐)
+Expect '화면이 측정대기중이면 알린다'            (Confirm-Stall '체온측정 | X | 측정대기중...')
+Expect '★ 이미 불어주세요 화면이면 알리지 않는다' (-not (Confirm-Stall '측정기에 불어주세요.'))
+Expect '측정중이면 알리지 않는다'                (-not (Confirm-Stall '측정중.'))
+Expect '안전운행 화면이면 알리지 않는다'          (-not (Confirm-Stall '안전운행하세요.'))
+Expect '화면을 못 읽으면 알리지 않는다'          (-not (Confirm-Stall '(창 없음)'))
+
 if ($fail) { "`n실패 $fail 건"; exit 1 } else { "`n모두 통과" }
