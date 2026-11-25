@@ -63,16 +63,36 @@ $mutex = New-Object Threading.Mutex($false, 'Local\AlcoholBWatch')
 if (-not $mutex.WaitOne(0)) { return }
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
 
+# 2026-11-26 한거성: 에러가 04:32:22 에 적혔는데 이 PC 는 04:33:21 에야 번쩍였다. 왜 늦었는지 알 수 있게 이 감시의 일을 남긴다
+# (읽기 실패·느린 읽기·새 경보·출퇴근 창 있음/없음). 남기는 곳: 신호 파일이 있는 log 폴더.
+$LogDir = if ($SignalFile) { Split-Path -Parent $SignalFile } else { $env:TEMP }
+function Note($m) { try { Add-Content -Path (Join-Path $LogDir ("b-watch_{0}.txt" -f (Get-Date -Format 'yyyyMMdd'))) -Value ("{0} {1}" -f (Get-Date -Format 'HH:mm:ss.f'), $m) -Encoding UTF8 } catch { } }
+
 function Get-Lines {
-    try { $c = (Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 3).Content }
-    catch { if ($_.Exception.Response -and [int]$_.Exception.Response.StatusCode -eq 404) { return @() } ; return $null }   # 404 = 아직 기록 없음, 그 밖의 실패 = 못 읽음
+    # Invoke-WebRequest 는 윈도우 프록시 자동 찾기를 거쳐 가끔 느려질 수 있어, 프록시 없이 곧장 묻는다.
+    $t0 = Get-Date
+    try {
+        $req = [Net.HttpWebRequest]::Create($Url); $req.Proxy = $null; $req.KeepAlive = $false; $req.Timeout = 5000; $req.ReadWriteTimeout = 5000
+        $res = $req.GetResponse()
+        $sr = New-Object IO.StreamReader($res.GetResponseStream(), [Text.Encoding]::UTF8)
+        $c = $sr.ReadToEnd(); $sr.Close(); $res.Close()
+        $ms = ((Get-Date) - $t0).TotalMilliseconds
+        if ($ms -gt 2000) { Note ("느린 읽기 {0:n0}ms" -f $ms) }
+    }
+    catch {
+        $e = $_.Exception.InnerException; if (-not $e) { $e = $_.Exception }
+        if ($e.Response -and [int]$e.Response.StatusCode -eq 404) { return @() }   # 404 = 아직 기록 없음
+        Note ("읽기 실패 {0:n0}ms {1}" -f ((Get-Date) - $t0).TotalMilliseconds, $e.Message); return $null
+    }
     return @(([string]$c).TrimStart([char]0xFEFF).Split("`n") | ForEach-Object { $_.TrimEnd("`r") } | Where-Object { $_.Trim() })
 }
 
 $seen = -1   # 시작할 때 이미 있는 줄은 울리지 않는다
 $absentSince = $null
 while ($true) {
-    if (-not (Test-Attendance)) {
+    $있다 = Test-Attendance
+    if ($script:앞창 -ne $있다) { $script:앞창 = $있다; Note $(if ($있다) { '출퇴근 관리 창 있음 — 감시' } else { '출퇴근 관리 창 없음 — 쉼' }) }
+    if (-not $있다) {
         $seen = -1      # 출퇴근 관리가 꺼진 동안의 기록은 울리지 않는다(다시 켜질 때 지금 줄 수에서 다시 시작)
         if (-not $absentSince) { $absentSince = Get-Date }
         if ($WithAttendance -and ((Get-Date) - $absentSince).TotalSeconds -gt 60) { return }
@@ -90,6 +110,7 @@ while ($true) {
                 $name = $m.Groups[2].Value.Trim(); $why = $m.Groups[3].Value.Trim()
                 $level = if ($why -match '에러|닫혔|멈췄') { 'red' } elseif ($why -match '미측정') { 'yellow' } else { $null }
                 if (-not $level) { continue }
+                Note ("새 경보: $ln")
                 $prefix = if ($name) { "$name  " } else { '' }
                 $kind = if ($why -match '에러') { '음주측정기 에러' } elseif ($why -match '불어주세요') { '불어주세요 화면에서 멈춤(불었는데 안 넘어감)' } elseif ($why -match '멈췄') { '측정대기중에서 멈춤(불어주세요 안 나옴)' } elseif ($why -match '닫혔') { '측정이 끝나지 못하고 닫힘' } else { '미측정' }
                 $text = $prefix + $kind
