@@ -133,11 +133,13 @@ Expect '창이 닫히면 기다리는 중 아님'              (-not (Wait-Of @(
 Expect '새 창(05)이 열리면 다시 처음부터'          (-not (Wait-Of @($ready, '로그인캡처 끝', $ready)))
 Expect '찰칵 전에는 기다리는 중 아님'              (-not (Wait-Of @($ready)))
 
-# 16) 로그만으로 '대기중' 이라 판정해도 화면이 대기중일 때만 알린다 (2026-11-26 고성민: 정상 측정인데 로그가 늦게 적혀 오탐)
-Expect '화면이 측정대기중이면 알린다'            (Confirm-Stall '체온측정 | X | 측정대기중...')
-Expect '★ 이미 불어주세요 화면이면 알리지 않는다' (-not (Confirm-Stall '측정기에 불어주세요.'))
-Expect '측정중이면 알리지 않는다'                (-not (Confirm-Stall '측정중.'))
-Expect '안전운행 화면이면 알리지 않는다'          (-not (Confirm-Stall '안전운행하세요.'))
-Expect '화면을 못 읽으면 알리지 않는다'          (-not (Confirm-Stall '(창 없음)'))
+# 16) 뱅글뱅글: '측정대기중' 이 정해 둔 초 동안 계속 보이면 멈춤 (2026-11-27 서인호)
+function Seq($list) { $q = [Collections.Queue]::new(); foreach ($v in $list) { $q.Enqueue($v) }; $last = $list[-1]; return { if ($q.Count) { $q.Dequeue() } else { $last } }.GetNewClosure() }
+function Clock() { $c = @{ t = [datetime]'2026-11-27 04:00:00' }; return { $c.t = $c.t.AddSeconds(1); $c.t }.GetNewClosure() }
+Expect '★ 계속 대기중이면 멈춤'                  (Watch-Waiting (Seq @('측정대기중...')) 4 0 (Clock))
+Expect '2초 만에 불어주세요로 바뀌면 정상'        (-not (Watch-Waiting (Seq @('측정대기중...', '측정대기중...', '측정기에 불어주세요.')) 4 0 (Clock)))
+Expect '카운터가 나오면 정상'                     (-not (Watch-Waiting (Seq @('측정대기중...', '| 10 | 측정기에 불어주세요.')) 4 0 (Clock)))
+Expect '대기중이 아니면 바로 정상'                (-not (Watch-Waiting (Seq @('안전운행하세요.')) 4 0 (Clock)))
+Expect '화면을 못 읽으면 알리지 않는다'          (-not (Watch-Waiting (Seq @('측정대기중...', '(창 없음)')) 4 0 (Clock)))
 
 if ($fail) { "`n실패 $fail 건"; exit 1 } else { "`n모두 통과" }
